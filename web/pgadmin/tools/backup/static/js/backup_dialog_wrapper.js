@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -38,21 +38,23 @@ export class BackupDialogWrapper extends DialogWrapper {
     return {
       buttons: [{
         text: '',
-        className: 'btn btn-secondary pull-left fa fa-info pg-alertify-icon-button',
+        className: 'btn btn-primary-icon pull-left fa fa-info pg-alertify-icon-button',
         attrs: {
           name: 'object_help',
           type: 'button',
           url: 'backup.html',
           label: gettext('Backup'),
+          'aria-label': gettext('Backup'),
         },
       }, {
         text: '',
         key: 112,
-        className: 'btn btn-secondary pull-left fa fa-question pg-alertify-icon-button',
+        className: 'btn btn-primary-icon pull-left fa fa-question pg-alertify-icon-button',
         attrs: {
           name: 'dialog_help',
           type: 'button',
-          label: gettext('Backup'),
+          label: gettext('Help'),
+          'aria-label': gettext('Help'),
           url: url_for('help.static', {
             'filename': get_help_file(this.typeOfDialog),
           }),
@@ -96,7 +98,7 @@ export class BackupDialogWrapper extends DialogWrapper {
 
     const node = this.pgBrowser.Nodes[selectedTreeNodeData._type];
     if (this.dialogTitle === null) {
-      const title = `Backup (${node.label}: ${selectedTreeNodeData.label})`;
+      let title = gettext('Backup (%s: %s)', node.label, selectedTreeNodeData.label);
       this.main(title);
     }
 
@@ -104,11 +106,25 @@ export class BackupDialogWrapper extends DialogWrapper {
     const dialog = this.createDialog(node, treeInfo, this.typeOfDialog, $container);
     this.addAlertifyClassToBackupNodeChildNodes();
     dialog.render();
+    const statusBar = this.jquery(
+      '<div class=\'pg-prop-status-bar pg-prop-status-bar-absolute pg-el-xs-12 d-none\'>' +
+      '  <div class="error-in-footer"> ' +
+      '    <div class="d-flex px-2 py-1"> ' +
+      '      <div class="pr-2"> ' +
+      '        <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i> ' +
+      '      </div> ' +
+      '      <div class="alert-text" role="alert"></div> ' +
+      '       <div class="ml-auto close-error-bar"> ' +
+      '          <a aria-label="' + gettext('Close error bar') + '" class="close-error fa fa-times text-danger"></a> ' +
+      '        </div> ' +
+      '    </div> ' +
+      '  </div> ' +
+      '</div>').appendTo($container);
 
     this.elements.content.appendChild($container.get(0));
 
     this.focusOnDialog(this);
-    this.setListenersForFilenameChanges();
+    this.setListenersForFilenameChanges(statusBar);
   }
 
   callback(event) {
@@ -229,16 +245,31 @@ export class BackupDialogWrapper extends DialogWrapper {
     return treeInfo.server._id;
   }
 
-  setListenersForFilenameChanges() {
+  setListenersForFilenameChanges(statusBar) {
     const self = this;
 
     this.view.model.on('change', function () {
+      const ctx = this;
+      var errmsg;
+
+      const showError = function(errorField, errormsg) {
+        ctx.errorModel.set(errorField, errormsg);
+        statusBar.removeClass('d-none');
+        statusBar.find('.alert-text').html(errormsg);
+        self.elements.dialog.querySelector('.close-error').addEventListener('click', ()=>{
+          statusBar.addClass('d-none');
+          ctx.errorModel.set(errorField, errormsg);
+        });
+      };
+
       if (!_.isUndefined(this.get('file')) && this.get('file') !== '') {
         this.errorModel.clear();
+        statusBar.addClass('d-none');
         self.enableBackupButton();
       } else {
         self.disableBackupButton();
-        this.errorModel.set('file', gettext('Please provide a filename'));
+        errmsg = gettext('Please provide a filename');
+        showError('file', errmsg);
       }
     });
   }
@@ -253,7 +284,7 @@ export class BackupDialogWrapper extends DialogWrapper {
         this.view.model.set('schemas', [nodeData._label]);
       }
 
-      if (nodeData._type === 'table') {
+      if (nodeData._type === 'table' || nodeData._type === 'partition') {
         this.view.model.set('tables', [
           [treeInfo.schema._label, nodeData._label],
         ]);

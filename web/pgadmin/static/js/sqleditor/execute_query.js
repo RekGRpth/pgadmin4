@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -12,6 +12,7 @@ import $ from 'jquery';
 import url_for from '../url_for';
 import axios from 'axios';
 import * as httpErrorHandler from './query_tool_http_error_handler';
+import * as queryTxnStatus from 'sources/sqleditor/query_txn_status_constants';
 
 class LoadingScreen {
   constructor(sqlEditor) {
@@ -83,7 +84,8 @@ class ExecuteQuery {
           self.loadingScreen.hide();
           self.enableSQLEditorButtons();
           // Enable/Disable commit and rollback button.
-          if (result.data.data.transaction_status == 2 || result.data.data.transaction_status == 3) {
+          if (result.data.data.transaction_status == queryTxnStatus.TRANSACTION_STATUS_INTRANS
+            || result.data.data.transaction_status == queryTxnStatus.TRANSACTION_STATUS_INERROR) {
             self.enableTransactionButtons();
           } else {
             self.disableTransactionButtons();
@@ -123,7 +125,8 @@ class ExecuteQuery {
         self.updateSqlEditorLastTransactionStatus(httpMessage.data.data.transaction_status);
 
         // Enable/Disable commit and rollback button.
-        if (httpMessage.data.data.transaction_status == 2 || httpMessage.data.data.transaction_status == 3) {
+        if (httpMessage.data.data.transaction_status == queryTxnStatus.TRANSACTION_STATUS_INTRANS
+          || httpMessage.data.data.transaction_status == queryTxnStatus.TRANSACTION_STATUS_INERROR) {
           self.enableTransactionButtons();
         } else {
           self.disableTransactionButtons();
@@ -131,7 +134,7 @@ class ExecuteQuery {
 
         if (ExecuteQuery.isQueryFinished(httpMessage)) {
           if (this.sqlServerObject.close_on_idle_transaction &&
-              httpMessage.data.data.transaction_status == 0)
+              httpMessage.data.data.transaction_status == queryTxnStatus.TRANSACTION_STATUS_IDLE)
             this.sqlServerObject.check_needed_confirmations_before_closing_panel();
 
           self.loadingScreen.setMessage('Loading data from the database server and rendering...');
@@ -164,31 +167,38 @@ class ExecuteQuery {
         self.sqlServerObject.resetQueryHistoryObject(self.sqlServerObject);
 
         self.loadingScreen.hide();
+        self.sqlServerObject.setIsQueryRunning(false);
         if (self.sqlServerObject.is_query_tool) {
           self.enableSQLEditorButtons();
         }
 
-        if (ExecuteQuery.wasConnectionLostToPythonServer(error.response)) {
+        if(error.response) {
+          if(ExecuteQuery.wasConnectionLostToPythonServer(error.response)) {
+            self.handleConnectionToServerLost();
+            return;
+          }
+          const errorData = error.response.data;
+
+          if (self.userManagement.isPgaLoginRequired(errorData)) {
+            return self.userManagement.pgaLogin();
+          }
+
+          let msg = ExecuteQuery.extractErrorMessage(errorData);
+
+          self.sqlServerObject.update_msg_history(false, msg);
+          // Highlight the error in the sql panel
+          self.sqlServerObject._highlight_error(msg);
+        } else if(error.request) {
           self.handleConnectionToServerLost();
           return;
+        } else {
+          console.error(error);
         }
-
-        const errorData = error.response.data;
-
-        if (self.userManagement.isPgaLoginRequired(errorData)) {
-          return self.userManagement.pgaLogin();
-        }
-
-        let msg = ExecuteQuery.extractErrorMessage(errorData);
-
-        self.sqlServerObject.update_msg_history(false, msg);
-        // Highlight the error in the sql panel
-        self.sqlServerObject._highlight_error(msg);
       });
   }
 
   initializeExecutionOnSqlEditor(sqlStatement) {
-    this.loadingScreen.show('Running query...');
+    this.loadingScreen.show(gettext('Running query...'));
 
     $('#btn-flash').prop('disabled', true);
     $('#btn-download').prop('disabled', true);
@@ -224,22 +234,22 @@ class ExecuteQuery {
     }
 
     if (this.userManagement.isPgaLoginRequired(httpMessage.response)) {
-      this.sqlServerObject.saveState('execute', [this.explainPlan]);
+      this.sqlServerObject.saveState('check_data_changes_to_execute_query', [this.explainPlan]);
       this.userManagement.pgaLogin();
     }
 
     if (httpErrorHandler.httpResponseRequiresNewTransaction(httpMessage.response)) {
-      this.sqlServerObject.saveState('execute', [this.explainPlan]);
+      this.sqlServerObject.saveState('check_data_changes_to_execute_query', [this.explainPlan]);
       this.sqlServerObject.initTransaction();
     }
 
     if (this.wasDatabaseConnectionLost(httpMessage)) {
-      this.sqlServerObject.saveState('execute', [this.explainPlan]);
+      this.sqlServerObject.saveState('check_data_changes_to_execute_query', [this.explainPlan]);
       this.sqlServerObject.handle_connection_lost(false, httpMessage);
     }
 
     if(this.isCryptKeyMissing(httpMessage)) {
-      this.sqlServerObject.saveState('execute', [this.explainPlan]);
+      this.sqlServerObject.saveState('check_data_changes_to_execute_query', [this.explainPlan]);
       this.sqlServerObject.handle_cryptkey_missing();
       return;
     }

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -24,9 +24,12 @@ from pgadmin.utils.menu import MenuItem
 from sqlalchemy import exc
 from pgadmin.model import db, ServerGroup
 
+SG_NOT_FOUND_ERROR = 'The specified server group could not be found.'
+
 
 class ServerGroupModule(BrowserPluginModule):
-    NODE_TYPE = "server_group"
+    _NODE_TYPE = "server_group"
+    node_icon = "icon-%s" % _NODE_TYPE
 
     def get_nodes(self, *arg, **kwargs):
         """Return a JSON document listing the server groups for the user"""
@@ -37,7 +40,7 @@ class ServerGroupModule(BrowserPluginModule):
             yield self.generate_browser_node(
                 "%d" % (group.id), None,
                 group.name,
-                "icon-%s" % self.node_type,
+                self.node_icon,
                 True,
                 self.node_type,
                 can_delete=True if idx > 0 else False
@@ -47,10 +50,10 @@ class ServerGroupModule(BrowserPluginModule):
     def node_type(self):
         """
         node_type
-        Node type for Server Group is server-group. It is defined by NODE_TYPE
+        Node type for Server Group is server-group. It is defined by _NODE_TYPE
         static attribute of the class.
         """
-        return self.NODE_TYPE
+        return self._NODE_TYPE
 
     @property
     def script_load(self):
@@ -72,7 +75,7 @@ class ServerGroupModule(BrowserPluginModule):
 
 class ServerGroupMenuItem(MenuItem):
     def __init__(self, **kwargs):
-        kwargs.setdefault("type", ServerGroupModule.NODE_TYPE)
+        kwargs.setdefault("type", ServerGroupModule.node_type)
         super(ServerGroupMenuItem, self).__init__(**kwargs)
 
 
@@ -91,7 +94,10 @@ blueprint = ServerGroupModule(__name__)
 
 
 class ServerGroupView(NodeView):
-    node_type = ServerGroupModule.NODE_TYPE
+    node_type = ServerGroupModule._NODE_TYPE
+    node_icon = ServerGroupModule.node_icon
+    node_label = "Server Group"
+
     parent_ids = []
     ids = [{'type': 'int', 'id': 'gid'}]
 
@@ -136,9 +142,7 @@ class ServerGroupView(NodeView):
             return make_json_response(
                 status=410,
                 success=0,
-                errormsg=gettext(
-                    'The specified server group could not be found.'
-                )
+                errormsg=gettext(SG_NOT_FOUND_ERROR)
             )
         else:
             try:
@@ -169,9 +173,7 @@ class ServerGroupView(NodeView):
             return make_json_response(
                 status=417,
                 success=0,
-                errormsg=gettext(
-                    'The specified server group could not be found.'
-                )
+                errormsg=gettext(SG_NOT_FOUND_ERROR)
             )
         else:
             try:
@@ -194,7 +196,7 @@ class ServerGroupView(NodeView):
                 gid,
                 None,
                 servergroup.name,
-                "icon-%s" % self.node_type,
+                self.node_icon,
                 True,
                 self.node_type,
                 can_delete=True  # This is user created hence can deleted
@@ -214,9 +216,7 @@ class ServerGroupView(NodeView):
             return make_json_response(
                 status=410,
                 success=0,
-                errormsg=gettext(
-                    'The specified server group could not be found.'
-                )
+                errormsg=gettext(SG_NOT_FOUND_ERROR)
             )
         else:
             return ajax_response(
@@ -246,7 +246,7 @@ class ServerGroupView(NodeView):
                         "%d" % sg.id,
                         None,
                         sg.name,
-                        "icon-%s" % self.node_type,
+                        self.node_icon,
                         True,
                         self.node_type,
                         # This is user created hence can deleted
@@ -306,7 +306,7 @@ class ServerGroupView(NodeView):
                         "%d" % group.id,
                         None,
                         group.name,
-                        "icon-%s" % self.node_type,
+                        self.node_icon,
                         True,
                         self.node_type
                     )
@@ -322,7 +322,7 @@ class ServerGroupView(NodeView):
             nodes = self.blueprint.generate_browser_node(
                 "%d" % (group.id), None,
                 group.name,
-                "icon-%s" % self.node_type,
+                self.node_icon,
                 True,
                 self.node_type
             )

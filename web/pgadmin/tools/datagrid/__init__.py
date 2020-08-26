@@ -2,13 +2,12 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
 """A blueprint module implementing the datagrid frame."""
-MODULE_NAME = 'datagrid'
 
 import simplejson as json
 import pickle
@@ -17,9 +16,10 @@ import random
 from threading import Lock
 from flask import Response, url_for, session, request, make_response
 from werkzeug.useragents import UserAgent
-from flask import current_app as app
+from flask import current_app as app, render_template
+from flask_babelex import gettext
 from flask_security import login_required
-from pgadmin.tools.sqleditor.command import *
+from pgadmin.tools.sqleditor.command import ObjectRegistry, SQLFilter
 from pgadmin.utils import PgAdminModule
 from pgadmin.utils.ajax import make_json_response, bad_request, \
     internal_server_error
@@ -30,8 +30,11 @@ from pgadmin.utils.driver import get_driver
 from pgadmin.utils.exception import ConnectionLost, SSHTunnelConnectionLost
 from pgadmin.utils.preferences import Preferences
 from pgadmin.settings import get_setting
-from pgadmin.browser.utils import underscore_escape
+from pgadmin.browser.utils import underscore_unescape
+from pgadmin.utils.exception import ObjectGone
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 
+MODULE_NAME = 'datagrid'
 
 query_tool_close_session_lock = Lock()
 
@@ -114,13 +117,13 @@ def show_filter():
 
 
 @blueprint.route(
-    '/initialize/datagrid/<int:cmd_type>/<obj_type>/<int:sgid>/<int:sid>/'
-    '<int:did>/<int:obj_id>',
+    '/initialize/datagrid/<int:trans_id>/<int:cmd_type>/<obj_type>/'
+    '<int:sgid>/<int:sid>/<int:did>/<int:obj_id>',
     methods=["PUT", "POST"],
     endpoint="initialize_datagrid"
 )
 @login_required
-def initialize_datagrid(cmd_type, obj_type, sgid, sid, did, obj_id):
+def initialize_datagrid(trans_id, cmd_type, obj_type, sgid, sid, did, obj_id):
     """
     This method is responsible for creating an asynchronous connection.
     After creating the connection it will instantiate and initialize
@@ -153,7 +156,7 @@ def initialize_datagrid(cmd_type, obj_type, sgid, sid, did, obj_id):
                                   auto_reconnect=False,
                                   use_binary_placeholder=True,
                                   array_to_string=True)
-    except (ConnectionLost, SSHTunnelConnectionLost) as e:
+    except (ConnectionLost, SSHTunnelConnectionLost):
         raise
     except Exception as e:
         app.logger.error(e)
@@ -179,12 +182,11 @@ def initialize_datagrid(cmd_type, obj_type, sgid, sid, did, obj_id):
             did=did, obj_id=obj_id, cmd_type=cmd_type,
             sql_filter=filter_sql
         )
+    except ObjectGone:
+        raise
     except Exception as e:
         app.logger.error(e)
         return internal_server_error(errormsg=str(e))
-
-    # Create a unique id for the transaction
-    trans_id = str(random.randint(1, 9999999))
 
     if 'gridData' not in session:
         sql_grid_data = dict()
@@ -193,7 +195,7 @@ def initialize_datagrid(cmd_type, obj_type, sgid, sid, did, obj_id):
 
     # Use pickle to store the command object which will be used later by the
     # sql grid module.
-    sql_grid_data[trans_id] = {
+    sql_grid_data[str(trans_id)] = {
         # -1 specify the highest protocol version available
         'command_obj': pickle.dumps(command_obj, -1)
     }
@@ -203,51 +205,34 @@ def initialize_datagrid(cmd_type, obj_type, sgid, sid, did, obj_id):
 
     return make_json_response(
         data={
-            'gridTransId': trans_id
+            'conn_id': conn_id
         }
     )
 
 
 @blueprint.route(
-    '/panel/<int:trans_id>/<is_query_tool>/<path:editor_title>',
-    methods=["GET"],
+    '/panel/<int:trans_id>',
+    methods=["POST"],
     endpoint='panel'
 )
-def panel(trans_id, is_query_tool, editor_title):
+def panel(trans_id):
     """
     This method calls index.html to render the data grid.
 
     Args:
         trans_id: unique transaction id
-        is_query_tool: True if panel calls when query tool menu is clicked.
-        editor_title: Title of the editor
     """
-    # Let's fetch Script type URL from request
-    if request.args and request.args['query_url'] != '':
-        sURL = request.args['query_url']
-    else:
-        sURL = None
 
-    # Fetch server type from request
-    if request.args and request.args['server_type'] != '':
-        server_type = request.args['server_type']
-    else:
-        server_type = None
+    url_params = None
+    if request.args:
+        url_params = {k: v for k, v in request.args.items()}
 
-    if request.args and 'server_ver' in request.args:
-        server_ver = request.args['server_ver']
-    else:
-        server_ver = 0
-
-    # If title has slash(es) in it then replace it
-    if request.args and request.args['fslashes'] != '':
-        try:
-            fslashesList = request.args['fslashes'].split(',')
-            for idx in fslashesList:
-                idx = int(idx)
-                editor_title = editor_title[:idx] + '/' + editor_title[idx:]
-        except IndexError as e:
-            app.logger.exception(e)
+    if request.form:
+        url_params['title'] = request.form['title']
+        if 'sql_filter' in request.form:
+            url_params['sql_filter'] = request.form['sql_filter']
+        if 'query_url' in request.form:
+            url_params['query_url'] = request.form['query_url']
 
     # We need client OS information to render correct Keyboard shortcuts
     user_agent = UserAgent(request.headers.get('User-Agent'))
@@ -277,64 +262,43 @@ def panel(trans_id, is_query_tool, editor_title):
     # Fetch the server details
     bgcolor = None
     fgcolor = None
-    if 'gridData' in session and str(trans_id) in session['gridData']:
-        # Fetch the object for the specified transaction id.
-        # Use pickle.loads function to get the command object
-        session_obj = session['gridData'][str(trans_id)]
-        trans_obj = pickle.loads(session_obj['command_obj'])
-        s = Server.query.filter_by(id=trans_obj.sid).first()
-        if s and s.bgcolor:
-            # If background is set to white means we do not have to change
-            # the title background else change it as per user specified
-            # background
-            if s.bgcolor != '#ffffff':
-                bgcolor = s.bgcolor
-            fgcolor = s.fgcolor or 'black'
+
+    s = Server.query.filter_by(id=url_params['sid']).first()
+    if s and s.bgcolor:
+        # If background is set to white means we do not have to change
+        # the title background else change it as per user specified
+        # background
+        if s.bgcolor != '#ffffff':
+            bgcolor = s.bgcolor
+        fgcolor = s.fgcolor or 'black'
 
     layout = get_setting('SQLEditor/Layout')
-
-    url_params = dict()
-    if is_query_tool == 'true':
-        url_params['sgid'] = trans_obj.sgid
-        url_params['sid'] = trans_obj.sid
-        url_params['did'] = trans_obj.did
-    else:
-        url_params['cmd_type'] = trans_obj.cmd_type
-        url_params['obj_type'] = trans_obj.object_type
-        url_params['sgid'] = trans_obj.sgid
-        url_params['sid'] = trans_obj.sid
-        url_params['did'] = trans_obj.did
-        url_params['obj_id'] = trans_obj.obj_id
 
     return render_template(
         "datagrid/index.html",
         _=gettext,
         uniqueId=trans_id,
-        is_query_tool=is_query_tool,
-        editor_title=underscore_escape(editor_title),
-        script_type_url=sURL,
         is_desktop_mode=app.PGADMIN_RUNTIME,
         is_linux=is_linux_platform,
-        server_type=server_type,
-        server_ver=server_ver,
+        title=underscore_unescape(url_params['title']),
+        url_params=json.dumps(url_params),
         client_platform=user_agent.platform,
         bgcolor=bgcolor,
         fgcolor=fgcolor,
-        url_params=json.dumps(url_params),
         layout=layout,
     )
 
 
 @blueprint.route(
-    '/initialize/query_tool/<int:sgid>/<int:sid>/<int:did>',
+    '/initialize/query_tool/<int:trans_id>/<int:sgid>/<int:sid>/<int:did>',
     methods=["POST"], endpoint='initialize_query_tool_with_did'
 )
 @blueprint.route(
-    '/initialize/query_tool/<int:sgid>/<int:sid>',
+    '/initialize/query_tool/<int:trans_id>/<int:sgid>/<int:sid>',
     methods=["POST"], endpoint='initialize_query_tool'
 )
 @login_required
-def initialize_query_tool(sgid, sid, did=None):
+def initialize_query_tool(trans_id, sgid, sid, did=None):
     """
     This method is responsible for instantiating and initializing
     the query tool object. It will also create a unique
@@ -346,16 +310,16 @@ def initialize_query_tool(sgid, sid, did=None):
         did: Database Id
     """
     connect = True
-    reqArgs = None
     # Read the data if present. Skipping read may cause connection
     # reset error if data is sent from the client
     if request.data:
-        reqArgs = request.data
+        _ = request.data
 
-    reqArgs = request.args
-    if ('recreate' in reqArgs and
-            reqArgs['recreate'] == '1'):
+    req_args = request.args
+    if ('recreate' in req_args and
+            req_args['recreate'] == '1'):
         connect = False
+
     # Create asynchronous connection using random connection id.
     conn_id = str(random.randint(1, 9999999))
 
@@ -389,9 +353,6 @@ def initialize_query_tool(sgid, sid, did=None):
         app.logger.error(e)
         return internal_server_error(errormsg=str(e))
 
-    # Create a unique id for the transaction
-    trans_id = str(random.randint(1, 9999999))
-
     if 'gridData' not in session:
         sql_grid_data = dict()
     else:
@@ -404,7 +365,7 @@ def initialize_query_tool(sgid, sid, did=None):
 
     # Use pickle to store the command object which will be used
     # later by the sql grid module.
-    sql_grid_data[trans_id] = {
+    sql_grid_data[str(trans_id)] = {
         # -1 specify the highest protocol version available
         'command_obj': pickle.dumps(command_obj, -1)
     }
@@ -414,7 +375,7 @@ def initialize_query_tool(sgid, sid, did=None):
 
     return make_json_response(
         data={
-            'gridTransId': trans_id,
+            'connId': str(conn_id),
             'serverVersion': manager.version,
         }
     )
@@ -430,15 +391,15 @@ def close(trans_id):
     Args:
         trans_id: unique transaction id
     """
-    if 'gridData' not in session:
-        return make_json_response(data={'status': True})
-
-    grid_data = session['gridData']
-    # Return from the function if transaction id not found
-    if str(trans_id) not in grid_data:
-        return make_json_response(data={'status': True})
-
     with query_tool_close_session_lock:
+        if 'gridData' not in session:
+            return make_json_response(data={'status': True})
+
+        grid_data = session['gridData']
+        # Return from the function if transaction id not found
+        if str(trans_id) not in grid_data:
+            return make_json_response(data={'status': True})
+
         try:
             close_query_tool_session(trans_id)
             # Remove the information of unique transaction id from the
@@ -477,6 +438,8 @@ def validate_filter(sid, did, obj_id):
 
         # Call validate_filter method to validate the SQL.
         status, res = sql_filter_obj.validate_filter(filter_sql)
+    except ObjectGone:
+        raise
     except Exception as e:
         app.logger.error(e)
         return internal_server_error(errormsg=str(e))
@@ -491,7 +454,7 @@ def script():
     return Response(
         response=render_template("datagrid/js/datagrid.js", _=gettext),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )
 
 
@@ -502,20 +465,20 @@ def close_query_tool_session(trans_id):
     :param trans_id: Transaction id
     :return:
     """
+    if 'gridData' in session and str(trans_id) in session['gridData']:
+        cmd_obj_str = session['gridData'][str(trans_id)]['command_obj']
+        # Use pickle.loads function to get the command object
+        cmd_obj = pickle.loads(cmd_obj_str)
 
-    cmd_obj_str = session['gridData'][str(trans_id)]['command_obj']
-    # Use pickle.loads function to get the command object
-    cmd_obj = pickle.loads(cmd_obj_str)
+        # if connection id is None then no need to release the connection
+        if cmd_obj.conn_id is not None:
+            manager = get_driver(
+                PG_DEFAULT_DRIVER).connection_manager(cmd_obj.sid)
+            if manager is not None:
+                conn = manager.connection(
+                    did=cmd_obj.did, conn_id=cmd_obj.conn_id)
 
-    # if connection id is None then no need to release the connection
-    if cmd_obj.conn_id is not None:
-        manager = get_driver(
-            PG_DEFAULT_DRIVER).connection_manager(cmd_obj.sid)
-        if manager is not None:
-            conn = manager.connection(
-                did=cmd_obj.did, conn_id=cmd_obj.conn_id)
-
-            # Release the connection
-            if conn.connected():
-                conn.cancel_transaction(cmd_obj.conn_id, cmd_obj.did)
-                manager.release(did=cmd_obj.did, conn_id=cmd_obj.conn_id)
+                # Release the connection
+                if conn.connected():
+                    conn.cancel_transaction(cmd_obj.conn_id, cmd_obj.did)
+                    manager.release(did=cmd_obj.did, conn_id=cmd_obj.conn_id)

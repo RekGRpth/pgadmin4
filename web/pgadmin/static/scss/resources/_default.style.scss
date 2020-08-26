@@ -10,10 +10,6 @@
   &-light{
     background-color: $color-primary-light;
   }
-
-  &-dark{
-    background-color: $color-primary-dark;
-  }
 }
 
 .bg-danger {
@@ -60,10 +56,6 @@
   &-dark {
     background-color:  $color-gray-dark;
   }
-
-  &-darker {
-    background-color:  $color-gray-darker;
-  }
 }
 
 /* Borders */
@@ -72,10 +64,6 @@
 
   &-light {
     border-color: $color-primary-light;
-  }
-
-  &-dark {
-    border-color: $color-primary-dark;
   }
 }
 
@@ -113,10 +101,6 @@
   &-dark {
     border: 2px solid $color-gray-dark;
   }
-
-  &-darker {
-    border: 2px solid $color-gray-darker;
-  }
 }
 
 /* Typography */
@@ -129,15 +113,15 @@
 }
 
 .text-danger {
-  color: $color-danger;
+  color: $color-danger-fg;
 }
 
 .text-primary {
-  color: $color-primary;
+  color: $color-primary-fg;
 }
 
 .text-success {
-  color: $color-success;
+  color: $color-success-fg;
 }
 
 .text-bold {
@@ -166,4 +150,14 @@
 
 .text-semibold {
   font-family: $font-family-semibold;
+}
+
+.not-selectable {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  cursor: default;
 }

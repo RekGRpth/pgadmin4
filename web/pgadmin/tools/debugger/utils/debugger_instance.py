@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -14,12 +14,12 @@ import random
 debugger_sessions_lock = Lock()
 
 
-class DebuggerInstance:
+class DebuggerInstance(object):
     def __init__(self, trans_id=None):
         if trans_id is None:
             self._trans_id = str(random.randint(1, 9999999))
         else:
-            self._trans_id = trans_id
+            self._trans_id = str(trans_id)
 
         self._function_data = None
         self._debugger_data = None
@@ -58,11 +58,11 @@ class DebuggerInstance:
             return []
 
     def load_from_session(self):
-        if '__debugger_sessions' in session:
-            if str(self.trans_id) in session['__debugger_sessions']:
-                trans_data = session['__debugger_sessions'][str(self.trans_id)]
-                self.function_data = trans_data.get('function_data', None)
-                self.debugger_data = trans_data.get('debugger_data', None)
+        if '__debugger_sessions' in session and \
+                str(self.trans_id) in session['__debugger_sessions']:
+            trans_data = session['__debugger_sessions'][str(self.trans_id)]
+            self.function_data = trans_data.get('function_data', None)
+            self.debugger_data = trans_data.get('debugger_data', None)
 
     def update_session(self):
         with debugger_sessions_lock:
@@ -76,6 +76,6 @@ class DebuggerInstance:
 
     def clear(self):
         with debugger_sessions_lock:
-            if '__debugger_sessions' in session:
-                if str(self.trans_id) in session['__debugger_sessions']:
-                    session['__debugger_sessions'].pop(str(self.trans_id))
+            if '__debugger_sessions' in session and \
+                    str(self.trans_id) in session['__debugger_sessions']:
+                session['__debugger_sessions'].pop(str(self.trans_id))

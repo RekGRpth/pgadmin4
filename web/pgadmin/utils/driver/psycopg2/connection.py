@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -15,17 +15,14 @@ object.
 
 import random
 import select
-import sys
-import six
 import datetime
 from collections import deque
-import simplejson as json
 import psycopg2
 from flask import g, current_app
 from flask_babelex import gettext
 from flask_security import current_user
 from pgadmin.utils.crypto import decrypt
-from psycopg2.extensions import adapt, encodings
+from psycopg2.extensions import encodings
 
 import config
 from pgadmin.model import User
@@ -35,23 +32,18 @@ from ..abstract import BaseConnection
 from .cursor import DictCursor
 from .typecast import register_global_typecasters, \
     register_string_typecasters, register_binary_typecasters, \
+    unregister_numeric_typecasters, \
     register_array_to_string_typecasters, ALL_JSON_TYPES
-from .encoding import getEncoding, configureDriverEncodings
+from .encoding import get_encoding, configure_driver_encodings
 from pgadmin.utils import csv
 from pgadmin.utils.master_password import get_crypt_key
-
-if sys.version_info < (3,):
-    from StringIO import StringIO
-    IS_PY2 = True
-else:
-    from io import StringIO
-    IS_PY2 = False
+from io import StringIO
 
 _ = gettext
 
 # Register global type caster which will be applicable to all connections.
 register_global_typecasters()
-configureDriverEncodings(encodings)
+configure_driver_encodings(encodings)
 
 
 class Connection(BaseConnection):
@@ -206,12 +198,7 @@ class Connection(BaseConnection):
         )
 
     def __str__(self):
-        return "PG Connection: {0} ({1}) -> {2} (ajax:{3})".format(
-            self.conn_id, self.db,
-            'Connected' if self.conn and not self.conn.closed else
-            "Disconnected",
-            self.async_
-        )
+        return self.__repr__()
 
     def connect(self, **kwargs):
         if self.conn:
@@ -262,11 +249,8 @@ class Connection(BaseConnection):
 
             try:
                 password = decrypt(encpass, crypt_key)
-                # Handling of non ascii password (Python2)
-                if hasattr(str, 'decode'):
-                    password = password.decode('utf-8').encode('utf-8')
                 # password is in bytes, for python3 we need it in string
-                elif isinstance(password, bytes):
+                if isinstance(password, bytes):
                     password = password.decode()
             except Exception as e:
                 manager.stop_ssh_tunnel()
@@ -284,14 +268,9 @@ class Connection(BaseConnection):
             passfile = manager.passfile if manager.passfile else None
 
         try:
-            if hasattr(str, 'decode'):
-                database = self.db.encode('utf-8')
-                user = manager.user.encode('utf-8')
-                conn_id = self.conn_id.encode('utf-8')
-            else:
-                database = self.db
-                user = manager.user
-                conn_id = self.conn_id
+            database = self.db
+            user = manager.user
+            conn_id = self.conn_id
 
             import os
             os.environ['PGAPPNAME'] = '{0} - {1}'.format(
@@ -338,7 +317,7 @@ class Connection(BaseConnection):
                 u":{msg}".format(
                     server_id=self.manager.sid,
                     conn_id=conn_id,
-                    msg=msg.decode('utf-8') if hasattr(str, 'decode') else msg
+                    msg=msg
                 )
             )
             return False, msg
@@ -407,7 +386,7 @@ class Connection(BaseConnection):
             register_binary_typecasters(self.conn)
 
         postgres_encoding, self.python_encoding, typecast_encoding = \
-            getEncoding(self.conn.encoding)
+            get_encoding(self.conn.encoding)
 
         # Note that we use 'UPDATE pg_settings' for setting bytea_output as a
         # convenience hack for those running on old, unsupported versions of
@@ -416,7 +395,7 @@ class Connection(BaseConnection):
             cur,
             "SET DateStyle=ISO; "
             "SET client_min_messages=notice; "
-            "SELECT set_config('bytea_output','escape',false) FROM pg_settings"
+            "SELECT set_config('bytea_output','hex',false) FROM pg_settings"
             " WHERE name = 'bytea_output'; "
             "SET client_encoding='{0}';".format(postgres_encoding)
         )
@@ -447,28 +426,28 @@ class Connection(BaseConnection):
                         "Failed to setup the role with error message:\n{0}"
                     ).format(status)
 
-        if manager.ver is None:
-            status = _execute(cur, "SELECT version()")
+        # Check database version every time on reconnection
+        status = _execute(cur, "SELECT version()")
 
-            if status is not None:
-                self.conn.close()
-                self.conn = None
-                self.wasConnected = False
-                current_app.logger.error(
-                    "Failed to fetch the version information on the "
-                    "established connection to the database server "
-                    "(#{server_id}) for '{conn_id}' with below error "
-                    "message:{msg}".format(
-                        server_id=self.manager.sid,
-                        conn_id=conn_id,
-                        msg=status)
-                )
-                return False, status
+        if status is not None:
+            self.conn.close()
+            self.conn = None
+            self.wasConnected = False
+            current_app.logger.error(
+                "Failed to fetch the version information on the "
+                "established connection to the database server "
+                "(#{server_id}) for '{conn_id}' with below error "
+                "message:{msg}".format(
+                    server_id=self.manager.sid,
+                    conn_id=conn_id,
+                    msg=status)
+            )
+            return False, status
 
-            if cur.rowcount > 0:
-                row = cur.fetchmany(1)[0]
-                manager.ver = row['version']
-                manager.sversion = self.conn.server_version
+        if cur.rowcount > 0:
+            row = cur.fetchmany(1)[0]
+            manager.ver = row['version']
+            manager.sversion = self.conn.server_version
 
         status = _execute(cur, """
 SELECT
@@ -492,7 +471,8 @@ WHERE db.datname = current_database()""")
         status = _execute(cur, """
 SELECT
     oid as id, rolname as name, rolsuper as is_superuser,
-    rolcreaterole as can_create_role, rolcreatedb as can_create_db
+    CASE WHEN rolsuper THEN true ELSE rolcreaterole END as can_create_role,
+    CASE WHEN rolsuper THEN true ELSE rolcreatedb END as can_create_db
 FROM
     pg_catalog.pg_roles
 WHERE
@@ -516,7 +496,7 @@ WHERE
             server_types = ServerType.types()
 
         for st in server_types:
-            if st.instanceOf(manager.ver):
+            if st.instance_of(manager.ver):
                 manager.server_type = st.stype
                 manager.server_cls = st
                 break
@@ -546,9 +526,9 @@ WHERE
             self.conn_id.encode('utf-8')
         ), None)
 
-        if self.connected() and cur and not cur.closed:
-            if not server_cursor or (server_cursor and cur.name):
-                return True, cur
+        if self.connected() and cur and not cur.closed and \
+                (not server_cursor or (server_cursor and cur.name)):
+            return True, cur
 
         if not self.connected():
             errmsg = ""
@@ -625,21 +605,21 @@ WHERE
         # We need to esacpe the data so that it does not fail when
         # it is encoded with python ascii
         # unicode_escape helps in escaping and unescaping
-        if self.conn:
-            if self.conn.encoding in ('SQL_ASCII', 'SQLASCII',
-                                      'MULE_INTERNAL', 'MULEINTERNAL')\
-               and params is not None and type(params) == dict:
-                for key, val in params.items():
-                    modified_val = val
-                    # "unicode_escape" will convert single backslash to double
-                    # backslash, so we will have to replace/revert them again
-                    # to store the correct value into the database.
-                    if isinstance(val, six.string_types):
-                        modified_val = val.encode('unicode_escape')\
-                            .decode('raw_unicode_escape')\
-                            .replace("\\\\", "\\")
+        if self.conn and \
+            self.conn.encoding in ('SQL_ASCII', 'SQLASCII',
+                                   'MULE_INTERNAL', 'MULEINTERNAL')\
+                and params is not None and type(params) == dict:
+            for key, val in params.items():
+                modified_val = val
+                # "unicode_escape" will convert single backslash to double
+                # backslash, so we will have to replace/revert them again
+                # to store the correct value into the database.
+                if isinstance(val, str):
+                    modified_val = val.encode('unicode_escape')\
+                        .decode('raw_unicode_escape')\
+                        .replace("\\\\", "\\")
 
-                    params[key] = modified_val
+                params[key] = modified_val
 
         return params
 
@@ -691,12 +671,13 @@ WHERE
             u"{conn_id} (Query-id: {query_id}):\n{query}".format(
                 server_id=self.manager.sid,
                 conn_id=self.conn_id,
-                query=query.decode(self.python_encoding) if
-                sys.version_info < (3,) else query,
+                query=query,
                 query_id=query_id
             )
         )
         try:
+            # Unregistering type casting for large size data types.
+            unregister_numeric_typecasters(self.conn)
             self.__internal_blocking_execute(cur, query, params)
         except psycopg2.Error as pe:
             cur.close()
@@ -704,10 +685,10 @@ WHERE
             current_app.logger.error(
                 u"failed to execute query ((with server cursor) "
                 u"for the server #{server_id} - {conn_id} "
-                u"(query-id: {query_id}):\nerror message:{errmsg}".format(
+                u"(query-id: {query_id}):\n"
+                u"error message:{errmsg}".format(
                     server_id=self.manager.sid,
                     conn_id=self.conn_id,
-                    query=query,
                     errmsg=errmsg,
                     query_id=query_id
                 )
@@ -719,54 +700,6 @@ WHERE
         if cur.description is None:
             return False, \
                 gettext('The query executed did not return any data.')
-
-        def handle_json_data(json_columns, results):
-            """
-            [ This is only for Python2.x]
-            This function will be useful to handle json data types.
-            We will dump json data as proper json instead of unicode values
-
-            Args:
-                json_columns: Columns which contains json data
-                results: Query result
-
-            Returns:
-                results
-            """
-            # Only if Python2 and there are columns with JSON type
-            if IS_PY2 and len(json_columns) > 0:
-                temp_results = []
-                for row in results:
-                    res = dict()
-                    for k, v in row.items():
-                        if k in json_columns:
-                            res[k] = json.dumps(v)
-                        else:
-                            res[k] = v
-                    temp_results.append(res)
-                results = temp_results
-            return results
-
-        def convert_keys_to_unicode(results, conn_encoding):
-            """
-            [ This is only for Python2.x]
-            We need to convert all keys to unicode as psycopg2
-            sends them as string
-
-            Args:
-                res: Query result set from psycopg2
-                conn_encoding: Connection encoding
-
-            Returns:
-                Result set (With all the keys converted to unicode)
-            """
-            new_results = []
-            for row in results:
-                new_results.append(
-                    dict([(k.decode(conn_encoding), v)
-                          for k, v in row.items()])
-                )
-            return new_results
 
         def handle_null_values(results, replace_nulls_with):
             """
@@ -803,19 +736,13 @@ WHERE
 
             header = []
             json_columns = []
-            conn_encoding = encodings[cur.connection.encoding]
 
             for c in cur.ordered_description():
                 # This is to handle the case in which column name is non-ascii
                 column_name = c.to_dict()['name']
-                if IS_PY2:
-                    column_name = column_name.decode(conn_encoding)
                 header.append(column_name)
                 if c.to_dict()['type_code'] in ALL_JSON_TYPES:
                     json_columns.append(column_name)
-
-            if IS_PY2:
-                results = convert_keys_to_unicode(results, conn_encoding)
 
             res_io = StringIO()
 
@@ -826,19 +753,6 @@ WHERE
             else:
                 quote = csv.QUOTE_NONE
 
-            if hasattr(str, 'decode'):
-                # Decode the field_separator
-                try:
-                    field_separator = field_separator.decode('utf-8')
-                except Exception as e:
-                    current_app.logger.error(e)
-
-                # Decode the quote_char
-                try:
-                    quote_char = quote_char.decode('utf-8')
-                except Exception as e:
-                    current_app.logger.error(e)
-
             csv_writer = csv.DictWriter(
                 res_io, fieldnames=header, delimiter=field_separator,
                 quoting=quote,
@@ -847,7 +761,6 @@ WHERE
             )
 
             csv_writer.writeheader()
-            results = handle_json_data(json_columns, results)
             # Replace the null values with given string if configured.
             if replace_nulls_with is not None:
                 results = handle_null_values(results, replace_nulls_with)
@@ -871,16 +784,14 @@ WHERE
                     replace_nulls_with=replace_nulls_with
                 )
 
-                if IS_PY2:
-                    results = convert_keys_to_unicode(results, conn_encoding)
-
-                results = handle_json_data(json_columns, results)
                 # Replace the null values with given string if configured.
                 if replace_nulls_with is not None:
                     results = handle_null_values(results, replace_nulls_with)
                 csv_writer.writerows(results)
                 yield res_io.getvalue()
-
+        # Registering back type caster for large size data types to string
+        # which was unregistered at starting
+        register_string_typecasters(self.conn)
         return True, gen
 
     def execute_scalar(self, query, params=None,
@@ -909,7 +820,7 @@ WHERE
             if not self.connected():
                 if self.auto_reconnect and not self.reconnecting:
                     return self.__attempt_execution_reconnect(
-                        self.execute_dict, query, params,
+                        self.execute_scalar, query, params,
                         formatted_exception_msg
                     )
                 raise ConnectionLost(
@@ -924,7 +835,6 @@ WHERE
                 u"Error Message:{errmsg}".format(
                     server_id=self.manager.sid,
                     conn_id=self.conn_id,
-                    query=query,
                     errmsg=errmsg,
                     query_id=query_id
                 )
@@ -965,10 +875,16 @@ WHERE
 
         query = query.encode(encoding)
 
+        dsn = self.conn.get_dsn_parameters()
         current_app.logger.log(
             25,
-            u"Execute (async) for server #{server_id} - {conn_id} (Query-id: "
+            u"Execute (async) by {pga_user} on {db_user}@{db_host}/{db_name} "
+            u"#{server_id} - {conn_id} (Query-id: "
             u"{query_id}):\n{query}".format(
+                pga_user=current_user.username,
+                db_user=dsn['user'],
+                db_host=dsn['host'],
+                db_name=dsn['dbname'],
                 server_id=self.manager.sid,
                 conn_id=self.conn_id,
                 query=query.decode(encoding),
@@ -990,7 +906,6 @@ WHERE
                 u"Error Message:{errmsg}".format(
                     server_id=self.manager.sid,
                     conn_id=self.conn_id,
-                    query=query.decode(encoding),
                     errmsg=errmsg,
                     query_id=query_id
                 )
@@ -1062,7 +977,6 @@ WHERE
                 u"Error Message:{errmsg}".format(
                     server_id=self.manager.sid,
                     conn_id=self.conn_id,
-                    query=query,
                     errmsg=errmsg,
                     query_id=query_id
                 )
@@ -1092,7 +1006,7 @@ WHERE
 
             current_app.logger.warning(
                 "Failed to reconnect the database server "
-                "(#{server_id})".format(
+                "(Server #{server_id}, Connection #{conn_id})".format(
                     server_id=self.manager.sid,
                     conn_id=self.conn_id
                 )
@@ -1127,13 +1041,12 @@ WHERE
             self.__internal_blocking_execute(cur, query, params)
         except psycopg2.Error as pe:
             cur.close()
-            if not self.connected():
-                if self.auto_reconnect and \
-                        not self.reconnecting:
-                    return self.__attempt_execution_reconnect(
-                        self.execute_2darray, query, params,
-                        formatted_exception_msg
-                    )
+            if not self.connected() and self.auto_reconnect and \
+                    not self.reconnecting:
+                return self.__attempt_execution_reconnect(
+                    self.execute_2darray, query, params,
+                    formatted_exception_msg
+                )
             errmsg = self._formatted_exception_msg(pe, formatted_exception_msg)
             current_app.logger.error(
                 u"Failed to execute query (execute_2darray) for the server "
@@ -1141,7 +1054,6 @@ WHERE
                 u"Error Message:{errmsg}".format(
                     server_id=self.manager.sid,
                     conn_id=self.conn_id,
-                    query=query,
                     errmsg=errmsg,
                     query_id=query_id
                 )
@@ -1259,7 +1171,7 @@ WHERE
                     for col in self.column_info:
                         new_row.append(row[col['name']])
                     result.append(new_row)
-            except psycopg2.ProgrammingError as e:
+            except psycopg2.ProgrammingError:
                 result = None
         else:
             # User performed operation which dose not produce record/s as
@@ -1277,9 +1189,8 @@ WHERE
         return False
 
     def reset(self):
-        if self.conn:
-            if self.conn.closed:
-                self.conn = None
+        if self.conn and self.conn.closed:
+            self.conn = None
         pg_conn = None
         manager = self.manager
 
@@ -1321,9 +1232,14 @@ WHERE
             )
 
         except psycopg2.Error as e:
-            msg = e.pgerror if e.pgerror else e.message \
-                if e.message else e.diag.message_detail \
-                if e.diag.message_detail else str(e)
+            if e.pgerror:
+                msg = e.pgerror
+            elif e.message:
+                msg = e.message
+            elif e.diag.message_detail:
+                msg = e.diag.message_detail
+            else:
+                msg = str(e)
 
             current_app.logger.error(
                 gettext(
@@ -1450,15 +1366,29 @@ Failed to reset the connection to the server due to following error:
         is_error = False
         try:
             status = self._wait_timeout(self.conn)
+        except psycopg2.OperationalError as op_er:
+            errmsg = \
+                self._formatted_exception_msg(op_er, formatted_exception_msg)
+            is_error = True
         except psycopg2.Error as pe:
+            errmsg = self._formatted_exception_msg(pe, formatted_exception_msg)
+            is_error = True
             if self.conn.closed:
                 raise ConnectionLost(
                     self.manager.sid,
                     self.db,
                     self.conn_id[5:]
                 )
-            errmsg = self._formatted_exception_msg(pe, formatted_exception_msg)
-            is_error = True
+        except OSError as e:
+            # Bad File descriptor
+            if e.errno == 9:
+                raise ConnectionLost(
+                    self.manager.sid,
+                    self.db,
+                    self.conn_id[5:]
+                )
+            else:
+                raise e
 
         if self.conn.notices and self.__notices is not None:
             self.__notices.extend(self.conn.notices)
@@ -1497,23 +1427,22 @@ Failed to reset the connection to the server due to following error:
                     pos += 1
 
             self.row_count = cur.rowcount
-            if not no_result:
-                if cur.rowcount > 0:
-                    result = []
-                    # For DDL operation, we may not have result.
-                    #
-                    # Because - there is not direct way to differentiate DML
-                    # and DDL operations, we need to rely on exception to
-                    # figure that out at the moment.
-                    try:
-                        for row in cur:
-                            new_row = []
-                            for col in self.column_info:
-                                new_row.append(row[col['name']])
-                            result.append(new_row)
+            if not no_result and cur.rowcount > 0:
+                result = []
+                # For DDL operation, we may not have result.
+                #
+                # Because - there is not direct way to differentiate DML
+                # and DDL operations, we need to rely on exception to
+                # figure that out at the moment.
+                try:
+                    for row in cur:
+                        new_row = []
+                        for col in self.column_info:
+                            new_row.append(row[col['name']])
+                        result.append(new_row)
 
-                    except psycopg2.ProgrammingError:
-                        result = None
+                except psycopg2.ProgrammingError:
+                    result = None
 
         return status, result
 
@@ -1647,11 +1576,16 @@ Failed to reset the connection to the server due to following error:
         Returns the list of the messages/notices send from the database server.
         """
         resp = []
-        while self.__notices:
-            resp.append(self.__notices.pop(0))
+
+        if self.__notices is not None:
+            while self.__notices:
+                resp.append(self.__notices.pop(0))
+
+        if self.__notifies is None:
+            return resp
 
         for notify in self.__notifies:
-            if notify.payload is not None and notify.payload is not '':
+            if notify.payload is not None and notify.payload != '':
                 notify_msg = gettext(
                     "Asynchronous notification \"{0}\" with payload \"{1}\" "
                     "received from server process with PID {2}\n"
@@ -1665,40 +1599,6 @@ Failed to reset the connection to the server due to following error:
             resp.append(notify_msg)
 
         return resp
-
-    def decode_to_utf8(self, value):
-        """
-        This method will decode values to utf-8
-        Args:
-            value: String to be decode
-
-        Returns:
-            Decoded string
-        """
-        is_error = False
-        if hasattr(str, 'decode'):
-            try:
-                value = value.decode('utf-8')
-            except UnicodeDecodeError:
-                # Let's try with python's preferred encoding
-                # On Windows lc_messages mostly has environment dependent
-                # encoding like 'French_France.1252'
-                try:
-                    import locale
-                    pref_encoding = locale.getpreferredencoding()
-                    value = value.decode(pref_encoding)\
-                        .encode('utf-8')\
-                        .decode('utf-8')
-                except Exception:
-                    is_error = True
-            except Exception:
-                is_error = True
-
-        # If still not able to decode then
-        if is_error:
-            value = value.decode('ascii', 'ignore')
-
-        return value
 
     def _formatted_exception_msg(self, exception_obj, formatted_msg):
         """
@@ -1718,24 +1618,22 @@ Failed to reset the connection to the server due to following error:
             errmsg = exception_obj.diag.message_detail
         else:
             errmsg = str(exception_obj)
-        # errmsg might contains encoded value, lets decode it
-        errmsg = self.decode_to_utf8(errmsg)
 
         # if formatted_msg is false then return from the function
         if not formatted_msg:
             notices = self.get_notices()
-            return errmsg if notices is '' else notices + '\n' + errmsg
+            return errmsg if notices == '' else notices + '\n' + errmsg
 
         # Do not append if error starts with `ERROR:` as most pg related
         # error starts with `ERROR:`
         if not errmsg.startswith(u'ERROR:'):
-            errmsg = u'ERROR:  ' + errmsg + u'\n\n'
+            errmsg = gettext(u'ERROR: ') + errmsg + u'\n\n'
 
         if exception_obj.diag.severity is not None \
                 and exception_obj.diag.message_primary is not None:
             ex_diag_message = u"{0}:  {1}".format(
-                self.decode_to_utf8(exception_obj.diag.severity),
-                self.decode_to_utf8(exception_obj.diag.message_primary)
+                exception_obj.diag.severity,
+                exception_obj.diag.message_primary
             )
             # If both errors are different then only append it
             if errmsg and ex_diag_message and \
@@ -1743,9 +1641,7 @@ Failed to reset the connection to the server due to following error:
                     errmsg.strip().strip('\n').lower():
                 errmsg += ex_diag_message
         elif exception_obj.diag.message_primary is not None:
-            message_primary = self.decode_to_utf8(
-                exception_obj.diag.message_primary
-            )
+            message_primary = exception_obj.diag.message_primary
             if message_primary.lower() not in errmsg.lower():
                 errmsg += message_primary
 
@@ -1753,42 +1649,38 @@ Failed to reset the connection to the server due to following error:
             if not errmsg.endswith('\n'):
                 errmsg += '\n'
             errmsg += gettext('SQL state: ')
-            errmsg += self.decode_to_utf8(exception_obj.diag.sqlstate)
+            errmsg += exception_obj.diag.sqlstate
 
-        if exception_obj.diag.message_detail is not None:
-            if 'Detail:'.lower() not in errmsg.lower():
-                if not errmsg.endswith('\n'):
-                    errmsg += '\n'
-                errmsg += gettext('Detail: ')
-                errmsg += self.decode_to_utf8(
-                    exception_obj.diag.message_detail
-                )
+        if exception_obj.diag.message_detail is not None and \
+                'Detail:'.lower() not in errmsg.lower():
+            if not errmsg.endswith('\n'):
+                errmsg += '\n'
+            errmsg += gettext('Detail: ')
+            errmsg += exception_obj.diag.message_detail
 
-        if exception_obj.diag.message_hint is not None:
-            if 'Hint:'.lower() not in errmsg.lower():
-                if not errmsg.endswith('\n'):
-                    errmsg += '\n'
-                errmsg += gettext('Hint: ')
-                errmsg += self.decode_to_utf8(exception_obj.diag.message_hint)
+        if exception_obj.diag.message_hint is not None and \
+                'Hint:'.lower() not in errmsg.lower():
+            if not errmsg.endswith('\n'):
+                errmsg += '\n'
+            errmsg += gettext('Hint: ')
+            errmsg += exception_obj.diag.message_hint
 
-        if exception_obj.diag.statement_position is not None:
-            if 'Character:'.lower() not in errmsg.lower():
-                if not errmsg.endswith('\n'):
-                    errmsg += '\n'
-                errmsg += gettext('Character: ')
-                errmsg += self.decode_to_utf8(
-                    exception_obj.diag.statement_position
-                )
+        if exception_obj.diag.statement_position is not None and \
+                'Character:'.lower() not in errmsg.lower():
+            if not errmsg.endswith('\n'):
+                errmsg += '\n'
+            errmsg += gettext('Character: ')
+            errmsg += exception_obj.diag.statement_position
 
-        if exception_obj.diag.context is not None:
-            if 'Context:'.lower() not in errmsg.lower():
-                if not errmsg.endswith('\n'):
-                    errmsg += '\n'
-                errmsg += gettext('Context: ')
-                errmsg += self.decode_to_utf8(exception_obj.diag.context)
+        if exception_obj.diag.context is not None and \
+                'Context:'.lower() not in errmsg.lower():
+            if not errmsg.endswith('\n'):
+                errmsg += '\n'
+            errmsg += gettext('Context: ')
+            errmsg += exception_obj.diag.context
 
         notices = self.get_notices()
-        return errmsg if notices is '' else notices + '\n' + errmsg
+        return errmsg if notices == '' else notices + '\n' + errmsg
 
     #####
     # As per issue reported on pgsycopg2 github repository link is shared below
@@ -1917,3 +1809,17 @@ Failed to reset the connection to the server due to following error:
             )
 
         return enc_password
+
+    def mogrify(self, query, parameters):
+        """
+        This function will return the sql query after parameters binding
+        :param query: sql query before parameters (variables) binding
+        :param parameters: query parameters / variables
+        :return:
+        """
+        status, cursor = self.__cursor()
+        if not status:
+            return None
+        else:
+            mogrified_sql = cursor.mogrify(query, parameters)
+            return mogrified_sql

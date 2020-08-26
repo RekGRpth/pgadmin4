@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -43,8 +43,8 @@ class CatalogObjectModule(SchemaChildModule):
       - Load the module script for Catalog objects, when any of the server node
         is initialized.
     """
-    NODE_TYPE = 'catalog_object'
-    COLLECTION_LABEL = gettext("Catalog Objects")
+    _NODE_TYPE = 'catalog_object'
+    _COLLECTION_LABEL = gettext("Catalog Objects")
 
     # Flag for not to show node under Schema/Catalog node
     # By default its set to True to display node in schema/catalog
@@ -78,7 +78,7 @@ class CatalogObjectModule(SchemaChildModule):
         Load the module script for server, when any of the database node is
         initialized.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
 
 blueprint = CatalogObjectModule(__name__)
@@ -146,6 +146,10 @@ class CatalogObjectView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
             self.template_path = 'catalog_object/sql/{0}/#{1}#'.format(
                 'ppas' if self.manager.server_type == 'ppas' else 'pg',
                 self.manager.version
@@ -172,7 +176,7 @@ class CatalogObjectView(PGChildNodeView):
         """
 
         SQL = render_template("/".join([
-            self.template_path, 'properties.sql'
+            self.template_path, self._PROPERTIES_SQL
         ]), scid=scid
         )
 
@@ -203,7 +207,7 @@ class CatalogObjectView(PGChildNodeView):
         """
         res = []
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']), scid=scid
+            "/".join([self.template_path, self._NODES_SQL]), scid=scid
         )
 
         status, rset = self.conn.execute_2darray(SQL)
@@ -240,7 +244,7 @@ class CatalogObjectView(PGChildNodeView):
             JSON of given catalog objects child node
         """
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']), coid=coid
+            "/".join([self.template_path, self._NODES_SQL]), coid=coid
         )
 
         status, rset = self.conn.execute_2darray(SQL)
@@ -279,7 +283,7 @@ class CatalogObjectView(PGChildNodeView):
             JSON of selected catalog objects node
         """
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             scid=scid, coid=coid
         )
         status, res = self.conn.execute_dict(SQL)
@@ -290,6 +294,9 @@ class CatalogObjectView(PGChildNodeView):
         if len(res['rows']) == 0:
             return gone(
                 gettext("""Could not find the specified catalog object."""))
+
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
 
         return ajax_response(
             response=res['rows'][0],

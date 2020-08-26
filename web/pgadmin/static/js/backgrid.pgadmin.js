@@ -2,18 +2,18 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define([
   'sources/gettext', 'underscore', 'jquery', 'backbone', 'backform', 'backgrid', 'alertify',
-  'moment', 'bignumber', 'sources/utils', 'sources/keyboard_shortcuts',
+  'moment', 'bignumber', 'sources/utils', 'sources/keyboard_shortcuts', 'sources/select2/configure_show_on_scroll',
   'bootstrap.datetimepicker', 'backgrid.filter', 'bootstrap.toggle',
 ], function(
   gettext, _, $, Backbone, Backform, Backgrid, Alertify, moment, BigNumber,
-  commonUtils, keyboardShortcuts
+  commonUtils, keyboardShortcuts, configure_show_on_scroll
 ) {
   /*
    * Add mechanism in backgrid to render different types of cells in
@@ -147,7 +147,11 @@ define([
           }
 
           // if descending order, swap left and right
-          if (order === 1) t = _l, _l = _r, _r = t;
+          if (order === 1) {
+            t = _l;
+            _l = _r;
+            _r = t;
+          }
 
           if (_l.eq(_r)) // If both are equals
             return 0;
@@ -157,10 +161,16 @@ define([
             return 1;
         } else {
           // if descending order, swap left and right
-          if (order === 1) t = l, l = r, r = t;
+          if (order === 1) {
+            t = l;
+            l = r;
+            r = t;
+          }
 
           // compare as usual
           if (l === r) return 0;
+          else if (l === null && r != null) return -1;
+          else if (l != null && r === null) return 1;
           else if (l < r) return -1;
           return 1;
         }
@@ -401,7 +411,7 @@ define([
       editorOptions['columns_length'] = this.column.collection.length;
       editorOptions['el'].attr('tabindex', 0);
 
-      this.listenTo(this.model, 'backgrid:edit', function(model, column, cell, editor) {
+      this.listenTo(this.model, 'backgrid:edit', function(model, column, sel_cell, editor) {
         if (column.get('name') == this.column.get('name'))
           editor.extendWithOptions(editorOptions);
       });
@@ -430,7 +440,7 @@ define([
 
         if (editable) {
           this.$el.html(
-            '<i class=\'fa fa-pencil-square subnode-edit-in-process\' title=\'' + _('Edit row') + '\'></i>'
+            '<i class=\'fa fa-pen-square subnode-edit-in-process\' title=\'' + gettext('Edit row') +  '\' aria-label=\'' + gettext('Edit row') +  '\'></i>'
           );
           let body = $(this.$el).parents()[1],
             container = $(body).find('.tab-content:first > .tab-pane.active:first');
@@ -441,7 +451,7 @@ define([
           );
         }
       } else {
-        Alertify.alert(gettext('This object is not user editable.'),
+        Alertify.alert(gettext('Edit object'), gettext('This object is not user editable.'),
           function() {
             return true;
           });
@@ -449,7 +459,7 @@ define([
     },
     render: function() {
       this.$el.empty();
-      this.$el.html('<i class=\'fa fa-pencil-square-o\' title=\'' + _('Edit row') + '\'></i>');
+      this.$el.html('<i class=\'fa fa-edit\' title=\'' + gettext('Edit row') + '\' aria-label=\'' + gettext('Edit row') +  '\'></i>');
       this.delegateEvents();
       if (this.grabFocus)
         this.$el.trigger('focus');
@@ -536,7 +546,7 @@ define([
           }
         );
       } else {
-        Alertify.alert(gettext('This object cannot be deleted.'),
+        Alertify.alert(gettext('Delete object'), gettext('This object cannot be deleted.'),
           function() {
             return true;
           }
@@ -553,7 +563,7 @@ define([
       var self = this;
       this.$el.empty();
       $(this.$el).attr('tabindex', 0);
-      this.$el.html('<i class=\'fa fa-trash\' title=\'' + _('Delete row') + '\'></i>');
+      this.$el.html('<i aria-label="' + gettext('Delete row') + '" class=\'fa fa-trash-alt\' title=\'' + gettext('Delete row') + '\'></i>');
       // Listen for Tab/Shift-Tab key
       this.$el.on('keydown', function(e) {
         // with keyboard navigation on space key, mark row for deletion
@@ -601,9 +611,24 @@ define([
       // Here, we will add custom classes to header cell
       Backgrid.HeaderCell.prototype.initialize.apply(this, arguments);
       var getClassName = this.column.get('cellHeaderClasses');
+      var getAriaLabel = this.column.get('cellAriaLabel');
       if (getClassName) {
         this.$el.addClass(getClassName);
       }
+      if (getAriaLabel) {
+        this.$el.attr('aria-label', getAriaLabel);
+      }
+    },
+    render: function() {
+      Backgrid.HeaderCell.prototype.render.apply(this, arguments);
+      // If table header label is not present then screen reader will raise
+      // an error we will add span for screen reader only
+      if (this.column.get('label') == '' || !this.column.get('label')) {
+        let getAriaLabel = this.column.get('cellAriaLabel');
+        if (getAriaLabel)
+          this.$el.append(`<span class="sr-only">${getAriaLabel}</span>`);
+      }
+      return this;
     },
   });
 
@@ -619,7 +644,7 @@ define([
         onText: gettext('Yes'),
         offText: gettext('No'),
         onColor: 'success',
-        offColor: 'primary',
+        offColor: 'ternary',
         size: 'mini',
         width: null,
         height: null,
@@ -635,7 +660,7 @@ define([
 
     enterEditMode: function() {
       this.$el.addClass('editor');
-      $(this.$el.find('input[type=checkbox]')).trigger('focus');
+      $(this.$el.find('.toggle.btn')).trigger('focus');
     },
 
     exitEditMode: function() {
@@ -644,16 +669,8 @@ define([
 
     events: {
       'change input': 'onChange',
-      'keyup': 'toggleSwitch',
       'blur input': 'exitEditMode',
       'keydown': 'onKeyDown',
-    },
-
-    toggleSwitch: function(e) {
-      if (e.keyCode == 32) {
-        this.$el.find('input[type=checkbox]').bootstrapToggle('toggle');
-        e.preventDefault();
-      }
     },
 
     onKeyDown: function(e) {
@@ -671,8 +688,20 @@ define([
       this.enterEditMode();
       // on bootstrap change we also need to change model's value
       model.set(column.get('name'), val);
+      this.setSrValue();
     },
-
+    setSrValue: function() {
+      let {onText, offText} = _.defaults({}, this.column.get('options'), this.defaults.options);
+      if(this.$el.find('.toggle.btn').hasClass('off')) {
+        this.$el.find('.sr-value').text(`
+          ${offText}, ${gettext('Toggle button')}
+        `);
+      } else {
+        this.$el.find('.sr-value').text(`
+          ${onText}, ${gettext('Toggle button')}
+        `);
+      }
+    },
     render: function() {
       var self = this,
         col = _.defaults(this.column.toJSON(), this.defaults),
@@ -682,16 +711,19 @@ define([
           model.get(column.get('name')), model
         ),
         editable = Backgrid.callByNeed(col.editable, column, model),
-        options =  _.defaults({}, col.options, this.defaults.options);
+        options =  _.defaults({}, col.options, this.defaults.options),
+        cId = _.uniqueId('pgC_');
 
       this.undelegateEvents();
 
       this.$el.empty();
-
+      this.$el.append('<label class="sr-value sr-only" for="' + cId + '"></label>');
       this.$el.append(
         $('<input>', {
           tabIndex: -1,
           type: 'checkbox',
+          'aria-hidden': 'true',
+          'aria-label': column.get('name'),
         }).prop('checked', rawValue).prop('disabled', !editable).attr('data-toggle', 'toggle')
           .attr('data-size', options.size).attr('data-on', options.onText).attr('data-off', options.offText)
           .attr('data-width', options.width).attr('data-height', options.height)
@@ -702,6 +734,20 @@ define([
       // Override BooleanCell checkbox with Bootstraptoggle
       this.$input.bootstrapToggle();
 
+      this.$el.find('.toggle.btn')
+        .attr('tabindex', !editable ? '-1' : '0')
+        .attr('id', cId)
+        .on('keydown', function(e) {
+          if (e.keyCode == 32) {
+            self.$el.find('input[type=checkbox]').bootstrapToggle('toggle');
+            e.preventDefault();
+            e.stopPropagation();
+            self.setSrValue();
+          }
+        });
+
+      this.$el.find('.toggle.btn .toggle-group .btn').attr('aria-hidden', true);
+      this.setSrValue();
       // Listen for Tab key
       this.$el.on('keydown', function(e) {
         var gotoCell;
@@ -710,7 +756,11 @@ define([
           gotoCell = e.shiftKey ? self.$el.prev() : self.$el.next();
         }
 
-        if (gotoCell) {
+        if (gotoCell && gotoCell.length > 0) {
+          if(gotoCell.hasClass('editable')){
+            e.preventDefault();
+            e.stopPropagation();
+          }
           let command = new Backgrid.Command({
             key: 'Tab',
             keyCode: 9,
@@ -720,19 +770,19 @@ define([
           setTimeout(function() {
             // When we have Editable Cell
             if (gotoCell.hasClass('editable') && gotoCell.hasClass('edit-cell')) {
-              e.preventDefault();
-              e.stopPropagation();
               gotoCell.trigger('focus');
             } else if (gotoCell.hasClass('editable')) {
-              e.preventDefault();
-              e.stopPropagation();
-              self.model.trigger('backgrid:edited', self.model,
-                self.column, command);
+              setTimeout(function() {
+                self.model.trigger('backgrid:edited', self.model,
+                  self.column, command);
+              }, 10);
               gotoCell.trigger('focus');
             } else {
               // When we have Non-Editable Cell
-              self.model.trigger('backgrid:edited', self.model,
-                self.column, command);
+              setTimeout(function() {
+                self.model.trigger('backgrid:edited', self.model,
+                  self.column, command);
+              }, 10);
             }
           }, 20);
         }
@@ -775,6 +825,7 @@ define([
       this.$select.off('blur', this.exitEditMode);
       this.$select.select2('close');
       this.$el.removeClass('editor');
+      this.$el.find('.select2-selection').trigger('focus');
     },
 
     saveOrCancel: function (e) {
@@ -788,10 +839,18 @@ define([
 
         let gotoCell;
         // go to Next Cell & if Shift is also pressed go to Previous Cell
-        gotoCell = e.shiftKey ? self.$el.prev() : self.$el.next();
+        if (e.keyCode == 9 || e.keyCode == 16) {
+          gotoCell = e.shiftKey ? self.$el.prev() : self.$el.next();
+          if (self.$el.next().length == 0){
+            setTimeout(function() {
+              self.$el.find('.select2-selection').blur();
+            }, 100);
+
+          }
+        }
 
         if (gotoCell) {
-          let command = new Backgrid.Command({
+          let cmd = new Backgrid.Command({
             key: 'Tab',
             keyCode: 9,
             which: 9,
@@ -803,12 +862,12 @@ define([
               e.preventDefault();
               e.stopPropagation();
               self.model.trigger('backgrid:edited', self.model,
-                self.column, command);
+                self.column, cmd);
             }
             else {
               // When we have Non-Editable Cell
               self.model.trigger('backgrid:edited', self.model,
-                self.column, command);
+                self.column, cmd);
             }
           }, 20);
         }
@@ -864,12 +923,6 @@ define([
       if (!_.isArray(optionValues))
         throw new TypeError('optionValues must be an array');
 
-      /*
-       * Add empty option as Select2 requires any empty '<option><option>' for
-       * some of its functionality to work.
-       */
-      optionValues.unshift(this.defaults.opt);
-
       var optionText = null,
         optionValue = null,
         self = this,
@@ -877,6 +930,8 @@ define([
         select2_opts = _.extend({
           openOnEnter: false,
           multiple: false,
+          showOnScroll: true,
+          first_empty: true,
         }, self.defaults.select2,
         (col.select2 || {})
         ),
@@ -886,6 +941,13 @@ define([
         multiple: select2_opts.multiple,
       })).appendTo(self.$el);
 
+      /*
+       * Add empty option as Select2 requires any empty '<option><option>' for
+       * some of its functionality to work.
+       */
+      if(select2_opts.first_empty) {
+        optionValues.unshift(this.defaults.opt);
+      }
       for (var i = 0; i < optionValues.length; i++) {
         var opt = optionValues[i];
 
@@ -937,17 +999,20 @@ define([
         select2_opts['placeholder'] = '';
       }
 
+      /* Configure show on scroll if required */
+      select2_opts = configure_show_on_scroll.default(select2_opts);
+
       // Initialize select2 control.
       this.$sel = this.$select.select2(select2_opts);
 
       // Select the highlighted item on Tab press.
       if (this.$sel) {
         this.$sel.data('select2').on('keypress', function(ev) {
-          var self = this;
+          var ctx = this;
 
           // keycode 9 is for TAB key
-          if (ev.which === 9 && self.isOpen()) {
-            self.trigger('results:select', {});
+          if (ev.which === 9 && ctx.isOpen()) {
+            ctx.trigger('results:select', {});
             ev.preventDefault();
           }
         });
@@ -1024,7 +1089,7 @@ define([
     },
     render: function() {
       this.$el.empty();
-      this.$el.html('<label><a><span style=\'font-weight:normal;\'>Array Values</a></span></label> <button class=\'btn-sm btn-secondary add\'>Add</button>');
+      this.$el.html('<label><a><span style=\'font-weight:normal;\'>' + gettext('Array Values') + '</a></span></label> <button class=\'btn-sm btn-secondary add\'>' + gettext('Add') + '</button>');
       this.delegateEvents();
       return this;
     },
@@ -1512,10 +1577,6 @@ define([
       formatter: JSONBCellFormatter,
     });
 
-  Backgrid.Extension.DatepickerCell = Backgrid.Cell.extend({
-    editor: DatepickerCellEditor,
-  });
-
   var DatepickerCellEditor = Backgrid.InputCellEditor.extend({
     events: {},
     initialize: function() {
@@ -1529,10 +1590,14 @@ define([
           input.model.trigger(
             'backgrid:edited', input.model, input.column, command
           );
-          command = input = null;
+          input = null;
         },
       });
     },
+  });
+
+  Backgrid.Extension.DatepickerCell = Backgrid.Cell.extend({
+    editor: DatepickerCellEditor,
   });
 
   // Reference:
@@ -1715,12 +1780,19 @@ define([
         options = _.extend({
           format: 'YYYY-MM-DD HH:mm:ss Z',
           icons: {
+            time: 'fa fa-clock',
+            data: 'fa fa-calendar-alt',
+            today: 'fa fa-calendar-check',
             clear: 'fa fa-trash',
           },
           buttons: {
             showToday: true,
           },
           toolbarPlacement: 'top',
+          widgetPositioning: {
+            horizontal: 'auto',
+            vertical: 'bottom',
+          },
           keepOpen: false,
         }, evalF(this.column.get('options')), {
           keyBinds: {
@@ -1751,35 +1823,97 @@ define([
             },
           },
         });
+      this.tabKeyPress = false;
       this.$el.datetimepicker(options);
       this.$el.datetimepicker('show');
-      this.picker = this.$el.data('DateTimePicker');
+      this.picker = this.$el.data('datetimepicker');
     },
     events: {
       'hide.datetimepicker': 'closeIt',
       'focusout':'closeIt',
+      'keydown': 'keydownHandler',
     },
-    closeIt: function(ev) {
+    keydownHandler: function(event) {
+      let stopBubble = false;
+      let self = this;
+      if (!event.altKey && event.keyCode == 38){
+        let currdate = self.$el.data('datetimepicker').date().clone();
+        if (self.$el.data('datetimepicker').widget.find('.datepicker').is(':visible')){
+          $(this.el).datetimepicker('date', currdate.subtract(7, 'd'));
+        }else{
+          $(this.el).datetimepicker('date', currdate.add(7, 'm'));
+        }
+      }else if (!event.altKey && event.keyCode == 40){
+        let currdate = self.$el.data('datetimepicker').date().clone();
+        if (self.$el.data('datetimepicker').widget.find('.datepicker').is(':visible')){
+          $(this.el).datetimepicker('date', currdate.add(7, 'd'));
+        }else{
+          $(this.el).datetimepicker('date', currdate.subtract(7, 'm'));
+        }
+      }else if (event.keyCode == 39){
+        let currdate = self.$el.data('datetimepicker').date().clone();
+        $(this.el).datetimepicker('date', currdate.add(1, 'd'));
+      }else if (event.keyCode == 37){
+        let currdate = self.$el.data('datetimepicker').date().clone();
+        $(this.el).datetimepicker('date', currdate.subtract(1, 'd'));
+      }
+
+      if (event.altKey && event.keyCode == 84){
+        if (self.$el.data('datetimepicker').widget.find('.timepicker').is(':visible')){
+          self.$el.data('datetimepicker').widget.find('.fa-calendar-alt').click();
+        }else{
+          self.$el.data('datetimepicker').widget.find('.fa-clock').click();
+        }
+      }
+
+      if(event.altKey && event.keyCode == 38){
+        let currdate = self.$el.data('datetimepicker').date().clone();
+        $(this.el).datetimepicker('date', currdate.add(1, 'h'));
+      }else if(event.altKey && event.keyCode == 40){
+        let currdate = self.$el.data('datetimepicker').date().clone();
+        $(this.el).datetimepicker('date', currdate.subtract(1, 'h'));
+      }
+
+      if (event.keyCode == 27){
+        this.$el.datetimepicker('hide');
+        stopBubble = true;
+      }
+
+      if(stopBubble) {
+        event.stopImmediatePropagation();
+      }
+      // If Tab key pressed from Cell and not from Datetime picker element
+      // then we should trigger edited event so that we can goto next cell
+      let tabKeyPressed = true;
+      if (event.keyCode === 9 && self.el === event.target) {
+        self.closeIt(event, tabKeyPressed);
+      }
+    },
+    closeIt: function(ev, isTabKeyPressed) {
+      if (this.is_closing || this.tabKeyPress)
+        return;
+
+      this.is_closing = true;
+      this.tabKeyPress = isTabKeyPressed;
+
       var formatter = this.formatter,
         model = this.model,
         column = this.column,
         val = this.$el.val(),
         newValue = formatter.toRaw(val, model);
 
-      if (this.is_closing)
-        return;
-      this.is_closing = true;
       this.$el.datetimepicker('destroy');
       this.is_closing = false;
 
-      var command = new Backgrid.Command(ev);
-
-      if (_.isUndefined(newValue)) {
-        model.trigger('backgrid:error', model, column, val);
-      } else {
-        model.set(column.get('name'), newValue);
-        model.trigger('backgrid:edited', model, column, command);
+      /* set the model default value in case of empty or undefined */
+      if (_.isUndefined(newValue) ||
+        String(val).replace(/^\s+|\s+$/g, '') == '') {
+        newValue = null;
       }
+
+      model.set(column.get('name'), newValue);
+      let command = new Backgrid.Command(ev);
+      model.trigger('backgrid:edited', model, column, command);
     },
   });
 
@@ -1850,6 +1984,10 @@ define([
    */
   Backgrid.Extension.ClientSideFilter = Backgrid.Extension.ClientSideFilter.extend({
     $customSearchBox: null,
+    template: function (data) {
+      return '<span class="search">&nbsp;</span><input type="search" ' + (data.placeholder ? 'aria-label= "' + data.placeholder + '"' : '')+' '+ (data.placeholder ? 'placeholder="' +
+      data.placeholder + '"' : '') + ' name="' + data.name + '" ' + (data.value ? 'value="' + data.value + '"' : '') + '/><a class="clear" data-backgrid-action="clear" href="#">&times;</a>';
+    },
 
     searchBox: function() {
       if(this.$customSearchBox) {
@@ -1863,15 +2001,19 @@ define([
       this.$customSearchBox = $el;
       this.$customSearchBox.attr('type','search');
       this.$customSearchBox.on('keydown', this.search.bind(this));
+      this.$customSearchBox.on('mousedown', this.search.bind(this));
+      return this;
     },
 
     unsetCustomSearchBox: function() {
       this.$customSearchBox.off('keydown', this.search.bind(this));
       this.$customSearchBox = null;
+      return this;
     },
   });
 
-  Backgrid.BooleanCellFormatter = _.extend(Backgrid.CellFormatter.prototype, {
+  var BooleanCellFormatter = Backgrid.BooleanCellFormatter = function() {};
+  _.extend(BooleanCellFormatter.prototype, {
     fromRaw: function (rawValue) {
       if (_.isUndefined(rawValue) || _.isNull(rawValue)) {
         return false;
@@ -1884,6 +2026,58 @@ define([
     },
     toRaw: function (formattedData) {
       return formattedData;
+    },
+  });
+
+  Backgrid.BooleanCell = Backgrid.BooleanCell.extend({
+    className: 'boolean-cell',
+
+    enterEditMode: function() {
+      this.$el.addClass('editor');
+      $(this.$el.find('input[type=checkbox]')).trigger('focus');
+    },
+
+    exitEditMode: function() {
+      this.$el.removeClass('editor');
+    },
+
+    events: {
+      'change input': 'onChange',
+      'blur input': 'exitEditMode',
+      'keydown': 'onKeyDown',
+    },
+
+    onChange: function(e) {
+      var model = this.model,
+        column = this.column,
+        val = this.formatter.toRaw(this.$input.prop('checked'), model);
+
+      this.enterEditMode();
+      // on bootstrap change we also need to change model's value
+      model.set(column.get('name'), val);
+      model.trigger('backgrid:edited', model, column, new Backgrid.Command(e));
+    },
+
+    render: function () {
+      this.$el.empty();
+      var model = this.model, column = this.column;
+      var editable = Backgrid.callByNeed(column.editable(), column, model);
+      var align_center = column.get('align_center') || false;
+      let checked =  this.formatter.fromRaw(model.get(column.get('name')), model);
+      let id = `column.get('name')_${_.uniqueId()}`;
+
+      this.$el.empty();
+      this.$el.append(
+        $(`<div class="custom-control custom-checkbox custom-checkbox-no-label ${align_center?'text-center':''}">
+          <input tabindex="0" type="checkbox" class="custom-control-input" id="${id}" ${!editable?'disabled':''} ${checked?'checked':''}/>
+          <label class="custom-control-label" for="${id}">
+            <span class="sr-only">` + gettext('Select') + `<span>
+          </label>
+        </div>`)
+      );
+      this.$input = this.$el.find('input');
+      this.delegateEvents();
+      return this;
     },
   });
 

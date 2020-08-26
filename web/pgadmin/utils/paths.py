@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 #########################################################################
@@ -13,6 +13,7 @@ import os
 
 from flask import current_app, url_for
 from flask_security import current_user, login_required
+from werkzeug.exceptions import InternalServerError
 
 
 @login_required
@@ -33,7 +34,7 @@ def get_storage_directory():
     if storage_dir is None:
         return None
 
-    username = current_user.email.split('@')[0]
+    username = current_user.username.split('@')[0]
     if len(username) == 0 or username[0].isdigit():
         username = 'pga_user_' + username
 
@@ -48,7 +49,7 @@ def get_storage_directory():
     storage_dir = os.path.join(
         storage_dir.decode('utf-8') if hasattr(storage_dir, 'decode')
         else storage_dir,
-        current_user.email.replace('@', '_')
+        current_user.username.replace('@', '_')
     )
 
     # Rename an old-style storage directory, if the new style doesn't exist
@@ -81,14 +82,14 @@ def init_app(app):
 
     if storage_dir and not os.path.isdir(storage_dir):
         if os.path.exists(storage_dir):
-            raise Exception(
+            raise InternalServerError(
                 'The path specified for the storage directory is not a '
                 'directory.'
             )
         os.makedirs(storage_dir, int('700', 8))
 
     if storage_dir and not os.access(storage_dir, os.W_OK | os.R_OK):
-        raise Exception(
+        raise InternalServerError(
             'The user does not have permission to read and write to the '
             'specified storage directory.'
         )

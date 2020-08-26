@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -55,6 +55,23 @@ define('pgadmin.node.schema', [
           }
         }
       },
+      events : {
+        'keydown': 'keyDownHandler',
+      },
+
+      keyDownHandler : function(event){
+        // move the focus to editable input
+        let lastButton = $(this.$el).find('button:last');
+        let firstEditableCell = $(this.$el).find('td.editable:first');
+        if (event.keyCode== 9 && !event.shiftKey){
+          if ($(firstEditableCell).is(':visible')
+            && ($(event.target)).is($(lastButton))){
+            $(firstEditableCell).trigger('click');
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }
+      },
 
       render: function() {
         var self = this,
@@ -71,7 +88,9 @@ define('pgadmin.node.schema', [
 
         var gridHeader = _.template([
             '<div class="subnode-header">',
-            '  <label class="control-label col-sm-4"><%-label%></label>',
+            '<% if (label && label != "") %> {',
+            '    <span class="control-label col-sm-4"><%-label%></span>',
+            '}',
             '</div>'].join('\n')),
           gridBody = $('<div class="pgadmin-control-group backgrid form-group col-12 object subnode"></div>').append(
             gridHeader(attributes)
@@ -134,7 +153,8 @@ define('pgadmin.node.schema', [
   },{
     id: 'autovacuum_custom', label: gettext('Custom auto-vacuum?'),
     group: gettext('Table'), mode: ['edit', 'create'],
-    type: 'switch',
+    type: 'switch', controlLabelClassName: 'control-label pg-el-sm-4 pg-el-12',
+    controlsClassName: 'pgadmin-controls pg-el-sm-8 pg-el-12',
     disabled: function(m) {
       // If table is partitioned table then disabled it.
       if (m.top && m.top.get('is_partitioned')) {
@@ -152,46 +172,29 @@ define('pgadmin.node.schema', [
       return true;
     },
   },{
-    id: 'autovacuum_enabled', label: gettext('Enabled?'),
+    id: 'autovacuum_enabled', label: gettext('Autovacuum Enabled?'),
     group: gettext('Table'), mode: ['edit', 'create'],
-    type: 'switch',
+    type: 'radioModern', controlLabelClassName: 'control-label pg-el-sm-4 pg-el-12',
+    controlsClassName: 'pgadmin-controls pg-el-sm-8 pg-el-12',
+    options: [
+      {'label': gettext('Not set'), 'value': 'x'},
+      {'label': gettext('Yes'), 'value': 't'},
+      {'label': gettext('No'), 'value': 'f'},
+    ],
     deps: ['autovacuum_custom'],
     disabled: function(m) {
       if(!m.top.inSchema.apply(this, [m]) &&
         m.get('autovacuum_custom') == true) {
 
-        // If reloptions is null then set the autovacuum_enabled to true.
-        if (!_.isUndefined(m.get('reloptions')) &&
-          _.isNull(m.get('reloptions'))) {
-          setTimeout(function() {
-            m.set('autovacuum_enabled', true);
-          }, 10);
-        }
         return false;
       }
 
       // We also need to unset rest of all
       setTimeout(function() {
-        m.set('autovacuum_enabled', false);
+        m.set('autovacuum_enabled', 'x');
       }, 10);
       return true;
     },
-    control: Backform.SwitchControl.extend({
-      onChange: function() {
-        Backform.SwitchControl.prototype.onChange.apply(this, arguments);
-
-        let m = this.model;
-        // If value of autovacuum_enabled is false and reloptions is null
-        // then we should set the value of autovacuum_custom to false, as
-        // there is no query to run.
-        if (!m.get('autovacuum_enabled') && !_.isUndefined(m.get('reloptions'))
-          && _.isNull(m.get('reloptions'))) {
-          setTimeout(function() {
-            m.set('autovacuum_custom', false);
-          }, 10);
-        }
-      },
-    }),
   },{
     id: 'vacuum_table', label: '',
     model: Backform.VacuumTableModel, editable: false, type: 'collection',
@@ -208,7 +211,7 @@ define('pgadmin.node.schema', [
           name: 'value', label: gettext('Value'),
           cellHeaderClasses:'width_percent_30',
           cellFunction: Backform.cellFunction, editable: function(m) {
-            return m.handler.get('autovacuum_enabled');
+            return m.handler.get('autovacuum_custom');
           }, headerCell: Backgrid.Extension.CustomHeaderCell,
         },
         {
@@ -219,42 +222,38 @@ define('pgadmin.node.schema', [
         },
       ],
     }),
-    deps: ['autovacuum_enabled'],
+    deps: ['autovacuum_custom'],
   },{
     id: 'spacer_ctrl', group: gettext('TOAST table'), mode: ['edit', 'create'], type: 'spacer',
   },{
     id: 'toast_autovacuum', label: gettext('Custom auto-vacuum?'),
     group: gettext('TOAST table'), mode: ['edit', 'create'],
-    type: 'switch',
+    type: 'switch', controlLabelClassName: 'control-label pg-el-sm-4 pg-el-12',
+    controlsClassName: 'pgadmin-controls pg-el-sm-8 pg-el-12',
     disabled: function(m) {
       // We need to check additional condition to toggle enable/disable
       // for table auto-vacuum
-      if(!m.top.inSchema.apply(this, [m]) && m.isNew()) {
-        return false;
-      } else if(!m.top.inSchema.apply(this, [m]) &&
-          (m.get('toast_autovacuum_enabled') === true ||
-          m.top.get('hastoasttable') === true)) {
+      if(!m.top.inSchema.apply(this, [m]) &&
+        (m.isNew() || (m.get('toast_autovacuum_enabled') === true || m.top.get('hastoasttable') === true))) {
         return false;
       }
       return true;
     },
   },{
-    id: 'toast_autovacuum_enabled', label: gettext('Enabled?'),
+    id: 'toast_autovacuum_enabled', label: gettext('Autovacuum Enabled?'),
     group: gettext('TOAST table'), mode: ['edit', 'create'],
-    type: 'switch',
+    type: 'radioModern', controlLabelClassName: 'control-label pg-el-sm-4 pg-el-12',
+    controlsClassName: 'pgadmin-controls pg-el-sm-8 pg-el-12',
+    options: [
+      {'label': gettext('Not set'), 'value': 'x'},
+      {'label': gettext('Yes'), 'value': 't'},
+      {'label': gettext('No'), 'value': 'f'},
+    ],
     deps:['toast_autovacuum'],
     disabled: function(m) {
       // If in schema & in create mode then enable it
       if(!m.top.inSchema.apply(this, [m]) &&
           m.get('toast_autovacuum') === true) {
-
-        // If reloptions is null then set the autovacuum_enabled to true.
-        if (!_.isUndefined(m.get('toast_reloptions')) &&
-          _.isNull(m.get('toast_reloptions'))) {
-          setTimeout(function() {
-            m.set('toast_autovacuum_enabled', true);
-          }, 10);
-        }
 
         return false;
       }
@@ -262,27 +261,11 @@ define('pgadmin.node.schema', [
       if (m.isNew() || m.get('hastoasttable')) {
         // we also need to unset rest of all
         setTimeout(function() {
-          m.set('toast_autovacuum_enabled', false);
+          m.set('toast_autovacuum_enabled', 'x');
         }, 10);
       }
       return true;
     },
-    control: Backform.SwitchControl.extend({
-      onChange: function() {
-        Backform.SwitchControl.prototype.onChange.apply(this, arguments);
-
-        let m = this.model;
-        // If value of autovacuum_enabled is false and reloptions is null
-        // then we should set the value of autovacuum_custom to false, as
-        // there is no query to run.
-        if (!m.get('toast_autovacuum_enabled') && !_.isUndefined(m.get('toast_reloptions'))
-          && _.isNull(m.get('toast_reloptions'))) {
-          setTimeout(function() {
-            m.set('toast_autovacuum', false);
-          }, 10);
-        }
-      },
-    }),
   },{
     id: 'vacuum_toast', label: '',
     model: Backform.VacuumTableModel, type: 'collection', editable: function(m) {
@@ -302,7 +285,7 @@ define('pgadmin.node.schema', [
           cellHeaderClasses:'width_percent_30',
           headerCell: Backgrid.Extension.CustomHeaderCell,
           cellFunction: Backform.cellFunction, editable: function(m) {
-            return m.handler.get('toast_autovacuum_enabled');
+            return m.handler.get('toast_autovacuum');
           },
         },
         {
@@ -313,7 +296,7 @@ define('pgadmin.node.schema', [
         },
       ],
     }),
-    deps: ['toast_autovacuum_enabled'],
+    deps: ['toast_autovacuum'],
   }];
 
   // Extend the browser's collection class for schema collection
@@ -391,32 +374,32 @@ define('pgadmin.node.schema', [
           type: 'text',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },{
           id: 'namespaceowner', label: gettext('Owner'), cell: 'string',
           type: 'text', control: 'node-list-by-name', node: 'role',
           select2: { allowClear: false },
         },{
-          id: 'is_sys_object', label: gettext('System schema?'),
-          cell: 'switch', type: 'switch', mode: ['properties'], disabled: true,
+          id: 'is_sys_obj', label: gettext('System schema?'),
+          cell: 'switch', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline',
         },{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'tblacl', label: gettext('Default TABLE privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'seqacl', label: gettext('Default SEQUENCE privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'funcacl', label: gettext('Default FUNCTION privileges'),
-          group: gettext('Security'), type: 'text', mode: ['properties'], disabled: true,
+          group: gettext('Security'), type: 'text', mode: ['properties'],
         },{
           id: 'typeacl', label: gettext('Default TYPE privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true, min_version: 90200,
+          group: gettext('Security'), mode: ['properties'], min_version: 90200,
           visible: function() {
             return this.version_compatible;
           },

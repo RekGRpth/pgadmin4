@@ -2,18 +2,18 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.sequence', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backform',
+  'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backform',
   'pgadmin.node.schema.dir/child', 'pgadmin.node.schema.dir/schema_child_tree_node',
   'pgadmin.browser.collection',
 ], function(
-  gettext, url_for, $, _, S, pgAdmin, pgBrowser, Backform, schemaChild,
+  gettext, url_for, $, _, pgAdmin, pgBrowser, Backform, schemaChild,
   schemaChildTreeNode
 ) {
 
@@ -80,6 +80,7 @@ define('pgadmin.node.sequence', [
           oid: undefined,
           seqowner: undefined,
           schema: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           increment: undefined,
           start: undefined,
@@ -129,6 +130,9 @@ define('pgadmin.node.sequence', [
             return true;
           }, cache_node: 'database', cache_level: 'database',
         },{
+          id: 'is_sys_obj', label: gettext('System sequence?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
+        },{
           id: 'comment', label: gettext('Comment'), type: 'multiline',
           mode: ['properties', 'create', 'edit'],
         },{
@@ -137,11 +141,10 @@ define('pgadmin.node.sequence', [
         },{
           id: 'increment', label: gettext('Increment'), type: 'int',
           mode: ['properties', 'create', 'edit'], group: gettext('Definition'),
-          min: 1,
         },{
           id: 'start', label: gettext('Start'), type: 'int',
           mode: ['properties', 'create'], group: gettext('Definition'),
-          disabled: function(m) {
+          readonly: function(m) {
             return !m.isNew();
           },
         },{
@@ -159,7 +162,7 @@ define('pgadmin.node.sequence', [
           mode: ['properties', 'create', 'edit'], group: gettext('Definition'),
         }, pgBrowser.SecurityGroupSchema,{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
         },{
           id: 'relacl', label: gettext('Privileges'), group: 'security',
           model: pgBrowser.Node.PrivilegeRoleModel.extend({

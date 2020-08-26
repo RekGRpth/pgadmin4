@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -15,6 +15,7 @@ from smtplib import SMTPConnectError, SMTPResponseException, \
     SMTPServerDisconnected, SMTPDataError, SMTPHeloError, SMTPException, \
     SMTPAuthenticationError, SMTPSenderRefused, SMTPRecipientsRefused
 from socket import error as SOCKETErrorException
+from urllib.request import urlopen
 
 import six
 from flask import current_app, render_template, url_for, make_response, \
@@ -29,7 +30,7 @@ from flask_security.recoverable import reset_password_token_status, \
 from flask_security.signals import reset_password_instructions_sent
 from flask_security.utils import config_value, do_flash, get_url, \
     get_message, slash_url_suffix, login_user, send_mail
-from flask_security.views import _security, _commit, _render_json, _ctx
+from flask_security.views import _security, _commit, _ctx
 from werkzeug.datastructures import MultiDict
 
 import config
@@ -45,13 +46,29 @@ from pgadmin.browser.register_browser_preferences import \
 from pgadmin.utils.master_password import validate_master_password, \
     set_masterpass_check_text, cleanup_master_password, get_crypt_key, \
     set_crypt_key, process_masterpass_disabled
+from pgadmin.model import User
+from pgadmin.utils.constants import MIMETYPE_APP_JS, PGADMIN_NODE
 
 try:
-    import urllib.request as urlreq
+    from flask_security.views import default_render_json
 except ImportError as e:
-    import urllib2 as urlreq
+    # Support Flask-Security-Too == 3.2
+    import sys
+    if sys.version_info < (3, 8):
+        from flask_security.views import _render_json as default_render_json
 
 MODULE_NAME = 'browser'
+BROWSER_STATIC = 'browser.static'
+JQUERY_ACIPLUGIN = 'jquery.aciplugin'
+BROWSER_INDEX = 'browser.index'
+PGADMIN_BROWSER = 'pgAdmin.Browser'
+PASS_ERROR_MSG = u'Your password has not been changed.'
+SMTP_SOCKET_ERROR = u'SMTP Socket error: {error}\n {pass_error}'.format(
+    error={}, pass_error=PASS_ERROR_MSG)
+SMTP_ERROR = u'SMTP error: {error}\n {pass_error}'.format(
+    error={}, pass_error=PASS_ERROR_MSG)
+PASS_ERROR = u'Error: {error}\n {pass_error}'.format(
+    error={}, pass_error=PASS_ERROR_MSG)
 
 
 class BrowserModule(PgAdminModule):
@@ -72,7 +89,7 @@ class BrowserModule(PgAdminModule):
             ('static', 'vendor/codemirror/addon/dialog/dialog.css'),
             ('static', context_menu_file),
             ('static', wcdocker_file),
-            ('browser.static', 'vendor/aciTree/css/aciTree.css')
+            (BROWSER_STATIC, 'vendor/aciTree/css/aciTree.css')
         ]:
             stylesheets.append(url_for(endpoint, filename=filename))
         return stylesheets
@@ -114,9 +131,9 @@ class BrowserModule(PgAdminModule):
             'preloaded': True
         })
         scripts.append({
-            'name': 'jquery.aciplugin',
+            'name': JQUERY_ACIPLUGIN,
             'path': url_for(
-                'browser.static',
+                BROWSER_STATIC,
                 filename='vendor/aciTree/jquery.aciPlugin.min'
             ),
             'deps': ['jquery'],
@@ -126,21 +143,21 @@ class BrowserModule(PgAdminModule):
         scripts.append({
             'name': 'jquery.acitree',
             'path': url_for(
-                'browser.static',
+                BROWSER_STATIC,
                 filename='vendor/aciTree/jquery.aciTree' if
                 current_app.debug else 'vendor/aciTree/jquery.aciTree.min'
             ),
-            'deps': ['jquery', 'jquery.aciplugin'],
+            'deps': ['jquery', JQUERY_ACIPLUGIN],
             'exports': 'aciPluginClass.plugins.aciTree',
             'preloaded': True
         })
         scripts.append({
             'name': 'jquery.acisortable',
             'path': url_for(
-                'browser.static',
+                BROWSER_STATIC,
                 filename='vendor/aciTree/jquery.aciSortable.min'
             ),
-            'deps': ['jquery', 'jquery.aciplugin'],
+            'deps': ['jquery', JQUERY_ACIPLUGIN],
             'exports': 'aciPluginClass.plugins.aciSortable',
             'when': None,
             'preloaded': True
@@ -148,10 +165,10 @@ class BrowserModule(PgAdminModule):
         scripts.append({
             'name': 'jquery.acifragment',
             'path': url_for(
-                'browser.static',
+                BROWSER_STATIC,
                 filename='vendor/aciTree/jquery.aciFragment.min'
             ),
-            'deps': ['jquery', 'jquery.aciplugin'],
+            'deps': ['jquery', JQUERY_ACIPLUGIN],
             'exports': 'aciPluginClass.plugins.aciFragment',
             'when': None,
             'preloaded': True
@@ -170,18 +187,18 @@ class BrowserModule(PgAdminModule):
 
         scripts.append({
             'name': 'pgadmin.browser.datamodel',
-            'path': url_for('browser.static', filename='js/datamodel'),
+            'path': url_for(BROWSER_STATIC, filename='js/datamodel'),
             'preloaded': True
         })
 
         for name, script in [
-            ['pgadmin.browser', 'js/browser'],
+            [PGADMIN_BROWSER, 'js/browser'],
             ['pgadmin.browser.endpoints', 'js/endpoints'],
             ['pgadmin.browser.error', 'js/error']
         ]:
             scripts.append({
                 'name': name,
-                'path': url_for('browser.index') + script,
+                'path': url_for(BROWSER_INDEX) + script,
                 'preloaded': True
             })
 
@@ -192,7 +209,7 @@ class BrowserModule(PgAdminModule):
         ]:
             scripts.append({
                 'name': name,
-                'path': url_for('browser.index') + script,
+                'path': url_for(BROWSER_INDEX) + script,
                 'preloaded': True,
                 'deps': ['pgadmin.browser.datamodel']
             })
@@ -203,12 +220,12 @@ class BrowserModule(PgAdminModule):
             ['pgadmin.browser.frame', 'js/frame']
         ]:
             scripts.append({
-                'name': name, 'path': url_for('browser.static', filename=end),
+                'name': name, 'path': url_for(BROWSER_STATIC, filename=end),
                 'preloaded': True})
 
         scripts.append({
             'name': 'pgadmin.browser.node.ui',
-            'path': url_for('browser.static', filename='js/node.ui'),
+            'path': url_for(BROWSER_STATIC, filename='js/node.ui'),
             'when': 'server_group'
         })
 
@@ -221,26 +238,26 @@ class BrowserModule(PgAdminModule):
             'file_items': [
                 MenuItem(
                     name='mnu_locklayout',
-                    module='pgAdmin.Browser',
+                    module=PGADMIN_BROWSER,
                     label=gettext('Lock Layout'),
                     priority=999,
                     menu_items=[MenuItem(
                         name='mnu_lock_none',
-                        module='pgAdmin.Browser',
+                        module=PGADMIN_BROWSER,
                         callback='mnu_lock_none',
                         priority=0,
                         label=gettext('None'),
                         checked=True
                     ), MenuItem(
                         name='mnu_lock_docking',
-                        module='pgAdmin.Browser',
+                        module=PGADMIN_BROWSER,
                         callback='mnu_lock_docking',
                         priority=1,
                         label=gettext('Prevent Docking'),
                         checked=False
                     ), MenuItem(
                         name='mnu_lock_full',
-                        module='pgAdmin.Browser',
+                        module=PGADMIN_BROWSER,
                         callback='mnu_lock_full',
                         priority=2,
                         label=gettext('Full Lock'),
@@ -258,7 +275,7 @@ class BrowserModule(PgAdminModule):
         Returns:
             list: a list of url endpoints exposed to the client.
         """
-        return ['browser.index', 'browser.nodes',
+        return [BROWSER_INDEX, 'browser.nodes',
                 'browser.check_master_password',
                 'browser.set_master_password',
                 'browser.reset_master_password',
@@ -353,15 +370,15 @@ class BrowserPluginModule(PgAdminModule):
 
         if self.module_use_template_javascript:
             scripts.extend([{
-                'name': 'pgadmin.node.%s' % self.node_type,
-                'path': url_for('browser.index') +
-                        '%s/module' % self.node_type,
+                'name': PGADMIN_NODE % self.node_type,
+                'path': url_for(BROWSER_INDEX
+                                ) + '%s/module' % self.node_type,
                 'when': self.script_load,
                 'is_template': True
             }])
         else:
             scripts.extend([{
-                'name': 'pgadmin.node.%s' % self.node_type,
+                'name': PGADMIN_NODE % self.node_type,
                 'path': url_for(
                     '%s.static' % self.name,
                     filename=('js/%s' % self.node_type)
@@ -407,7 +424,7 @@ class BrowserPluginModule(PgAdminModule):
             "_type": node_type,
             "_id": node_id,
             "_pid": parent_id,
-            "module": 'pgadmin.node.%s' % node_type
+            "module": PGADMIN_NODE % node_type
         }
         for key in kwargs:
             obj.setdefault(key, kwargs[key])
@@ -520,6 +537,91 @@ class BrowserPluginModule(PgAdminModule):
         )
 
 
+def _get_logout_url():
+    return '{0}?next={1}'.format(
+        url_for('security.logout'), url_for(BROWSER_INDEX))
+
+
+def _get_supported_browser():
+    """
+    This function return supported browser.
+    :return: browser name, browser known, browser version
+    """
+    browser = request.user_agent.browser
+    version = request.user_agent.version and int(
+        request.user_agent.version.split('.')[0])
+
+    browser_name = None
+    browser_known = True
+    if browser == 'chrome' and version < 72:
+        browser_name = 'Chrome'
+    elif browser == 'firefox' and version < 65:
+        browser_name = 'Firefox'
+    # comparing EdgeHTML engine version
+    elif browser == 'edge' and version < 18:
+        browser_name = 'Edge'
+        # browser version returned by edge browser is actual EdgeHTML
+        # engine version. Below code gets actual browser version using
+        # EdgeHTML version
+        engine_to_actual_browser_version = {
+            16: 41,
+            17: 42,
+            18: 44
+        }
+        version = engine_to_actual_browser_version.get(version, '< 44')
+    elif browser == 'safari' and version < 12:
+        browser_name = 'Safari'
+    elif browser == 'msie':
+        browser_name = 'Internet Explorer'
+    elif browser != 'chrome' and browser != 'firefox' and \
+            browser != 'edge' and browser != 'safari':
+        browser_name = browser
+        browser_known = False
+
+    return browser_name, browser_known, version
+
+
+def check_browser_upgrade():
+    """
+    This function is used to check the browser version.
+    :return:
+    """
+    data = None
+    url = '%s?version=%s' % (config.UPGRADE_CHECK_URL, config.APP_VERSION)
+    current_app.logger.debug('Checking version data at: %s' % url)
+
+    try:
+        # Do not wait for more than 5 seconds.
+        # It stuck on rendering the browser.html, while working in the
+        # broken network.
+        if os.path.exists(config.CA_FILE):
+            response = urlopen(url, data, 5, cafile=config.CA_FILE)
+        else:
+            response = urlopen(url, data, 5)
+        current_app.logger.debug(
+            'Version check HTTP response code: %d' % response.getcode()
+        )
+
+        if response.getcode() == 200:
+            data = json.loads(response.read().decode('utf-8'))
+            current_app.logger.debug('Response data: %s' % data)
+    except Exception:
+        current_app.logger.exception('Exception when checking for update')
+
+    if data is not None and \
+        data[config.UPGRADE_CHECK_KEY]['version_int'] > \
+            config.APP_VERSION_INT:
+        msg = render_template(
+            MODULE_NAME + "/upgrade.html",
+            current_version=config.APP_VERSION,
+            upgrade_version=data[config.UPGRADE_CHECK_KEY]['version'],
+            product_name=config.APP_NAME,
+            download_url=data[config.UPGRADE_CHECK_KEY]['download_url']
+        )
+
+        flash(msg, 'warning')
+
+
 @blueprint.route("/")
 @pgCSRFProtect.exempt
 @login_required
@@ -537,54 +639,50 @@ def index():
             base_url=None
         )
 
+    # Check the browser is a support version
+    # NOTE: If the checks here are updated, make sure the supported versions
+    # at https://www.pgadmin.org/faq/#11 are updated to match!
+    if config.CHECK_SUPPORTED_BROWSER:
+        browser_name, browser_known, version = _get_supported_browser()
+
+        if browser_name is not None:
+            msg = render_template(
+                MODULE_NAME + "/browser.html",
+                version=version,
+                browser=browser_name,
+                known=browser_known
+            )
+
+            flash(msg, 'warning')
+
     # Get the current version info from the website, and flash a message if
     # the user is out of date, and the check is enabled.
     if config.UPGRADE_CHECK_ENABLED:
-        data = None
-        url = '%s?version=%s' % (config.UPGRADE_CHECK_URL, config.APP_VERSION)
-        current_app.logger.debug('Checking version data at: %s' % url)
+        check_browser_upgrade()
 
-        try:
-            # Do not wait for more than 5 seconds.
-            # It stuck on rendering the browser.html, while working in the
-            # broken network.
-            if os.path.exists(config.CA_FILE):
-                response = urlreq.urlopen(url, data, 5, cafile=config.CA_FILE)
-            else:
-                response = urlreq.urlopen(url, data, 5)
-            current_app.logger.debug(
-                'Version check HTTP response code: %d' % response.getcode()
-            )
+    auth_only_internal = False
+    auth_source = []
 
-            if response.getcode() == 200:
-                data = json.loads(response.read().decode('utf-8'))
-                current_app.logger.debug('Response data: %s' % data)
-        except Exception:
-            current_app.logger.exception('Exception when checking for update')
-
-        if data is not None:
-            if data[config.UPGRADE_CHECK_KEY]['version_int'] > \
-                    config.APP_VERSION_INT:
-                msg = render_template(
-                    MODULE_NAME + "/upgrade.html",
-                    current_version=config.APP_VERSION,
-                    upgrade_version=data[config.UPGRADE_CHECK_KEY]['version'],
-                    product_name=config.APP_NAME,
-                    download_url=data[config.UPGRADE_CHECK_KEY]['download_url']
-                )
-
-                flash(msg, 'warning')
+    if config.SERVER_MODE:
+        if len(config.AUTHENTICATION_SOURCES) == 1\
+                and 'internal' in config.AUTHENTICATION_SOURCES:
+            auth_only_internal = True
+        auth_source = session['_auth_source_manager_obj'][
+            'source_friendly_name']
 
     response = Response(render_template(
         MODULE_NAME + "/index.html",
-        username=current_user.email,
+        username=current_user.username,
+        auth_source=auth_source,
         is_admin=current_user.has_role("Administrator"),
-        _=gettext
+        logout_url=_get_logout_url(),
+        _=gettext,
+        auth_only_internal=auth_only_internal
     ))
 
     # Set the language cookie after login, so next time the user will have that
     # same option at the login time.
-    misc_preference = Preferences.module('miscellaneous')
+    misc_preference = Preferences.module('misc')
     user_languages = misc_preference.preference(
         'user_language'
     )
@@ -646,7 +744,7 @@ def utils():
         from pgadmin.utils.driver import get_driver
         driver = get_driver(PG_DEFAULT_DRIVER)
         pg_libpq_version = driver.libpq_version()
-    except Exception as e:
+    except Exception:
         pg_libpq_version = 0
 
     for submodule in current_blueprint.submodules:
@@ -666,9 +764,10 @@ def utils():
             editor_indent_with_tabs=editor_indent_with_tabs,
             app_name=config.APP_NAME,
             pg_libpq_version=pg_libpq_version,
-            support_ssh_tunnel=config.SUPPORT_SSH_TUNNEL
+            support_ssh_tunnel=config.SUPPORT_SSH_TUNNEL,
+            logout_url=_get_logout_url()
         ),
-        200, {'Content-Type': 'application/javascript'})
+        200, {'Content-Type': MIMETYPE_APP_JS})
 
 
 @blueprint.route("/js/endpoints.js")
@@ -676,7 +775,7 @@ def utils():
 def exposed_urls():
     return make_response(
         render_template('browser/js/endpoints.js'),
-        200, {'Content-Type': 'application/javascript'}
+        200, {'Content-Type': MIMETYPE_APP_JS}
     )
 
 
@@ -686,7 +785,7 @@ def exposed_urls():
 def error_js():
     return make_response(
         render_template('browser/js/error.js', _=gettext),
-        200, {'Content-Type': 'application/javascript'})
+        200, {'Content-Type': MIMETYPE_APP_JS})
 
 
 @blueprint.route("/js/messages.js")
@@ -694,7 +793,7 @@ def error_js():
 def messages_js():
     return make_response(
         render_template('browser/js/messages.js', _=gettext),
-        200, {'Content-Type': 'application/javascript'})
+        200, {'Content-Type': MIMETYPE_APP_JS})
 
 
 @blueprint.route("/browser.css")
@@ -792,15 +891,17 @@ def set_master_password():
     # Master password is not applicable for server mode
     if not config.SERVER_MODE and config.MASTER_PASSWORD_REQUIRED:
 
+        # if master pass is set previously
+        if current_user.masterpass_check is not None:
+            if data.get('button_click') and \
+                    not validate_master_password(data.get('password')):
+                return form_master_password_response(
+                    existing=True,
+                    present=False,
+                    errmsg=gettext("Incorrect master password")
+                )
+
         if data != '' and data.get('password', '') != '':
-            # if master pass is set previously
-            if current_user.masterpass_check is not None:
-                if not validate_master_password(data.get('password')):
-                    return form_master_password_response(
-                        existing=True,
-                        present=False,
-                        errmsg=gettext("Incorrect master password")
-                    )
 
             # store the master pass in the memory
             set_crypt_key(data.get('password'))
@@ -827,9 +928,14 @@ def set_master_password():
                 present=False,
             )
         elif not get_crypt_key()[0]:
+            error_message = None
+            if data.get('button_click') and data.get('password') == '':
+                # If user attempted to enter a blank password, then throw error
+                error_message = gettext("Master password cannot be empty")
             return form_master_password_response(
                 existing=False,
                 present=False,
+                errmsg=error_message
             )
 
     # if master password is disabled now, but was used once then
@@ -893,9 +999,7 @@ if hasattr(config, 'SECURITY_CHANGEABLE') and config.SECURITY_CHANGEABLE:
             except SOCKETErrorException as e:
                 # Handle socket errors which are not covered by SMTPExceptions.
                 logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP Socket error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+                flash(gettext(SMTP_SOCKET_ERROR).format(e),
                       'danger')
                 has_error = True
             except (SMTPConnectError, SMTPResponseException,
@@ -904,19 +1008,14 @@ if hasattr(config, 'SECURITY_CHANGEABLE') and config.SECURITY_CHANGEABLE:
                     SMTPRecipientsRefused) as e:
                 # Handle smtp specific exceptions.
                 logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+                flash(gettext(SMTP_ERROR).format(e),
                       'danger')
                 has_error = True
             except Exception as e:
                 # Handle other exceptions.
                 logging.exception(str(e), exc_info=True)
                 flash(
-                    gettext(
-                        u'Error: {}\n'
-                        u'Your password has not been changed.'
-                    ).format(e),
+                    gettext(PASS_ERROR).format(e),
                     'danger'
                 )
                 has_error = True
@@ -938,7 +1037,7 @@ if hasattr(config, 'SECURITY_CHANGEABLE') and config.SECURITY_CHANGEABLE:
 
         if request.json and not has_error:
             form.user = current_user
-            return _render_json(form)
+            return default_render_json(form)
 
         return _security.render_template(
             config_value('CHANGE_PASSWORD_TEMPLATE'),
@@ -980,43 +1079,54 @@ if hasattr(config, 'SECURITY_RECOVERABLE') and config.SECURITY_RECOVERABLE:
             form = form_class()
 
         if form.validate_on_submit():
-            try:
-                send_reset_password_instructions(form.user)
-            except SOCKETErrorException as e:
-                # Handle socket errors which are not covered by SMTPExceptions.
-                logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP Socket error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
-                      'danger')
-                has_error = True
-            except (SMTPConnectError, SMTPResponseException,
-                    SMTPServerDisconnected, SMTPDataError, SMTPHeloError,
-                    SMTPException, SMTPAuthenticationError, SMTPSenderRefused,
-                    SMTPRecipientsRefused) as e:
+            # Check the Authentication source of the User
+            user = User.query.filter_by(
+                email=form.data['email'],
+                auth_source=current_app.PGADMIN_DEFAULT_AUTH_SOURCE
+            ).first()
 
-                # Handle smtp specific exceptions.
-                logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+            if user is None:
+                # If the user is not an internal user, raise the exception
+                flash(gettext('Your account is authenticated using an '
+                              'external {} source. '
+                              'Please contact the administrators of this '
+                              'service if you need to reset your password.'
+                              ).format(form.user.auth_source),
                       'danger')
                 has_error = True
-            except Exception as e:
-                # Handle other exceptions.
-                logging.exception(str(e), exc_info=True)
-                flash(gettext(u'Error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
-                      'danger')
-                has_error = True
+            if not has_error:
+                try:
+                    send_reset_password_instructions(form.user)
+                except SOCKETErrorException as e:
+                    # Handle socket errors which are not
+                    # covered by SMTPExceptions.
+                    logging.exception(str(e), exc_info=True)
+                    flash(gettext(SMTP_SOCKET_ERROR).format(e),
+                          'danger')
+                    has_error = True
+                except (SMTPConnectError, SMTPResponseException,
+                        SMTPServerDisconnected, SMTPDataError, SMTPHeloError,
+                        SMTPException, SMTPAuthenticationError,
+                        SMTPSenderRefused, SMTPRecipientsRefused) as e:
+
+                    # Handle smtp specific exceptions.
+                    logging.exception(str(e), exc_info=True)
+                    flash(gettext(SMTP_ERROR).format(e),
+                          'danger')
+                    has_error = True
+                except Exception as e:
+                    # Handle other exceptions.
+                    logging.exception(str(e), exc_info=True)
+                    flash(gettext(PASS_ERROR).format(e),
+                          'danger')
+                    has_error = True
 
             if request.json is None and not has_error:
                 do_flash(*get_message('PASSWORD_RESET_REQUEST',
                                       email=form.user.email))
 
         if request.json and not has_error:
-            return _render_json(form, include_user=False)
+            return default_render_json(form, include_user=False)
 
         return _security.render_template(
             config_value('FORGOT_PASSWORD_TEMPLATE'),
@@ -1056,9 +1166,7 @@ if hasattr(config, 'SECURITY_RECOVERABLE') and config.SECURITY_RECOVERABLE:
             except SOCKETErrorException as e:
                 # Handle socket errors which are not covered by SMTPExceptions.
                 logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP Socket error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+                flash(gettext(SMTP_SOCKET_ERROR).format(e),
                       'danger')
                 has_error = True
             except (SMTPConnectError, SMTPResponseException,
@@ -1068,17 +1176,13 @@ if hasattr(config, 'SECURITY_RECOVERABLE') and config.SECURITY_RECOVERABLE:
 
                 # Handle smtp specific exceptions.
                 logging.exception(str(e), exc_info=True)
-                flash(gettext(u'SMTP error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+                flash(gettext(SMTP_ERROR).format(e),
                       'danger')
                 has_error = True
             except Exception as e:
                 # Handle other exceptions.
                 logging.exception(str(e), exc_info=True)
-                flash(gettext(u'Error: {}\n'
-                              u'Your password has not been changed.'
-                              ).format(e),
+                flash(gettext(PASS_ERROR).format(e),
                       'danger')
                 has_error = True
 

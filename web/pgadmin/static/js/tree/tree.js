@@ -2,13 +2,14 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
 
 import {isValidData} from 'sources/utils';
 import $ from 'jquery';
+import Alertify from 'pgadmin.alertifyjs';
 
 export class TreeNode {
   constructor(id, data, domNode, parent) {
@@ -49,17 +50,50 @@ export class TreeNode {
   }
 
   reload(tree) {
-    this.unload(tree);
-    tree.aciTreeApi.setInode(this.domNode);
-    tree.aciTreeApi.deselect(this.domNode);
-    setTimeout(() => {
-      tree.selectNode(this.domNode);
-    }, 0);
+    return new Promise((resolve)=>{
+      this.unload(tree)
+        .then(()=>{
+          tree.aciTreeApi.setInode(this.domNode);
+          tree.aciTreeApi.deselect(this.domNode);
+          setTimeout(() => {
+            tree.selectNode(this.domNode);
+          }, 0);
+          resolve();
+        });
+    });
   }
 
   unload(tree) {
-    this.children = [];
-    tree.aciTreeApi.unload(this.domNode);
+    return new Promise((resolve, reject)=>{
+      this.children = [];
+      tree.aciTreeApi.unload(this.domNode, {
+        success: ()=>{
+          resolve(true);
+        },
+        fail: ()=>{
+          reject();
+        },
+      });
+    });
+  }
+
+  open(tree, suppressNoDom) {
+    return new Promise((resolve, reject)=>{
+      if(suppressNoDom && (this.domNode == null || typeof(this.domNode) === 'undefined')) {
+        resolve(true);
+      } else if(tree.aciTreeApi.isOpen(this.domNode)) {
+        resolve(true);
+      } else {
+        tree.aciTreeApi.open(this.domNode, {
+          success: ()=>{
+            resolve(true);
+          },
+          fail: ()=>{
+            reject(true);
+          },
+        });
+      }
+    });
   }
 
   /*
@@ -134,11 +168,15 @@ export class Tree {
     let dropDetailsFunc = this.getDraggable(data._type);
 
     if(dropDetailsFunc != null) {
+
+      /* addEventListener is used here because import jquery.drag.event
+       * overrides the dragstart event set using element.on('dragstart')
+       * This will avoid conflict.
+       */
       item.find('.aciTreeItem')
-        .attr('draggable', true)
-        .on('dragstart', (e)=> {
+        .attr('draggable', true)[0]
+        .addEventListener('dragstart', (e)=> {
           let dropDetails = dropDetailsFunc(data, item);
-          let origEvent = e.originalEvent;
 
           if(typeof dropDetails == 'string') {
             dropDetails = {
@@ -160,16 +198,16 @@ export class Tree {
             }
           }
 
-          origEvent.dataTransfer.setData('text', JSON.stringify(dropDetails));
+          e.dataTransfer.setData('text', JSON.stringify(dropDetails));
           /* Required by Firefox */
-          if(origEvent.dataTransfer.dropEffect) {
-            origEvent.dataTransfer.dropEffect = 'move';
+          if(e.dataTransfer.dropEffect) {
+            e.dataTransfer.dropEffect = 'move';
           }
 
           /* setDragImage is not supported in IE. We leave it to
            * its default look and feel
            */
-          if(origEvent.dataTransfer.setDragImage) {
+          if(e.dataTransfer.setDragImage) {
             let dragItem = $(`
               <div class="drag-tree-node">
                 <span>${_.escape(dropDetails.text)}</span>
@@ -179,7 +217,7 @@ export class Tree {
             $('body .drag-tree-node').remove();
             $('body').append(dragItem);
 
-            origEvent.dataTransfer.setDragImage(dragItem[0], 0, 0);
+            e.dataTransfer.setDragImage(dragItem[0], 0, 0);
           }
         });
     }
@@ -197,6 +235,51 @@ export class Tree {
     return findInTree(this.rootNode, path.join('.'));
   }
 
+  findNodeWithToggle(path) {
+    let tree = this;
+
+    if(path == null || !Array.isArray(path)) {
+      return Promise.reject();
+    }
+    path = path.join('.');
+
+    let onCorrectPath = function(matchPath) {
+      return (matchPath !== undefined && path !== undefined
+        && (path.startsWith(matchPath + '.') || path === matchPath));
+    };
+
+    return (function findInNode(currentNode) {
+      return new Promise((resolve, reject)=>{
+        if (path === null || path === undefined || path.length === 0) {
+          resolve(null);
+        }
+        /* No point in checking the children if
+         * the path for currentNode itself is not matching
+         */
+        if (currentNode.path !== undefined && !onCorrectPath(currentNode.path)) {
+          reject(null);
+        } else if (currentNode.path === path) {
+          resolve(currentNode);
+        } else {
+          currentNode.open(tree, true)
+            .then(()=>{
+              for (let i = 0, length = currentNode.children.length; i < length; i++) {
+                let childNode = currentNode.children[i];
+                if(onCorrectPath(childNode.path)) {
+                  resolve(findInNode(childNode));
+                  return;
+                }
+              }
+              reject(null);
+            })
+            .catch(()=>{
+              reject(null);
+            });
+        }
+      });
+    })(this.rootNode);
+  }
+
   findNodeByDomElement(domElement) {
     const path = this.translateTreeNodeIdFromACITree(domElement);
     if(!path || !path[0]) {
@@ -210,8 +293,19 @@ export class Tree {
     return this.aciTreeApi.selected();
   }
 
-  selectNode(aciTreeIdentifier) {
+  /* scrollIntoView will scroll only to top and bottom
+   * Logic can be added for scroll to middle
+   */
+  scrollTo(domElement) {
+    domElement.scrollIntoView();
+  }
+
+  selectNode(aciTreeIdentifier, scrollOnSelect) {
     this.aciTreeApi.select(aciTreeIdentifier);
+
+    if(scrollOnSelect) {
+      this.scrollTo(aciTreeIdentifier[0]);
+    }
   }
 
   createOrUpdateNode(id, data, parent, domNode) {
@@ -222,6 +316,7 @@ export class Tree {
     const oldNode = this.findNode(oldNodePath);
     if (oldNode !== null) {
       oldNode.data = data;
+      oldNode.domNode = domNode;
       return oldNode;
     }
 
@@ -229,8 +324,22 @@ export class Tree {
     if (parent === this.rootNode) {
       node.parentNode = null;
     }
-    parent.children.push(node);
+
+    if (parent !== null && parent !== undefined)
+      parent.children.push(node);
     return node;
+  }
+
+  unloadNode(id, data, domNode, parentPath) {
+    let oldNodePath = [id];
+    const parent = this.findNode(parentPath);
+    if(parent !== null && parent !== undefined) {
+      oldNodePath = [parent.path, id];
+    }
+    const oldNode = this.findNode(oldNodePath);
+    if(oldNode) {
+      oldNode.children = [];
+    }
   }
 
   /**
@@ -246,18 +355,49 @@ export class Tree {
   register($treeJQuery) {
     $treeJQuery.on('acitree', function (event, api, item, eventName) {
       if (api.isItem(item)) {
-        if (eventName === 'added') {
+        /* If the id of node is changed, the path should also be changed */
+        if (['added', 'idset', 'beforeunload'].indexOf(eventName) != -1) {
           const id = api.getId(item);
           const data = api.itemData(item);
-
-          this.prepareDraggable(data, item);
-
           const parentId = this.translateTreeNodeIdFromACITree(api.parent(item));
-          this.addNewNode(id, data, item, parentId);
+
+          if(eventName === 'beforeunload') {
+            this.unloadNode(id, data, item, parentId);
+          } else {
+            if(eventName === 'added') {
+              this.prepareDraggable(data, item);
+            }
+
+            this.addNewNode(id, data, item, parentId);
+          }
+          if(data.errmsg) {
+            Alertify.error(data.errmsg);
+          }
         }
       }
     }.bind(this));
     this.aciTreeApi = $treeJQuery.aciTree('api');
+
+    /* Ctrl + Click will trigger context menu. Select the node when Ctrl+Clicked.
+     * When the context menu is visible, the tree should lose focus
+     * to use context menu with keyboard. Otherwise, the tree functions
+     * overrides the keyboard events.
+     */
+    let contextHandler = (ev)=>{
+      let treeItem = this.aciTreeApi.itemFrom(ev.target);
+      if(treeItem.length) {
+        if(ev.ctrlKey) {
+          this.aciTreeApi.select(treeItem);
+        }
+        $(treeItem).on('contextmenu:visible', ()=>{
+          $(treeItem).trigger('blur');
+          $(treeItem).off('contextmenu:visible');
+        });
+      }
+    };
+    $treeJQuery
+      .off('mousedown', contextHandler)
+      .on('mousedown', contextHandler);
   }
 
   /**
@@ -293,6 +433,15 @@ function findInTree(rootNode, path) {
   }
 
   return (function findInNode(currentNode) {
+
+    /* No point in checking the children if
+     * the path for currentNode itself is not matching
+     */
+    if (currentNode.path !== undefined && path !== undefined
+      && !path.startsWith(currentNode.path)) {
+      return null;
+    }
+
     for (let i = 0, length = currentNode.children.length; i < length; i++) {
       const calculatedNode = findInNode(currentNode.children[i]);
       if (calculatedNode !== null) {

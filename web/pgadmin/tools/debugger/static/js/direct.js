@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -12,10 +12,11 @@ define([
   'pgadmin.alertifyjs', 'sources/pgadmin', 'pgadmin.browser', 'backbone',
   'pgadmin.backgrid', 'pgadmin.backform', 'sources/../bundle/codemirror',
   'pgadmin.tools.debugger.ui', 'sources/keyboard_shortcuts',
-  'pgadmin.tools.debugger.utils', 'wcdocker',
+  'pgadmin.tools.debugger.utils', 'sources/window', 'wcdocker',
 ], function(
   gettext, url_for, $, _, Alertify, pgAdmin, pgBrowser, Backbone, Backgrid,
-  Backform, codemirror, debug_function_again, keyboardShortcuts, debuggerUtils
+  Backform, codemirror, debug_function_again, keyboardShortcuts, debuggerUtils,
+  pgWindow
 ) {
 
   var CodeMirror = codemirror.default,
@@ -390,18 +391,7 @@ define([
                   if (res.data.result == null || res.data.result.length == 0) {
                     self.poll_result(trans_id);
                   } else {
-                    if (res.data.result[0].src != undefined || res.data.result[0].src != null) {
-                      pgTools.DirectDebug.polling_timeout_idle = false;
-                      pgTools.DirectDebug.docker.finishLoading(50);
-                      if (res.data.result[0].src != pgTools.DirectDebug.editor.getValue()) {
-                        pgTools.DirectDebug.editor.setValue(res.data.result[0].src);
-                        self.UpdateBreakpoint(trans_id);
-                      }
-                      self.setActiveLine(res.data.result[0].linenumber - 2);
-                      // Update the stack, local variables and parameters information
-                      self.GetStackInformation(trans_id);
-
-                    } else if (!pgTools.DirectDebug.debug_type && !pgTools.DirectDebug.first_time_indirect_debug) {
+                    if (!pgTools.DirectDebug.debug_type && !pgTools.DirectDebug.first_time_indirect_debug) {
                       pgTools.DirectDebug.docker.finishLoading(50);
                       self.setActiveLine(-1);
                       self.clear_all_breakpoint(trans_id);
@@ -694,12 +684,12 @@ define([
             } else {
             // Debugging of void function is started again so we need to start
             // the listener again
-              var baseUrl = url_for('debugger.start_listener', {
+              var base_url = url_for('debugger.start_listener', {
                 'trans_id': trans_id,
               });
 
               $.ajax({
-                url: baseUrl,
+                url: base_url,
                 method: 'GET',
               })
                 .done(function() {
@@ -904,9 +894,9 @@ define([
           .done(function(res) {
             if (res.data.status) {
             // Call function to create and update local variables ....
-              var info = pgTools.DirectDebug.editor.lineInfo(self.active_line_no);
+              var info_local = pgTools.DirectDebug.editor.lineInfo(self.active_line_no);
 
-              if (info.gutterMarkers != undefined) {
+              if (info_local.gutterMarkers != undefined) {
                 pgTools.DirectDebug.editor.setGutterMarker(self.active_line_no, 'breakpoints', null);
               } else {
                 pgTools.DirectDebug.editor.setGutterMarker(self.active_line_no, 'breakpoints', function() {
@@ -965,12 +955,12 @@ define([
         })
           .done(function(res) {
             if (res.data.status) {
-              for (var i = 0; i < breakpoint_list.length; i++) {
-                var info = pgTools.DirectDebug.editor.lineInfo((breakpoint_list[i] - 1));
+              for (var j = 0; j < breakpoint_list.length; j++) {
+                var info = pgTools.DirectDebug.editor.lineInfo((breakpoint_list[j] - 1));
 
                 if (info) {
                   if (info.gutterMarkers != undefined) {
-                    pgTools.DirectDebug.editor.setGutterMarker((breakpoint_list[i] - 1), 'breakpoints', null);
+                    pgTools.DirectDebug.editor.setGutterMarker((breakpoint_list[j] - 1), 'breakpoints', null);
                   }
                 }
               }
@@ -1046,7 +1036,7 @@ define([
 
         // Initialize a new Grid instance
         var stack_grid = this.stack_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: stackGridCols,
           row: Backgrid.Row.extend({
             events: {
@@ -1111,7 +1101,7 @@ define([
 
         // Initialize a new Grid instance
         var result_grid = this.result_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: resultGridCols,
           collection: new ResultsCollection(result),
           className: 'backgrid table table-bordered table-noouter-border table-bottom-border',
@@ -1189,7 +1179,7 @@ define([
 
         // Initialize a new Grid instance
         var variable_grid = this.variable_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: gridCols,
           collection: new VariablesCollection(my_obj),
           className: 'backgrid table table-bordered table-noouter-border table-bottom-border',
@@ -1275,7 +1265,7 @@ define([
 
         // Initialize a new Grid instance
         var param_grid = this.param_grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: paramGridCols,
           collection: new ParametersCollection(param_obj),
           className: 'backgrid table table-bordered table-noouter-border table-bottom-border',
@@ -1525,8 +1515,7 @@ define([
       this.function_name_with_arguments = function_name_with_arguments;
       this.layout = layout;
 
-      let browser = window.opener ?
-        window.opener.pgAdmin.Browser : window.top.pgAdmin.Browser;
+      let browser = pgWindow.default.pgAdmin.Browser;
       this.preferences = browser.get_preferences_for_module('debugger');
 
       this.docker = new wcDocker(
@@ -1540,8 +1529,6 @@ define([
           theme: 'webcabin.overrides.css',
         });
       this.panels = [];
-
-      pgBrowser.bind_beforeunload();
 
       // Below code will be executed for indirect debugging
       // indirect debugging - 0  and for direct debugging - 1
@@ -1575,7 +1562,7 @@ define([
               );
             }
           });
-      } else if (trans_id != undefined && debug_type) {
+      } else if (trans_id != undefined) {
         // Make ajax call to execute the and start the target for execution
         baseUrl = url_for('debugger.start_listener', {
           'trans_id': trans_id,
@@ -1603,8 +1590,9 @@ define([
               );
             }
           });
-      } else
+      } else {
         this.intializePanels();
+      }
     },
 
     // Read the messages of the database server and get the port ID and attach
@@ -1728,12 +1716,13 @@ define([
           // Create the messages panel to display the message returned from the database server
           var messages = new pgAdmin.Browser.Panel({
             name: 'messages',
-            title: gettext('Messages'),
+            title:
+            gettext('Messages'),
             width: '100%',
             height: '100%',
             isCloseable: false,
             isPrivate: true,
-            content: '<div id="messages" class="messages" tabindex="0"></div>',
+            content: '<div role="status" id="messages" class="messages" tabindex="0"></div>',
           });
 
           // Create the result panel to display the result after debugging the function
@@ -1794,14 +1783,7 @@ define([
           foldOptions: {
             widget: '\u2026',
           },
-          foldGutter: {
-            rangeFinder: CodeMirror.fold.combine(
-              CodeMirror.pgadminBeginRangeFinder,
-              CodeMirror.pgadminIfRangeFinder,
-              CodeMirror.pgadminLoopRangeFinder,
-              CodeMirror.pgadminCaseRangeFinder
-            ),
-          },
+          foldGutter: true,
           gutters: [
             'CodeMirror-linenumbers', 'CodeMirror-foldgutter', 'breakpoints',
           ],
@@ -1814,6 +1796,7 @@ define([
           lineWrapping: pgAdmin.Browser.editor_options.wrapCode,
           autoCloseBrackets: pgAdmin.Browser.editor_options.insert_pair_brackets,
           matchBrackets: pgAdmin.Browser.editor_options.brace_matching,
+          screenReaderLabel: gettext('Debugger SQL editor'),
         });
 
       // Useful for keyboard navigation, when user presses escape key we will
@@ -1844,7 +1827,7 @@ define([
 
         let cacheIntervalId = setInterval(function() {
           try {
-            let browser = window.opener ? window.opener.pgAdmin.Browser : window.top.pgAdmin.Browser;
+            let browser = pgWindow.default.pgAdmin.Browser;
             if(browser.preference_version() > 0) {
               clearInterval(cacheIntervalId);
               self.reflectPreferences();
@@ -1853,8 +1836,9 @@ define([
                * instead, a poller is set up who will check
                */
               if(self.preferences.debugger_new_browser_tab) {
+                pgBrowser.bind_beforeunload();
                 let pollIntervalId = setInterval(()=>{
-                  if(window.opener && window.opener.pgAdmin) {
+                  if(pgWindow.default.pgAdmin) {
                     self.reflectPreferences();
                   }
                   else {
@@ -1896,39 +1880,53 @@ define([
       /* Register for preference changed event broadcasted in parent
        * to reload the shorcuts.
        */
-      pgBrowser.onPreferencesChange('debugger', function() {
+      pgWindow.default.pgAdmin.Browser.onPreferencesChange('debugger', function() {
         self.reflectPreferences();
       });
+
+      /* Register to log the activity */
+      pgBrowser.register_to_activity_listener(document, ()=>{
+        Alertify.alert(gettext('Timeout'), gettext('Your session has timed out due to inactivity. Please close the window and login again.'));
+      });
+
+      controller.poll_result = pgBrowser.override_activity_event_decorator(controller.poll_result).bind(controller);
+      controller.poll_end_execution_result = pgBrowser.override_activity_event_decorator(controller.poll_end_execution_result).bind(controller);
     },
     reflectPreferences: function() {
       let self = this,
-        browser = window.opener ? window.opener.pgAdmin.Browser : window.top.pgAdmin.Browser;
+        browser = pgWindow.default.pgAdmin.Browser;
       self.preferences = browser.get_preferences_for_module('debugger');
       self.toolbarView.preferences = self.preferences;
 
       /* Update the shortcuts of the buttons */
       self.toolbarView.$el.find('#btn-step-into')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Step into',self.preferences.btn_step_into))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Step into'),self.preferences.btn_step_into))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Step into'),self.preferences.btn_step_into))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_step_into));
 
       self.toolbarView.$el.find('#btn-step-over')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Step over',self.preferences.btn_step_over))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Step over'),self.preferences.btn_step_over))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Step over'),self.preferences.btn_step_over))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_step_over));
 
       self.toolbarView.$el.find('#btn-continue')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Continue/Start',self.preferences.btn_start))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Continue/Start'),self.preferences.btn_start))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Continue/Start'),self.preferences.btn_start))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_start));
 
       self.toolbarView.$el.find('#btn-toggle-breakpoint')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Toggle breakpoint',self.preferences.btn_toggle_breakpoint))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Toggle breakpoint'),self.preferences.btn_toggle_breakpoint))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Toggle breakpoint'),self.preferences.btn_toggle_breakpoint))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_toggle_breakpoint));
 
       self.toolbarView.$el.find('#btn-clear-breakpoint')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Clear all breakpoints',self.preferences.btn_clear_breakpoints))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Clear all breakpoints'),self.preferences.btn_clear_breakpoints))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Clear all breakpoints'),self.preferences.btn_clear_breakpoints))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_clear_breakpoints));
 
       self.toolbarView.$el.find('#btn-stop')
-        .attr('title', keyboardShortcuts.shortcut_accesskey_title('Stop',self.preferences.btn_stop))
+        .attr('title', keyboardShortcuts.shortcut_accesskey_title(gettext('Stop'),self.preferences.btn_stop))
+        .attr('aria-label', keyboardShortcuts.shortcut_accesskey_title(gettext('Stop'),self.preferences.btn_stop))
         .attr('accesskey', keyboardShortcuts.shortcut_key(self.preferences.btn_stop));
     },
     // Register the panel with new debugger docker instance.

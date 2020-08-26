@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -35,7 +35,7 @@ define('pgadmin.node.domain', [
   var ConstraintModel = pgBrowser.Node.Model.extend({
     idAttribute: 'conoid',
     initialize: function(attrs) {
-      if (!_.size(attrs) === 0) {
+      if (_.size(attrs) !== 0) {
         this.convalidated_default = this.get('convalidated');
       }
       pgBrowser.Node.Model.prototype.initialize.apply(this, arguments);
@@ -188,7 +188,7 @@ define('pgadmin.node.domain', [
           control: 'node-ajax-options', type: 'text', url: 'get_types',
           mode:['properties', 'create', 'edit'], group: gettext('Definition'),
           first_empty: true, cache_node: 'type',
-          disabled: function(m) {
+          readonly: function(m) {
             return !m.isNew();
           },
           transform: function(d) {
@@ -198,11 +198,9 @@ define('pgadmin.node.domain', [
         },{
           id: 'typlen', label: gettext('Length'), cell: 'string',
           type: 'text', group: gettext('Definition'), deps: ['basetype'],
+          readonly: function(m) {return !m.isNew();},
           disabled: function(m) {
             // We will store type from selected from combobox
-            if (!m.isNew()) {
-              return true;
-            }
             var of_type = m.get('basetype');
             if(m.type_options) {
               // iterating over all the types
@@ -217,19 +215,25 @@ define('pgadmin.node.domain', [
                     m.set('min_val', o.min_val, {silent: true});
                     m.set('max_val', o.max_val, {silent: true});
                   }
+                  else
+                    m.set('is_tlength', false, {silent: true});
                 }
               });
+
+              !m.get('is_tlength') && setTimeout(function() {
+                if(m.get('typlen')) {
+                  m.set('typlen', null);
+                }
+              },10);
             }
             return !m.get('is_tlength');
           },
         },{
           id: 'precision', label: gettext('Precision'), cell: 'string',
           type: 'text', group: gettext('Definition'), deps: ['basetype'],
+          readonly: function(m) {return !m.isNew();},
           disabled: function(m) {
             // We will store type from selected from combobox
-            if (!m.isNew()) {
-              return true;
-            }
             var of_type = m.get('basetype');
             if(m.type_options) {
               // iterating over all the types
@@ -244,8 +248,16 @@ define('pgadmin.node.domain', [
                     m.set('min_val', o.min_val, {silent: true});
                     m.set('max_val', o.max_val, {silent: true});
                   }
+                  else
+                    m.set('is_precision', false, {silent: true});
                 }
               });
+
+              !m.get('is_precision') && setTimeout(function() {
+                if(m.get('precision')) {
+                  m.set('precision', null);
+                }
+              },10);
             }
             return !m.get('is_precision');
           },
@@ -260,7 +272,7 @@ define('pgadmin.node.domain', [
           id: 'collname', label: gettext('Collation'), cell: 'string',
           control: 'node-ajax-options', type: 'text', url: 'get_collations',
           group: gettext('Definition'), cache_level: 'database',
-          cache_node: 'schema', disabled: function(m) {
+          cache_node: 'schema', readonly: function(m) {
             return !m.isNew();
           },
         },{
@@ -284,7 +296,7 @@ define('pgadmin.node.domain', [
 
           if (_.isUndefined(this.get('name')) || String(this.get('name')).replace(/^\s+|\s+$/g, '') == '') {
             err['name'] = gettext('Name cannot be empty.');
-            errmsg = errmsg || err['name'];
+            errmsg = err['name'];
           }
 
           if (_.isUndefined(this.get('basetype')) || String(this.get('basetype')).replace(/^\s+|\s+$/g, '') == '') {
@@ -297,16 +309,6 @@ define('pgadmin.node.domain', [
           return errmsg;
         },
       }),
-      isDisabled: function(m){
-        if (!m.isNew()) {
-          var server = this.node_info.server;
-          if (server.version < 90200)
-          {
-            return false;
-          }
-        }
-        return true;
-      },
     });
 
   }

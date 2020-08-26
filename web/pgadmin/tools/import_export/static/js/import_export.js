@@ -2,19 +2,19 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define([
-  'sources/gettext', 'sources/url_for', 'jquery', 'underscore', 'underscore.string', 'pgadmin.alertifyjs',
+  'sources/gettext', 'sources/url_for', 'jquery', 'underscore', 'pgadmin.alertifyjs',
   'sources/pgadmin', 'pgadmin.browser', 'backbone', 'backgrid', 'backform',
   'sources/utils',
   'sources/nodes/supported_database_node',
   'pgadmin.backform', 'pgadmin.backgrid', 'pgadmin.browser.node.ui',
 ], function(
-  gettext, url_for, $, _, S, Alertify, pgAdmin, pgBrowser, Backbone, Backgrid,
+  gettext, url_for, $, _, Alertify, pgAdmin, pgBrowser, Backbone, Backgrid,
   Backform, commonUtils, supportedNodes
 ) {
 
@@ -136,7 +136,6 @@ define([
               }
             } catch (e) {
               // Do nothing
-              options = [];
               console.warn(e.stack || e);
             }
           } else {
@@ -200,7 +199,8 @@ define([
       select2: {
         multiple: true,
         allowClear: true,
-        placeholder: gettext('Colums for exporting...'),
+        first_empty: false,
+        placeholder: gettext('Columns for exporting...'),
         preserveSelectionOrder: true,
       },
       visible: 'exporting',
@@ -251,7 +251,7 @@ define([
       select2: {
         multiple: true,
         allowClear: true,
-        first_empty: true,
+        first_empty: false,
         placeholder: gettext('Not null columns...'),
       },
       helpMessage: gettext('Do not match the specified column values against the null string. In the default case where the null string is empty, this means that empty values will be read as zero-length strings rather than nulls, even when they are not quoted. This option is allowed only in import, and only when using CSV format.'),
@@ -459,7 +459,7 @@ define([
           return;
         }
       } else {
-        Alertify.alert(S(gettext('Failed to load preference %s of module %s')).sprintf(preference_name, module).value());
+        Alertify.alert(gettext('Failed to load preference %s of module %s', preference_name, module));
         return;
       }
 
@@ -477,10 +477,10 @@ define([
         Alertify.dialog('ImportDialog', function factory() {
 
           return {
-            main: function(title, node, item, data) {
+            main: function(title, pg_node, pg_item, data) {
               this.set('title', title);
-              this.setting('pg_node', node);
-              this.setting('pg_item', item);
+              this.setting('pg_node', pg_node);
+              this.setting('pg_item', pg_item);
               this.setting('pg_item_data', data);
             },
 
@@ -521,20 +521,20 @@ define([
               if (e.button['data-btn-name'] === 'ok') {
 
                 var n = this.settings['pg_node'],
-                  i = this.settings['pg_item'],
-                  treeInfo = n.getTreeNodeHierarchy.apply(n, [i]);
+                  itemArr = this.settings['pg_item'],
+                  treeData = n.getTreeNodeHierarchy.apply(n, [itemArr]);
 
                 this.view.model.set({
-                  'database': treeInfo.database._label,
-                  'schema': treeInfo.schema._label,
-                  'table': treeInfo.table._label,
+                  'database': treeData.database._label,
+                  'schema': treeData.schema._label,
+                  'table': treeData.table._label,
                 });
                 var self = this;
 
                 $.ajax({
                   url: url_for(
                     'import_export.create_job', {
-                      'sid': treeInfo.server._id,
+                      'sid': treeData.server._id,
                     }
                   ),
                   method: 'POST',
@@ -560,8 +560,8 @@ define([
                         gettext('Import/Export job failed.'),
                         err.errormsg
                       );
-                    } catch (e) {
-                      console.warn(e.stack || e);
+                    } catch (error) {
+                      console.warn(error.stack || error);
                     }
                   });
               }
@@ -580,15 +580,12 @@ define([
 
               // triggered when a dialog option gets update.
               onupdate: function(option, oldValue, newValue) {
-
-                switch (option) {
-                case 'resizable':
+                if(option === 'resizable') {
                   if (newValue) {
                     this.elements.content.removeAttribute('style');
                   } else {
                     this.elements.content.style.minHeight = 'inherit';
                   }
-                  break;
                 }
               },
 
@@ -607,13 +604,13 @@ define([
 
               var $container = $('<div class=\'import_dlg\'></div>'),
                 n = this.settings.pg_node,
-                i = this.settings.pg_item,
-                treeInfo = n.getTreeNodeHierarchy.apply(n, [i]),
+                itemArr = this.settings.pg_item,
+                treeData = n.getTreeNodeHierarchy.apply(n, [itemArr]),
                 newModel = new ImportExportModel({}, {
-                  node_info: treeInfo,
+                  node_info: treeData,
                 }),
                 fields = Backform.generateViewSchema(
-                  treeInfo, newModel, 'create', node, treeInfo.server, true
+                  treeData, newModel, 'create', node, treeData.server, true
                 ),
                 view = this.view = new Backform.Dialog({
                   el: $container,
@@ -626,37 +623,70 @@ define([
               );
               view.render();
 
+              const statusBar = $(
+                '<div class=\'pg-prop-status-bar pg-prop-status-bar-absolute pg-el-xs-12 d-none\'>' +
+              '  <div class="error-in-footer"> ' +
+              '    <div class="d-flex px-2 py-1"> ' +
+              '      <div class="pr-2"> ' +
+              '        <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i> ' +
+              '      </div> ' +
+              '      <div class="alert-text" role="alert"></div> ' +
+              '       <div class="ml-auto close-error-bar"> ' +
+              '          <a aria-label="' + gettext('Close error bar') + '" class="close-error fa fa-times text-danger"></a> ' +
+              '        </div> ' +
+              '    </div> ' +
+              '  </div> ' +
+              '</div>').appendTo($container);
               this.elements.content.appendChild($container.get(0));
 
               // Listen to model & if filename is provided then enable OK button
               // For the 'Quote', 'escape' and 'delimiter' only one character is allowed to enter
               this.view.model.on('change', function() {
+                const ctx = this;
+                var errmsg;
+                const showError = function(errorField, errormsg) {
+                  ctx.errorModel.set(errorField, errormsg);
+                  statusBar.removeClass('d-none');
+                  statusBar.find('.alert-text').html(errormsg);
+                  self.elements.dialog.querySelector('.close-error').addEventListener('click', ()=>{
+                    statusBar.addClass('d-none');
+                    ctx.errorModel.set(errorField, errormsg);
+                  });
+                };
                 if (!_.isUndefined(this.get('filename')) && this.get('filename') !== '') {
                   this.errorModel.clear();
+                  statusBar.addClass('d-none');
                   if (!_.isUndefined(this.get('delimiter')) && !_.isNull(this.get('delimiter'))) {
                     this.errorModel.clear();
+                    statusBar.addClass('d-none');
                     if (!_.isUndefined(this.get('quote')) && this.get('quote') !== '' &&
                       this.get('quote').length == 1) {
                       this.errorModel.clear();
+                      statusBar.addClass('d-none');
                       if (!_.isUndefined(this.get('escape')) && this.get('escape') !== '' &&
                         this.get('escape').length == 1) {
                         this.errorModel.clear();
+                        statusBar.addClass('d-none');
                         self.__internal.buttons[1].element.disabled = false;
                       } else {
                         self.__internal.buttons[1].element.disabled = true;
-                        this.errorModel.set('escape', gettext('Escape should contain only one character'));
+                        errmsg = gettext('Escape should contain only one character');
+                        showError('escape', errmsg);
                       }
                     } else {
                       self.__internal.buttons[1].element.disabled = true;
-                      this.errorModel.set('quote', gettext('Quote should contain only one character'));
+                      errmsg = gettext('Quote should contain only one character');
+                      showError('quote', errmsg);
                     }
                   } else {
                     self.__internal.buttons[1].element.disabled = true;
-                    this.errorModel.set('delimiter', gettext('Delimiter should contain only one character'));
+                    errmsg = gettext('Delimiter should contain only one character');
+                    showError('delimiter', errmsg);
                   }
                 } else {
                   self.__internal.buttons[1].element.disabled = true;
-                  this.errorModel.set('filename', gettext('Please provide filename'));
+                  errmsg = gettext('Please provide filename');
+                  showError('filename', errmsg);
                 }
               });
 
@@ -689,9 +719,8 @@ define([
 
           // Open the Alertify dialog for the import/export module
           Alertify.ImportDialog(
-            S(
-              gettext('Import/Export data - table \'%s\'')
-            ).sprintf(treeInfo.table.label).value(), node, i, d
+            gettext('Import/Export data - table \'%s\'', treeInfo.table.label),
+            node, i, d
           ).set('resizable', true).resizeTo(pgAdmin.Browser.stdW.md,pgAdmin.Browser.stdH.lg);
         })
         .fail(function() {

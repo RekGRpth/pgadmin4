@@ -4,20 +4,15 @@ SELECT srv.oid as fsrvid, srvname as name
 FROM pg_foreign_server srv
     LEFT OUTER JOIN pg_description des ON (des.objoid=srv.oid AND des.objsubid=0 AND des.classoid='pg_foreign_server'::regclass)
 WHERE srv.oid = {{fserid}}::oid
-{% endif %}
-{% if fsid or umid or fdwdata or data %}
-WITH umapData AS
-    (
-        SELECT u.oid AS um_oid, CASE WHEN u.umuser = 0::oid THEN 'PUBLIC'::name ELSE a.rolname END AS name,
-        array_to_string(u.umoptions, ',') AS umoptions FROM pg_user_mapping u
-        LEFT JOIN pg_authid a ON a.oid = u.umuser {% if fsid %} WHERE u.umserver = {{fsid}}::oid {% endif %} {% if umid %} WHERE u.oid= {{umid}}::oid {% endif %}
-    )
-    SELECT * FROM umapData
-{% if data %}
-    WHERE {% if data.name == "CURRENT_USER" %} name = {{data.name}} {% elif data.name == "PUBLIC" %} name = {{data.name|qtLiteral}} {% else %} name = {{data.name|qtLiteral}} {% endif %}
-{% endif %}
-{% if fdwdata %}
-    WHERE fdw.fdwname = {{fdwdata.name|qtLiteral}}::text
-{% endif %}
-    ORDER BY 2;
+{% elif fsid or umid %}
+SELECT u.umid AS oid, u.usename AS name, u.srvid AS fsid, array_to_string(u.umoptions, ',') AS umoptions, fs.srvfdw AS fdwid
+FROM pg_user_mappings u
+LEFT JOIN pg_foreign_server fs ON fs.oid = u.srvid
+{% if fsid %} WHERE u.srvid = {{fsid}}::oid {% endif %} {% if umid %} WHERE u.umid= {{umid}}::oid {% endif %}
+ORDER BY 2;
+{% else %}
+SELECT u.umid AS oid, u.usename AS name, u.srvid AS fsid, array_to_string(u.umoptions, ',') AS umoptions, fs.srvfdw AS fdwid
+FROM pg_user_mappings u
+LEFT JOIN pg_foreign_server fs ON fs.oid = u.srvid
+ORDER BY 2;
 {% endif %}

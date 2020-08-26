@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -24,15 +24,14 @@ from regression.python_test_utils import test_utils as utils
 from . import utils as triggers_utils
 
 
-class TriggersDeleteTestCase(BaseTestGenerator):
+class TriggersDeleteMultipleTestCase(BaseTestGenerator):
     """This class will delete trigger under table node."""
     skip_on_database = ['gpdb']
-    scenarios = [
-        ('Delete trigger Node URL', dict(url='/browser/trigger/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('delete_multiple_trigger',
+                                         triggers_utils.test_cases)
 
     def setUp(self):
-        super(TriggersDeleteTestCase, self).setUp()
+        super(TriggersDeleteMultipleTestCase, self).setUp()
         self.db_name = parent_node_dict["database"][-1]["db_name"]
         schema_info = parent_node_dict["schema"][-1]
         self.server_id = schema_info["server_id"]

@@ -4,7 +4,7 @@ SELECT
     c.xmin,
     c.relkind,
     description AS comment,
-    (CASE WHEN length(spc.spcname) > 0 THEN spc.spcname ELSE 'pg_default' END) as spcname,
+    (CASE WHEN length(spc.spcname::text) > 0 THEN spc.spcname ELSE 'pg_default' END) as spcname,
     c.relname AS name,
     nsp.nspname AS schema,
     c.reltablespace AS spcoid,
@@ -29,7 +29,6 @@ FROM pg_class c
 LEFT OUTER JOIN pg_namespace nsp on nsp.oid = c.relnamespace
 LEFT OUTER JOIN pg_tablespace spc on spc.oid=c.reltablespace
 LEFT OUTER JOIN pg_description des ON (des.objoid=c.oid and des.objsubid=0 AND des.classoid='pg_class'::regclass)
-LEFT OUTER JOIN pg_class tst ON tst.oid = c.reltoastrelid
     WHERE ((c.relhasrules AND (EXISTS (
         SELECT
             r.rulename

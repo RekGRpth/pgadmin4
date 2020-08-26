@@ -2,13 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-
-import sys
 import simplejson as json
 import os
 
@@ -17,12 +15,7 @@ from regression import parent_node_dict
 from pgadmin.utils import server_utils as server_utils, does_utility_exist
 from pgadmin.browser.server_groups.servers.databases.tests import utils as \
     database_utils
-
-
-if sys.version_info < (3, 3):
-    from mock import patch, MagicMock
-else:
-    from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class BackupCreateJobTest(BaseTestGenerator):
@@ -412,7 +405,58 @@ class BackupCreateJobTest(BaseTestGenerator):
              not_expected_cmd_opts=[],
              expected_exit_code=[0, None]
          )),
-
+        ('When backup a schema with default options',
+         dict(
+             class_params=dict(
+                 sid=1,
+                 name='test_backup_server',
+                 port=5444,
+                 host='localhost',
+                 database='postgres',
+                 bfile='test_backup',
+                 username='postgres'
+             ),
+             params=dict(
+                 file='test_backup_file',
+                 format='custom',
+                 verbose=True,
+                 blobs=True,
+                 schemas=['schema1'],
+                 tables=[],
+                 database='postgres'
+             ),
+             url='/backup/job/{0}/object',
+             expected_cmd_opts=['--verbose', '--format=c', '--blobs',
+                                '--schema', 'schema1'],
+             not_expected_cmd_opts=[],
+             expected_exit_code=[0, None]
+         )),
+        ('When backup a table with default options',
+         dict(
+             class_params=dict(
+                 sid=1,
+                 name='test_backup_server',
+                 port=5444,
+                 host='localhost',
+                 database='postgres',
+                 bfile='test_backup',
+                 username='postgres'
+             ),
+             params=dict(
+                 file='test_backup_file',
+                 format='custom',
+                 verbose=True,
+                 blobs=True,
+                 schemas=[],
+                 tables=[['public', 'table1']],
+                 database='postgres'
+             ),
+             url='/backup/job/{0}/object',
+             expected_cmd_opts=['--verbose', '--format=c', '--blobs',
+                                '--table', 'public.table1'],
+             not_expected_cmd_opts=[],
+             expected_exit_code=[0, None]
+         )),
         ('When backup the server',
          dict(
              class_params=dict(

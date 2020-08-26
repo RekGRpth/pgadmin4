@@ -1,18 +1,22 @@
-VERSION = 4.10.0.0
+VERSION = 4.25.0.0
 QMAKE_TARGET_COMPANY = "The pgAdmin Development Team"
 QMAKE_TARGET_PRODUCT = "pgAdmin 4"
 QMAKE_TARGET_DESCRIPTION = "pgAdmin 4 Desktop Runtime"
-QMAKE_TARGET_COPYRIGHT = "Copyright (C) 2013 - 2019, The pgAdmin Development Team"
+QMAKE_TARGET_COPYRIGHT = "Copyright (C) 2013 - 2020, The pgAdmin Development Team"
+
+message(==================================)
+message(Configuring the pgAdmin 4 runtime.)
+message(==================================)
+
+# Check for a suitable Qt version
+!greaterThan(QT_MAJOR_VERSION, 4) {
+    error("pgAdmin 4 cannot be built with Qt $${QT_VERSION}. Use Qt 5.0 or newer.")
+}
+message(Qt version: $${QT_VERSION})
 
 # Configure QT modules for the appropriate version of QT
-greaterThan(QT_MAJOR_VERSION, 4) {
-    message(Building for QT5+...)
-    QT += network widgets
-} else { 
-    message(Building for QT4...)
-    QT += network
-    DEFINES += Q_NULLPTR=NULL
-}
+QT += network widgets
+
 win32 {
   RC_ICONS += pgAdmin4.ico
 }
@@ -22,91 +26,106 @@ QMAKE_CFLAGS += $$(PGADMIN_CFLAGS)
 QMAKE_CXXFLAGS += $$(PGADMIN_CXXFLAGS)
 QMAKE_LFLAGS += $$(PGADMIN_LDFLAGS)
 
+# Figure out where/what Python looks like and that it's suitable
+PYTHON_DIR = $$(PGADMIN_PYTHON_DIR)
+
+equals(PYTHON_DIR, "") {
+    error(The PGADMIN_PYTHON_DIR environment variable is not set. Please set it to a directory path under which Python 3.4 or later has been installed and try again.)
+}
+
 win32 {
-    message(Building for Windows...)
-
-    # Read the PYTHON_HOME and PYTHON_VERSION system environment variables.
-    PY_HOME = $$(PYTHON_HOME)
-    PY_VERSION = $$(PYTHON_VERSION)
-
-    isEmpty(PY_HOME) {
-        error(Please define the PYTHON_HOME variable in the system environment.)
+    message(Platform: Windows)
+    PYTHON_EXE = $${PYTHON_DIR}\python.exe
+} else {
+    macx {
+        message(Platform: macOS)
+    } else {
+        message(Platform: Linux)
     }
-    else {
-        isEmpty(PY_VERSION) {
-            error(Please define the PYTHON_VERSION variable in the system environment.)
-        }
-        else {
-            INCLUDEPATH = $$PY_HOME\include
-            LIBS += -L"$$PY_HOME\libs" -lpython$$PY_VERSION
+    PYTHON_EXE = $${PYTHON_DIR}/bin/python3
+}
 
-            # Set the PYTHON2 macro if appropriate
-            PY2_VERSION = $$find(PY_VERSION, "^2")
-            count( PY2_VERSION, 1) {
-                message(Python version 2.x detected.)
-                DEFINES += PYTHON2
-            }
-        }
-    }
+!exists($$PYTHON_EXE) {
+    error(The Python executable ($$PYTHON_EXE) could not be found. Please ensure the PGADMIN_PYTHON_DIR environment variable is correctly set.)
+}
+message(Python executable: $$PYTHON_EXE)
+
+PYTHON_VERSION = $$system($$PYTHON_EXE -c \"import sys; print(\'%s.%s\' % (sys.version_info[0], sys.version_info[1]))\")
+PYTHON_SHORT_VERSION = $$system($$PYTHON_EXE -c \"import sys; print(\'%s%s\' % (sys.version_info[0], sys.version_info[1]))\")
+PYTHON_MAJOR_VERSION = $$system($$PYTHON_EXE -c \"import sys; print(sys.version_info[0])\")
+message(Python version: $$PYTHON_VERSION ($$PYTHON_SHORT_VERSION))
+
+lessThan(PYTHON_SHORT_VERSION, 34) {
+    error(Python 3.4 or later is required to build pgAdmin.)
+}
+
+# Configure for the platform
+win32 {
+    INCLUDEPATH = $${PYTHON_DIR}\include
+    message(Include path: $$INCLUDEPATH)
+
+    LIBS += -L"$${PYTHON_DIR}\libs" -lpython$${PYTHON_SHORT_VERSION}
+    message(LIBS: $$LIBS)
 }
 else {
-    message(Building for Linux/Mac...)
-
-    # Find and configure Python
-    # Environment setting
-    PYTHON_CONFIG = $$(PYTHON_CONFIG)
-
-    # Python 2?
-    isEmpty(PYTHON_CONFIG) {
-        PYTHON_CONFIG = $$system(which python-config)
+    # Find the best matching python-config (there may be more than one)
+    exists($PYTHON_DIR/bin/python$${PYTHON_VERSION}-config) {
+        PYTHON_CONFIG = $$PYTHON_DIR/bin/python$${PYTHON_VERSION}-config
+    } else: exists($${PYTHON_DIR}/bin/python$${PYTHON_MAJOR_VERSION}-config) {
+        PYTHON_CONFIG = $${PYTHON_DIR}/bin/python$${PYTHON_MAJOR_VERSION}-config
+    } else: exists($${PYTHON_DIR}/bin/python-config) {
+        PYTHON_CONFIG = $${PYTHON_DIR}/bin/python-config
+    } else {
+        error(No suitable python-config could be found in $${PYTHON_DIR}/bin.)
     }
+    message(Python config: $$PYTHON_CONFIG)
 
-    # Maybe Python 3?
-    isEmpty(PYTHON_CONFIG) {
-        PYTHON_CONFIG = $$system(which python3-config)
-    }
-
-    # Argh!
-    isEmpty(PYTHON_CONFIG) {
-        error(The python-config executable could not be found. Ensure Python is installed and in the system path.)
-    }
-
-    message(Using $$PYTHON_CONFIG)
+    PYTHON_EMBED = $$system($$PYTHON_CONFIG --help 2>&1 | grep -o \'\\-\\-embed\')
 
     QMAKE_CXXFLAGS += $$system($$PYTHON_CONFIG --includes)
-    QMAKE_LFLAGS += $$system($$PYTHON_CONFIG --ldflags)
-    LIBS += $$system($$PYTHON_CONFIG --libs)
+    message(CXXFLAGS: $$QMAKE_CXXFLAGS)
 
-    contains( LIBS, -lpython2.* ) {
-       DEFINES += PYTHON2
-       message(Python2 detected.)
-    } else {
-       message(Python3 detected.)
-    }
+    QMAKE_LFLAGS += $$system($$PYTHON_CONFIG --ldflags)
+    message(LDFLAGS: $$QMAKE_LFLAGS)
+
+    LIBS += $$system($$PYTHON_CONFIG --libs $$PYTHON_EMBED)
+    message(LIBS: $$LIBS)
 }
 
 # Source code
-HEADERS     =   Server.h \
-                pgAdmin4.h \
-                ConfigWindow.h \
-                TrayIcon.h \
-                LogWindow.h \
-                MenuActions.h \
-                FloatingWindow.h \
-                Logger.h
-SOURCES     =   pgAdmin4.cpp \
-                Server.cpp \
-                ConfigWindow.cpp \
-                TrayIcon.cpp \
-                LogWindow.cpp \
-                MenuActions.cpp \
-                FloatingWindow.cpp \
-                Logger.cpp
-FORMS       =   ConfigWindow.ui \
-                LogWindow.ui \
-                FloatingWindow.ui
-ICON        =   pgAdmin4.icns
-QMAKE_INFO_PLIST = Info.plist
+HEADERS =             Server.h \
+                      Runtime.h \
+                      pgAdmin4.h \
+                      ConfigWindow.h \
+                      TrayIcon.h \
+                      LogWindow.h \
+                      MenuActions.h \
+                      FloatingWindow.h \
+                      Logger.h
 
-RESOURCES +=    pgadmin4.qrc
+SOURCES =             pgAdmin4.cpp \
+                      Runtime.cpp \
+                      Server.cpp \
+                      ConfigWindow.cpp \
+                      TrayIcon.cpp \
+                      LogWindow.cpp \
+                      MenuActions.cpp \
+                      FloatingWindow.cpp \
+                      Logger.cpp
+
+FORMS =               ConfigWindow.ui \
+                      LogWindow.ui \
+                      FloatingWindow.ui
+
+ICON =                pgAdmin4.icns
+
+QMAKE_INFO_PLIST =    Info.plist
+
+RESOURCES +=          pgadmin4.qrc \
+                      qdarkstyle/style.qrc
+
+macx {
+    HEADERS +=            macos.h
+    OBJECTIVE_SOURCES =   macos.mm
+}
 

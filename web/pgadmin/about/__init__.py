@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -15,6 +15,7 @@ from flask_babelex import gettext
 from flask_security import current_user, login_required
 from pgadmin.utils import PgAdminModule
 from pgadmin.utils.menu import MenuItem
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 import config
 
 MODULE_NAME = 'about'
@@ -23,9 +24,6 @@ MODULE_NAME = 'about'
 class AboutModule(PgAdminModule):
     def get_own_menuitems(self):
         appname = config.APP_NAME
-
-        if hasattr(str, 'decode'):
-            appname = appname.decode('utf-8')
 
         return {
             'help_items': [
@@ -85,5 +83,5 @@ def script():
     return Response(
         response=render_template("about/about.js", _=gettext),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )

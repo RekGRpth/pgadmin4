@@ -2,17 +2,36 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import sys
 import traceback
+import os
+import json
 
 from regression.python_test_utils import test_utils as utils
+
+CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
+with open(CURRENT_PATH + "/types_test_data.json") as data_file:
+    test_cases = json.load(data_file)
+
+
+def get_types_data(type_name, schema_name, db_user):
+    data = {"name": type_name,
+            "is_sys_type": False,
+            "typtype": "c",
+            "typeowner": db_user,
+            "schema": schema_name,
+            "composite": [{"member_name": "one", "type": "bigint",
+                           "is_tlength": False, "is_precision": False},
+                          {"member_name": "two", "type": "\"char\"[]",
+                           "is_tlength": False, "is_precision": False}],
+            "enum": [], "typacl": [], "seclabels": []}
+    return data
 
 
 def create_type(server, db_name, schema_name, type_name):

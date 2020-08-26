@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -22,7 +22,7 @@ class GPDB(ServerType):
     def icon(self):
         return "gpdb.png"
 
-    def instanceOf(self, ver):
+    def instance_of(self, ver):
         return "Greenplum Database" in ver
 
 

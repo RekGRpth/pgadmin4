@@ -2,20 +2,20 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('tools.restore', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore', 'backbone',
-  'underscore.string', 'pgadmin.alertifyjs', 'pgadmin.browser',
+  'pgadmin.alertifyjs', 'pgadmin.browser',
   'pgadmin.backgrid', 'pgadmin.backform', 'sources/utils',
   'tools/restore/static/js/menu_utils',
   'sources/nodes/supported_database_node',
   'tools/restore/static/js/restore_dialog',
 ], function(
-  gettext, url_for, $, _, Backbone, S, alertify, pgBrowser, Backgrid, Backform,
+  gettext, url_for, $, _, Backbone, alertify, pgBrowser, Backgrid, Backform,
   commonUtils, menuUtils, supportedNodes, restoreDialog
 ) {
 
@@ -272,9 +272,9 @@ define('tools.restore', [
           var t = pgBrowser.tree,
             i = t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined,
-            s = pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
+            s = _.isUndefined(d) ? undefined : pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
 
-          return s.version >= 110000;
+          return _.isUndefined(s) ? false : s.version >= 110000;
         },
       }],
     }, {
@@ -424,7 +424,7 @@ define('tools.restore', [
       let dialog = new restoreDialog.RestoreDialog(
         pgBrowser, $, alertify, RestoreObjectModel
       );
-      dialog.draw(action, treeItem, pgBrowser.stdW.md, pgBrowser.stdH.md);
+      dialog.draw(action, treeItem, pgBrowser.stdW.calc(pgBrowser.stdW.md), pgBrowser.stdH.calc(pgBrowser.stdH.md));
     },
   };
   return pgBrowser.Restore;

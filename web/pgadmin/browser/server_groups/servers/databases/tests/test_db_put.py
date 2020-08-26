@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -41,7 +41,8 @@ class DatabasesUpdateTestCase(BaseTestGenerator):
             try:
                 data = {
                     "comments": "This is db update comment",
-                    "id": self.db_id
+                    "id": self.db_id,
+                    "schema_res": ["public"]
                 }
                 response = self.tester.put(
                     self.url + str(utils.SERVER_GROUP) + '/' + str(

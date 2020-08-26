@@ -1,15 +1,14 @@
-.cm-s-default .CodeMirror {
-  background: $color-editor-bg;
-}
 /* To override inbuilt Green color for matchingbracket */
 .cm-s-default .CodeMirror-matchingbracket {
-    color:  $color-gray-dark !important;
-    background-color: $color-gray-lighter !important;
+    color:  $sql-bracket-match-fg !important;
+    background-color: $sql-bracket-match-bg !important;
 }
 
 .CodeMirror {
   font-size: 1em;
   font-family: monospace, monospace;
+  background-color: $color-editor-bg;
+  color: $color-editor-fg;
 }
 
 /* Ensure the codemirror editor displays full height gutters when resized */
@@ -39,14 +38,36 @@
 }
 
 /* make syntax-highlighting bold */
-.cm-s-default .cm-keyword {
-  font-weight: 600;
-  color: $color-editor-keyword;
-}
+.cm-s-default {
+  & .cm-quote {color: #090;}
+  & .cm-keyword {color: $color-editor-keyword; font-weight: 600;}
+  & .cm-atom {color: $color-editor-fg;}
+  & .cm-number {color: $color-editor-number; font-weight: 600;}
+  & .cm-def {color: $color-editor-fg;}
+  & .cm-punctuation,
+  & .cm-property,
+  & .cm-operator { color: $color-editor-operator; }
+  & .cm-variable {color: $color-editor-variable; }
+  & .cm-variable-2,
+  & .cm-variable-3,
+  & .cm-type {color: $color-editor-variable-2;}
+  & .cm-comment {color: $color-editor-comment;}
+  & .cm-string {color: $color-editor-string;}
+  & .cm-string-2 {color: $color-editor-string;}
+  & .cm-meta {color: $color-editor-fg;}
+  & .cm-qualifier {color: $color-editor-fg;}
+  & .cm-builtin {color: $color-editor-builtin;}
+  & .cm-bracket {color: $color-editor-bracket;}
+  & .cm-tag {color: $color-editor-fg;}
+  & .cm-attribute {color: $color-editor-fg;}
+  & .cm-hr {color: $color-editor-fg;}
+  & .cm-link {color: $color-editor-fg;}
 
-.cm-s-default .cm-number {
-  font-weight: 600;
-  color: $color-editor-number;
+  & :not(.cm-fat-cursor) .CodeMirror-cursor {
+    border-left: thin solid $color-editor-fg;
+    border-right: none;
+    width: 0;
+  }
 }
 
 /* Codemirror buttons */
@@ -76,15 +97,8 @@
   display: none;
 }
 
-.CodeMirror-foldmarker {
-  color: $color-primary;
-  text-shadow: #b9f 1px 1px 2px, #b9f -1px -1px 2px, #b9f 1px -1px 2px, #b9f -1px 1px 2px;
-  line-height: .3;
-  cursor: pointer;
-}
-
 .CodeMirror-linenumber {
-  color: $color-fg-theme;
+  color: $color-fg;
 }
 
 .debugger-container .breakpoints {
@@ -106,10 +120,12 @@
 
 .CodeMirror-foldgutter-open:after {
   content: "\25BC";
+  font-weight: 900;
 }
 
 .CodeMirror-foldgutter-folded:after {
   content: "\25B6";
+  font-weight: 900;
 }
 
 
@@ -138,7 +154,7 @@
 
   background: $sql-hint-bg;
   font-size: 90%;
-  font-family: $font-family-editor;
+  font-family: $font-family-editor !important;
 
   max-height: 20em;
   overflow-y: auto;
@@ -153,10 +169,40 @@
   }
 }
 
-.CodeMirror-focused .CodeMirror-selected {
-  background: $color-primary-light !important;
+.CodeMirror .CodeMirror-selected {
+  background: $sql-editor-selection-bg !important;
 }
 
 .CodeMirror-activeline-background {
   background: $color-danger-lighter !important;
+}
+
+.CodeMirror-simplescroll-horizontal {
+    height: $scrollbar-width;
+}
+
+.CodeMirror-simplescroll-vertical {
+    width: $scrollbar-width;
+}
+
+.CodeMirror-scrollbar-filler, .CodeMirror-simplescroll-horizontal, .CodeMirror-simplescroll-vertical {
+    background: rgba($scrollbar-base-color, 0.2);
+}
+
+.CodeMirror-simplescroll-horizontal, .CodeMirror-simplescroll-vertical {
+
+    & div {
+        border: 0.25rem solid transparent;
+        border-radius: $border-radius*2;
+        background-clip: content-box;
+        background-color: rgba($scrollbar-base-color, 0.7);
+
+        &:hover {
+            background-color: $scrollbar-base-color;
+        }
+    }
+}
+
+.bg-gray-lighter {
+  background-color: $sql-editor-disable-bg !important;
 }

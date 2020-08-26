@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -23,10 +23,8 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 class LanguageModule(CollectionNodeModule):
@@ -51,8 +49,8 @@ class LanguageModule(CollectionNodeModule):
         initialized.
     """
 
-    NODE_TYPE = 'language'
-    COLLECTION_LABEL = gettext("Languages")
+    _NODE_TYPE = 'language'
+    _COLLECTION_LABEL = gettext("Languages")
 
     def __init__(self, *args, **kwargs):
         """
@@ -95,7 +93,7 @@ class LanguageModule(CollectionNodeModule):
 
         Returns: node type of the server module.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
     @property
     def module_use_template_javascript(self):
@@ -109,7 +107,7 @@ class LanguageModule(CollectionNodeModule):
 blueprint = LanguageModule(__name__)
 
 
-class LanguageView(PGChildNodeView):
+class LanguageView(PGChildNodeView, SchemaDiffObjectCompare):
     """
     class LanguageView(PGChildNodeView)
 
@@ -174,6 +172,8 @@ class LanguageView(PGChildNodeView):
       language node.
     """
 
+    _NOT_FOUND_LANG_INFORMATION = \
+        gettext("Could not find the language information.")
     node_type = blueprint.node_type
 
     parent_ids = [
@@ -230,6 +230,11 @@ class LanguageView(PGChildNodeView):
             self.driver = get_driver(PG_DEFAULT_DRIVER)
             self.manager = self.driver.connection_manager(kwargs['sid'])
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
+
             # Set the template path for the SQL scripts
             self.template_path = (
                 "languages/sql/#gpdb#{0}#".format(self.manager.version) if
@@ -252,7 +257,8 @@ class LanguageView(PGChildNodeView):
             sid: Server ID
             did: Database ID
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']))
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]))
         status, res = self.conn.execute_dict(sql)
 
         if not status:
@@ -274,7 +280,8 @@ class LanguageView(PGChildNodeView):
             did: Database ID
         """
         res = []
-        sql = render_template("/".join([self.template_path, 'properties.sql']))
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]))
         status, result = self.conn.execute_2darray(sql)
         if not status:
             return internal_server_error(errormsg=result)
@@ -304,7 +311,8 @@ class LanguageView(PGChildNodeView):
             did: Database ID
             lid: Language ID
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               lid=lid)
         status, result = self.conn.execute_2darray(sql)
         if not status:
@@ -334,27 +342,44 @@ class LanguageView(PGChildNodeView):
             did: Database ID
             lid: Language ID
         """
+        status, res = self._fetch_properties(did, lid)
+        if not status:
+            return res
+
+        return ajax_response(
+            response=res,
+            status=200
+        )
+
+    def _fetch_properties(self, did, lid):
+        """
+        This function fetch the properties of the extension.
+        :param did:
+        :param lid:
+        :return:
+        """
         sql = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             lid=lid
         )
         status, res = self.conn.execute_dict(sql)
 
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(
-                gettext("Could not find the language information.")
-            )
+            return False, gone(self._NOT_FOUND_LANG_INFORMATION)
+
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
 
         sql = render_template(
-            "/".join([self.template_path, 'acl.sql']),
+            "/".join([self.template_path, self._ACL_SQL]),
             lid=lid
         )
         status, result = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=result)
+            return False, internal_server_error(errormsg=result)
 
         # if no acl found then by default add public
         if res['rows'][0]['acl'] is None:
@@ -389,10 +414,7 @@ class LanguageView(PGChildNodeView):
 
         res['rows'][0]['seclabels'] = seclabels
 
-        return ajax_response(
-            response=res['rows'][0],
-            status=200
-        )
+        return True, res['rows'][0]
 
     @check_precondition
     def update(self, gid, sid, did, lid):
@@ -412,7 +434,7 @@ class LanguageView(PGChildNodeView):
         try:
             sql, name = self.get_sql(data, lid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             status, res = self.conn.execute_dict(sql)
@@ -453,22 +475,23 @@ class LanguageView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         try:
             if 'lanacl' in data:
                 data['lanacl'] = parse_priv_to_db(data['lanacl'], ['U'])
 
-            sql = render_template("/".join([self.template_path, 'create.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._CREATE_SQL]),
                                   data=data, conn=self.conn)
             status, res = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
             sql = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 lanname=data['name'], conn=self.conn
             )
 
@@ -490,7 +513,7 @@ class LanguageView(PGChildNodeView):
             return internal_server_error(errormsg=str(e))
 
     @check_precondition
-    def delete(self, gid, sid, did, lid=None):
+    def delete(self, gid, sid, did, lid=None, only_sql=False):
         """
         This function will drop the language object
 
@@ -499,6 +522,7 @@ class LanguageView(PGChildNodeView):
             sid: Server ID
             did: Database ID
             lid: Language ID
+            only_sql:
         """
         if lid is None:
             data = request.form if request.form else json.loads(
@@ -507,17 +531,13 @@ class LanguageView(PGChildNodeView):
         else:
             data = {'ids': [lid]}
 
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation()
 
         try:
             for lid in data['ids']:
                 # Get name for language from lid
                 sql = render_template(
-                    "/".join([self.template_path, 'delete.sql']),
+                    "/".join([self.template_path, self._DELETE_SQL]),
                     lid=lid, conn=self.conn
                 )
                 status, lname = self.conn.execute_scalar(sql)
@@ -527,11 +547,15 @@ class LanguageView(PGChildNodeView):
 
                 # drop language
                 sql = render_template(
-                    "/".join([self.template_path, 'delete.sql']),
+                    "/".join([self.template_path, self._DELETE_SQL]),
                     lname=lname, cascade=cascade, conn=self.conn
                 )
-                status, res = self.conn.execute_scalar(sql)
 
+                # Used for schema diff tool
+                if only_sql:
+                    return sql
+
+                status, res = self.conn.execute_scalar(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
 
@@ -569,7 +593,7 @@ class LanguageView(PGChildNodeView):
         try:
             sql, name = self.get_sql(data, lid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             if sql == '':
                 sql = "--modified SQL"
@@ -580,6 +604,28 @@ class LanguageView(PGChildNodeView):
             )
         except Exception as e:
             return internal_server_error(errormsg=str(e))
+
+    @staticmethod
+    def _parse_privileges(data):
+        """
+        CHeck key in data adn parse privilege according.
+        :param data: Data.
+        :return:
+        """
+        for key in ['lanacl']:
+            if key in data and data[key] is not None:
+                if 'added' in data[key]:
+                    data[key]['added'] = parse_priv_to_db(
+                        data[key]['added'], ["U"]
+                    )
+                if 'changed' in data[key]:
+                    data[key]['changed'] = parse_priv_to_db(
+                        data[key]['changed'], ["U"]
+                    )
+                if 'deleted' in data[key]:
+                    data[key]['deleted'] = parse_priv_to_db(
+                        data[key]['deleted'], ["U"]
+                    )
 
     def get_sql(self, data, lid=None):
         """
@@ -595,38 +641,23 @@ class LanguageView(PGChildNodeView):
 
         if lid is not None:
             sql = render_template(
-                "/".join([self.template_path, 'properties.sql']), lid=lid
+                "/".join([self.template_path, self._PROPERTIES_SQL]), lid=lid
             )
             status, res = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
             if len(res['rows']) == 0:
-                return gone(
-                    gettext("Could not find the language information.")
-                )
+                return gone(self._NOT_FOUND_LANG_INFORMATION)
 
-            for key in ['lanacl']:
-                if key in data and data[key] is not None:
-                    if 'added' in data[key]:
-                        data[key]['added'] = parse_priv_to_db(
-                            data[key]['added'], ["U"]
-                        )
-                    if 'changed' in data[key]:
-                        data[key]['changed'] = parse_priv_to_db(
-                            data[key]['changed'], ["U"]
-                        )
-                    if 'deleted' in data[key]:
-                        data[key]['deleted'] = parse_priv_to_db(
-                            data[key]['deleted'], ["U"]
-                        )
+            LanguageView._parse_privileges(data)
 
             old_data = res['rows'][0]
             for arg in required_args:
                 if arg not in data:
                     data[arg] = old_data[arg]
             sql = render_template(
-                "/".join([self.template_path, 'update.sql']),
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=data, o_data=old_data, conn=self.conn
             )
             return sql.strip('\n'), data['name'] if 'name' in data \
@@ -636,7 +667,8 @@ class LanguageView(PGChildNodeView):
             if 'lanacl' in data:
                 data['lanacl'] = parse_priv_to_db(data['lanacl'], ["U"])
 
-            sql = render_template("/".join([self.template_path, 'create.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._CREATE_SQL]),
                                   data=data, conn=self.conn)
             return sql.strip('\n'), data['name']
 
@@ -651,7 +683,8 @@ class LanguageView(PGChildNodeView):
             sid: Server ID
             did: Database ID
         """
-        sql = render_template("/".join([self.template_path, 'functions.sql']))
+        sql = render_template("/".join([self.template_path,
+                                        self._FUNCTIONS_SQL]))
         status, result = self.conn.execute_dict(sql)
         if not status:
             return internal_server_error(errormsg=result)
@@ -680,7 +713,7 @@ class LanguageView(PGChildNodeView):
         )
 
     @check_precondition
-    def sql(self, gid, sid, did, lid):
+    def sql(self, gid, sid, did, lid, json_resp=True):
         """
         This function will generate sql to show in the sql pane for the
         selected language node.
@@ -690,9 +723,10 @@ class LanguageView(PGChildNodeView):
             sid: Server ID
             did: Database ID
             lid: Language ID
+            json_resp:
         """
         sql = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             lid=lid
         )
         status, res = self.conn.execute_dict(sql)
@@ -700,15 +734,13 @@ class LanguageView(PGChildNodeView):
             return internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(
-                gettext("Could not find the language information.")
-            )
+            return gone(self._NOT_FOUND_LANG_INFORMATION)
 
         # Making copy of output for future use
         old_data = dict(res['rows'][0])
 
         sql = render_template(
-            "/".join([self.template_path, 'acl.sql']),
+            "/".join([self.template_path, self._ACL_SQL]),
             lid=lid
         )
         status, result = self.conn.execute_dict(sql)
@@ -744,6 +776,9 @@ class LanguageView(PGChildNodeView):
             "/".join([self.template_path, 'sqlpane.sql']),
             data=old_data, conn=self.conn
         )
+
+        if not json_resp:
+            return sql.strip('\n')
 
         return ajax_response(response=sql.strip('\n'))
 
@@ -783,5 +818,54 @@ class LanguageView(PGChildNodeView):
             status=200
         )
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did):
+        """
+        This function will fetch the list of all the event triggers for
+        specified database id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :return:
+        """
+        res = dict()
+        sql = render_template("/".join([self.template_path,
+                                        'properties.sql']))
+        status, rset = self.conn.execute_2darray(sql)
+        if not status:
+            return internal_server_error(errormsg=rset)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(did, row['oid'])
+            if status:
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs:
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_sql(data=data, lid=oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  lid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, lid=oid,
+                               json_resp=False)
+        return sql
+
+
+SchemaDiffRegistry(blueprint.node_type, LanguageView, 'Database')
 LanguageView.register_node_view(blueprint)

@@ -16,7 +16,7 @@
         "schema": "testschema",
         "spcname": "pg_default"
       },
-      "store_table_id": true
+      "store_object_id": true
     },
     {
       "type": "create",
@@ -50,6 +50,13 @@
       "endpoint": "NODE-check_constraint.delete_id",
       "data": {
         "name": "Chk_$%{}[]()&*^!@\"'`\\/#a"
+      }
+    }, {
+      "type": "delete",
+      "name": "Drop Table for Check Constraint",
+      "endpoint": "NODE-table.delete_id",
+      "data": {
+        "name": "tableforcon"
       }
     }
   ]

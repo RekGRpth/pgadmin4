@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-import sys
 import os
 import simplejson as json
 
@@ -16,11 +15,7 @@ from regression import parent_node_dict
 from pgadmin.utils import server_utils as server_utils, does_utility_exist
 from pgadmin.browser.server_groups.servers.databases.tests import utils as \
     database_utils
-
-if sys.version_info < (3, 3):
-    from mock import patch, MagicMock
-else:
-    from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class MaintenanceCreateJobTest(BaseTestGenerator):

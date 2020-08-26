@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -10,12 +10,14 @@
 define([
   'jquery',
   'sources/selection/range_selection_helper',
+  'sources/selection/column_selector',
   'slickgrid',
-], function ($, RangeSelectionHelper) {
+], function ($, RangeSelectionHelper, ColumnSelector) {
   var RowSelector = function () {
     var Slick = window.Slick;
 
     var gridEventBus = new Slick.EventHandler();
+    var columnSelector = new ColumnSelector();
 
     var init = function (grid) {
       grid.getSelectionModel().onSelectedRangesChanged
@@ -34,6 +36,7 @@ define([
 
         $rowHeaderSpan.parent().toggleClass('selected');
         updateRanges(grid, args.row);
+        columnSelector.toggleColumnHeaderForCopyHeader(grid);
       }
     };
 

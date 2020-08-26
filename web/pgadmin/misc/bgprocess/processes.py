@@ -3,7 +3,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL License
 #
 ##########################################################################
@@ -18,9 +18,10 @@ import psutil
 from abc import ABCMeta, abstractproperty, abstractmethod
 from datetime import datetime
 from pickle import dumps, loads
-from subprocess import Popen
+from subprocess import Popen, PIPE
+import logging
 
-from pgadmin.utils import IS_PY2, u, file_quote, fs_encoding, \
+from pgadmin.utils import u_encode, file_quote, fs_encoding, \
     get_complete_file_path
 
 import pytz
@@ -31,10 +32,7 @@ from flask_security import current_user
 
 import config
 from pgadmin.model import Process, db
-if IS_PY2:
-    from StringIO import StringIO
-else:
-    from io import StringIO
+from io import StringIO
 
 PROCESS_NOT_STARTED = 0
 PROCESS_STARTED = 1
@@ -86,15 +84,7 @@ class BatchProcess(object):
                 _("Could not find a process with the specified ID.")
             )
 
-        try:
-            tmp_desc = loads(p.desc.encode('latin-1')) if \
-                IS_PY2 and hasattr(p.desc, 'encode') else loads(p.desc)
-        except UnicodeDecodeError:
-            tmp_desc = loads(p.desc.encode('utf-8')) if \
-                IS_PY2 and hasattr(p.desc, 'encode') else loads(p.desc)
-        except Exception as e:
-            tmp_desc = loads(p.desc.encode('utf-8', 'ignore')) if \
-                IS_PY2 and hasattr(p.desc, 'encode') else loads(p.desc)
+        tmp_desc = loads(p.desc)
 
         # ID
         self.id = _id
@@ -139,11 +129,11 @@ class BatchProcess(object):
 
         created = False
         size = 0
-        id = ctime
+        uid = ctime
         while not created:
             try:
-                id += random_number(size)
-                log_dir = os.path.join(log_dir, id)
+                uid += random_number(size)
+                log_dir = os.path.join(log_dir, uid)
                 size += 1
                 if not os.path.exists(log_dir):
                     os.makedirs(log_dir, int('700', 8))
@@ -182,33 +172,15 @@ class BatchProcess(object):
         csv_writer = csv.writer(
             args_csv_io, delimiter=str(','), quoting=csv.QUOTE_MINIMAL
         )
-        if sys.version_info[0] == 2:
-            csv_writer.writerow(
-                [
-                    a.encode('utf-8')
-                    if isinstance(a, unicode) else a for a in _args
-                ]
-            )
-        else:
-            csv_writer.writerow(_args)
+        csv_writer.writerow(_args)
 
         args_val = args_csv_io.getvalue().strip(str('\r\n'))
         tmp_desc = dumps(self.desc)
-        try:
-            tmp_desc = tmp_desc.decode('utf-8') if \
-                IS_PY2 and hasattr(tmp_desc, 'decode') else tmp_desc
-        except UnicodeDecodeError:
-            tmp_desc = tmp_desc.decode('latin-1') if \
-                IS_PY2 and hasattr(tmp_desc, 'decode') else tmp_desc
-        except Exception:
-            tmp_desc = tmp_desc.decode('utf-8', 'ignore') if \
-                IS_PY2 and hasattr(tmp_desc, 'decode') else tmp_desc
 
         j = Process(
-            pid=int(id),
+            pid=int(uid),
             command=_cmd,
-            arguments=args_val.decode('utf-8', 'replace')
-            if IS_PY2 and hasattr(args_val, 'decode') else args_val,
+            arguments=args_val,
             logdir=log_dir,
             desc=tmp_desc,
             user_id=current_user.id
@@ -225,51 +197,41 @@ class BatchProcess(object):
             for path in paths:
                 if not os.path.isdir(path):
                     continue
-                exe_file = os.path.join(u(path, fs_encoding), program)
+                exe_file = os.path.join(u_encode(path, fs_encoding), program)
                 if is_exe(exe_file):
                     return file_quote(exe_file)
             return None
 
-        def convert_environment_variables(env):
-            """
-            This function is use to convert environment variable to string
-            because environment variable must be string in popen
-            :param env: Dict of environment variable
-            :return: Encoded environment variable as string
-            """
-            encoding = sys.getdefaultencoding()
-            if encoding is None or encoding == 'ascii':
-                encoding = 'utf-8'
-            temp_env = dict()
-            for key, value in env.items():
-                if not isinstance(key, str):
-                    key = key.encode(encoding)
-                if not isinstance(value, str):
-                    value = value.encode(encoding)
-                temp_env[key] = value
-            return temp_env
-
         if self.stime is not None:
             if self.etime is None:
-                raise Exception(_('The process has already been started.'))
-            raise Exception(
+                raise RuntimeError(_('The process has already been started.'))
+            raise RuntimeError(
                 _('The process has already finished and cannot be restarted.')
             )
 
         executor = file_quote(os.path.join(
-            os.path.dirname(u(__file__)), u'process_executor.py'
+            os.path.dirname(u_encode(__file__)), u'process_executor.py'
         ))
         paths = os.environ['PATH'].split(os.pathsep)
         interpreter = None
 
+        current_app.logger.info(
+            u"Process Executor: Operating System Path %s",
+            str(paths)
+        )
+
         if os.name == 'nt':
-            paths.insert(0, os.path.join(u(sys.prefix), u'Scripts'))
-            paths.insert(0, u(sys.prefix))
+            paths.insert(0, os.path.join(u_encode(sys.prefix), u'Scripts'))
+            paths.insert(0, u_encode(sys.prefix))
 
             interpreter = which(u'pythonw.exe', paths)
             if interpreter is None:
                 interpreter = which(u'python.exe', paths)
 
+            current_app.logger.info(
+                u"Process Executor: Interpreter value in path: %s",
+                str(interpreter)
+            )
             if interpreter is None and current_app.PGADMIN_RUNTIME:
                 # We've faced an issue with Windows 2008 R2 (x86) regarding,
                 # not honouring the environment variables set under the Qt
@@ -290,7 +252,12 @@ class BatchProcess(object):
 
                 interpreter = which(u'pythonw.exe', [venv])
                 if interpreter is None:
-                    interpreter = which(u'pythonw.exe', [venv])
+                    interpreter = which(u'python.exe', [venv])
+
+                current_app.logger.info(
+                    u"Process Executor: Interpreter value in virtual "
+                    u"environment: %s", str(interpreter)
+                )
 
                 if interpreter is not None:
                     # Our assumptions are proven right.
@@ -307,8 +274,9 @@ class BatchProcess(object):
             # directory in the PATH environment variable. Hence - it will
             # anyway be the redundant value in paths.
             if not current_app.PGADMIN_RUNTIME:
-                paths.insert(0, os.path.join(u(sys.prefix), u'bin'))
-            interpreter = which(u'python', paths)
+                paths.insert(0, os.path.join(u_encode(sys.prefix), u'bin'))
+            python_binary_name = 'python{0}'.format(sys.version_info[0])
+            interpreter = which(u_encode(python_binary_name), paths)
 
         p = None
         cmd = [
@@ -317,24 +285,10 @@ class BatchProcess(object):
         ]
         cmd.extend(self.args)
 
-        if os.name == 'nt' and IS_PY2:
-            command = []
-            for c in cmd:
-                command.append(
-                    c.encode('utf-8') if isinstance(c, unicode) else str(c)
-                )
-
-            current_app.logger.info(
-                u"Executing the process executor with the arguments: %s",
-                ''.join(command)
-            )
-
-            cmd = command
-        else:
-            current_app.logger.info(
-                u"Executing the process executor with the arguments: %s",
-                str(cmd)
-            )
+        current_app.logger.info(
+            u"Executing the process executor with the arguments: %s",
+            str(cmd)
+        )
 
         # Make a copy of environment, and add new variables to support
         env = os.environ.copy()
@@ -347,10 +301,6 @@ class BatchProcess(object):
 
         if cb is not None:
             cb(env)
-
-        if IS_PY2:
-            # We need environment variables & values in string
-            env = convert_environment_variables(env)
 
         if os.name == 'nt':
             DETACHED_PROCESS = 0x00000008
@@ -382,10 +332,28 @@ class BatchProcess(object):
                 # Explicitly ignoring signals in the child process
                 signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-            p = Popen(
-                cmd, close_fds=True, stdout=None, stderr=None, stdin=None,
-                preexec_fn=preexec_function, env=env
-            )
+            # if in debug mode, wait for process to complete and
+            # get the stdout and stderr of popen.
+            if config.CONSOLE_LOG_LEVEL <= logging.DEBUG:
+                p = Popen(
+                    cmd, close_fds=True, stdout=PIPE, stderr=PIPE, stdin=None,
+                    preexec_fn=preexec_function, env=env
+                )
+
+                output, errors = p.communicate()
+                output = output.decode() \
+                    if hasattr(output, 'decode') else output
+                errors = errors.decode() \
+                    if hasattr(errors, 'decode') else errors
+                current_app.logger.debug(
+                    'Process Watcher Out:{0}'.format(output))
+                current_app.logger.debug(
+                    'Process Watcher Err:{0}'.format(errors))
+            else:
+                p = Popen(
+                    cmd, close_fds=True, stdout=None, stderr=None, stdin=None,
+                    preexec_fn=preexec_function, env=env
+                )
 
         self.ecode = p.poll()
 
@@ -422,7 +390,7 @@ class BatchProcess(object):
         out_completed = err_completed = False
         process_output = (out != -1 and err != -1)
         enc = sys.getdefaultencoding()
-        if enc is None or enc == 'ascii':
+        if enc == 'ascii':
             enc = 'utf-8'
 
         def read_log(logfile, log, pos, ctime, ecode=None):
@@ -519,6 +487,26 @@ class BatchProcess(object):
         }
 
     @staticmethod
+    def _check_start_time(p, data):
+        """
+        Check start time and its related other timing checks.
+        :param p: Process.
+        :param data: Data
+        :return:
+        """
+        if 'start_time' in data and data['start_time']:
+            p.start_time = data['start_time']
+
+            # We can't have 'exit_code' without the 'start_time'
+            if 'exit_code' in data and \
+                    data['exit_code'] is not None:
+                p.exit_code = data['exit_code']
+
+                # We can't have 'end_time' without the 'exit_code'.
+                if 'end_time' in data and data['end_time']:
+                    p.end_time = data['end_time']
+
+    @staticmethod
     def update_process_info(p):
         if p.start_time is None or p.end_time is None:
             status = os.path.join(p.logdir, 'status')
@@ -531,18 +519,7 @@ class BatchProcess(object):
                     data = json.load(fp)
 
                     #  First - check for the existance of 'start_time'.
-                    if 'start_time' in data and data['start_time']:
-                        p.start_time = data['start_time']
-
-                        # We can't have 'exit_code' without the 'start_time'
-                        if 'exit_code' in data and \
-                                data['exit_code'] is not None:
-                            p.exit_code = data['exit_code']
-
-                            # We can't have 'end_time' without the 'exit_code'.
-                            if 'end_time' in data and data['end_time']:
-                                p.end_time = data['end_time']
-
+                    BatchProcess._check_start_time(p, data)
                     # get the pid of the utility.
                     if 'pid' in data:
                         p.utility_pid = data['pid']
@@ -559,6 +536,33 @@ class BatchProcess(object):
         return True, False
 
     @staticmethod
+    def _check_process_desc(p):
+        """
+        Check process desc instance and return data according to process.
+        :param p: process
+        :return: return value for details, type_desc and desc related
+        to process
+        """
+        desc = loads(p.desc)
+        details = desc
+        type_desc = ''
+
+        if isinstance(desc, IProcessDesc):
+            args = []
+            args_csv = StringIO(
+                p.arguments.encode('utf-8')
+                if hasattr(p.arguments, 'decode') else p.arguments
+            )
+            args_reader = csv.reader(args_csv, delimiter=str(','))
+            for arg in args_reader:
+                args = args + arg
+            details = desc.details(p.command, args)
+            type_desc = desc.type_desc
+            desc = desc.message
+
+        return desc, details, type_desc
+
+    @staticmethod
     def list():
         processes = Process.query.filter_by(user_id=current_user.id)
         changed = False
@@ -568,8 +572,7 @@ class BatchProcess(object):
             status, updated = BatchProcess.update_process_info(p)
             if not status:
                 continue
-
-            if not changed:
+            elif not changed:
                 changed = updated
 
             if p.start_time is None or (
@@ -583,31 +586,8 @@ class BatchProcess(object):
             etime = parser.parse(p.end_time or get_current_time())
 
             execution_time = BatchProcess.total_seconds(etime - stime)
-            desc = ""
-            try:
-                desc = loads(p.desc.encode('latin-1')) if \
-                    IS_PY2 and hasattr(p.desc, 'encode') else loads(p.desc)
-            except UnicodeDecodeError:
-                desc = loads(p.desc.encode('utf-8')) if \
-                    IS_PY2 and hasattr(p.desc, 'encode') else loads(p.desc)
-            except Exception:
-                desc = loads(p.desc.encode('utf-8', 'ignore')) if \
-                    IS_PY2 and hasattr(p.desc, 'encode') else loads(p.desc)
 
-            details = desc
-
-            if isinstance(desc, IProcessDesc):
-                args = []
-                args_csv = StringIO(
-                    p.arguments.encode('utf-8')
-                    if hasattr(p.arguments, 'decode') else p.arguments
-                )
-                args_reader = csv.reader(args_csv, delimiter=str(','))
-                for arg in args_reader:
-                    args = args + arg
-                details = desc.details(p.command, args)
-                type_desc = desc.type_desc
-                desc = desc.message
+            desc, details, type_desc = BatchProcess._check_process_desc(p)
 
             res.append({
                 'id': p.pid,

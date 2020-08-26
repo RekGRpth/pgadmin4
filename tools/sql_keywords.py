@@ -4,7 +4,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -13,7 +13,6 @@
 # pgsql keywords from the code git paths mentioned in PG_CODES_URLS
 # Note that, PG_CODES_URLS may need to be changed manually per version change
 
-from __future__ import print_function
 import re
 import requests
 import argparse

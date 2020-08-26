@@ -2,21 +2,21 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define([
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.alertifyjs', 'pgadmin.backform', 'pgadmin.backgrid',
-  'pgadmin.node.schema.dir/schema_child_tree_node',
+  'pgadmin.node.schema.dir/schema_child_tree_node', 'sources/utils',
   'pgadmin.browser.collection', 'pgadmin.browser.table.partition.utils',
 ],
 function(
-  gettext, url_for, $, _, S, pgAdmin, pgBrowser, Alertify, Backform, Backgrid,
-  SchemaChildTreeNode
+  gettext, url_for, $, _, pgAdmin, pgBrowser, Alertify, Backform, Backgrid,
+  SchemaChildTreeNode, pgadminUtils
 ) {
 
   if (!pgBrowser.Nodes['coll-partition']) {
@@ -49,8 +49,7 @@ function(
       sqlCreateHelp: 'sql-createtable.html',
       dialogHelp: url_for('help.static', {'filename': 'table_dialog.html'}),
       hasScriptTypes: ['create'],
-      height: '95%',
-      width: '85%',
+      width: '650px',
       Init: function() {
         /* Avoid mulitple registration of menus */
         if (this.initialized)
@@ -61,29 +60,29 @@ function(
         pgBrowser.add_menus([{
           name: 'truncate_table', node: 'partition', module: this,
           applies: ['object', 'context'], callback: 'truncate_table',
-          category: 'Truncate', priority: 3, label: gettext('Truncate'),
+          category: gettext('Truncate'), priority: 3, label: gettext('Truncate'),
           icon: 'fa fa-eraser', enable : 'canCreate',
         },{
           name: 'truncate_table_cascade', node: 'partition', module: this,
           applies: ['object', 'context'], callback: 'truncate_table_cascade',
-          category: 'Truncate', priority: 3, label: gettext('Truncate Cascade'),
+          category: gettext('Truncate'), priority: 3, label: gettext('Truncate Cascade'),
           icon: 'fa fa-eraser', enable : 'canCreate',
         },{
           // To enable/disable all triggers for the table
           name: 'enable_all_triggers', node: 'partition', module: this,
           applies: ['object', 'context'], callback: 'enable_triggers_on_table',
-          category: 'Trigger(s)', priority: 4, label: gettext('Enable All'),
+          category: gettext('Trigger(s)'), priority: 4, label: gettext('Enable All'),
           icon: 'fa fa-check', enable : 'canCreate_with_trigger_enable',
         },{
           name: 'disable_all_triggers', node: 'partition', module: this,
           applies: ['object', 'context'], callback: 'disable_triggers_on_table',
-          category: 'Trigger(s)', priority: 4, label: gettext('Disable All'),
+          category: gettext('Trigger(s)'), priority: 4, label: gettext('Disable All'),
           icon: 'fa fa-times', enable : 'canCreate_with_trigger_disable',
         },{
           name: 'reset_table_stats', node: 'partition', module: this,
           applies: ['object', 'context'], callback: 'reset_table_stats',
           category: 'Reset', priority: 4, label: gettext('Reset Statistics'),
-          icon: 'fa fa-bar-chart', enable : 'canCreate',
+          icon: 'fa fa-chart-bar', enable : 'canCreate',
         },{
           name: 'detach_partition', node: 'partition', module: this,
           applies: ['object', 'context'], callback: 'detach_partition',
@@ -107,25 +106,25 @@ function(
         info = (_.isUndefined(item) || _.isNull(item)) ?
           info || {} : this.getTreeNodeHierarchy(item);
 
-        return S('table/%s/%s/%s/%s/%s/%s').sprintf(
+        return pgadminUtils.sprintf('table/%s/%s/%s/%s/%s/%s',
           encodeURIComponent(type), encodeURIComponent(info['server_group']._id),
           encodeURIComponent(info['server']._id),
           encodeURIComponent(info['database']._id),
           encodeURIComponent(info['partition'].schema_id),
           encodeURIComponent(info['partition']._id)
-        ).value();
+        );
       },
       canDrop: SchemaChildTreeNode.isTreeItemOfChildOfSchema,
       canDropCascade: SchemaChildTreeNode.isTreeItemOfChildOfSchema,
       callbacks: {
         /* Enable trigger(s) on table */
         enable_triggers_on_table: function(args) {
-          var params = {'enable': true };
+          var params = {'is_enable_trigger': 'O'};
           this.callbacks.set_triggers.apply(this, [args, params]);
         },
         /* Disable trigger(s) on table */
         disable_triggers_on_table: function(args) {
-          var params = {'enable': false };
+          var params = {'is_enable_trigger': 'D'};
           this.callbacks.set_triggers.apply(this, [args, params]);
         },
         set_triggers: function(args, params) {
@@ -184,7 +183,7 @@ function(
 
           Alertify.confirm(
             gettext('Truncate Table'),
-            S(gettext('Are you sure you want to truncate table %s?')).sprintf(d.label).value(),
+            gettext('Are you sure you want to truncate table %s?', d.label),
             function (e) {
               if (e) {
                 var data = d;
@@ -229,7 +228,7 @@ function(
 
           Alertify.confirm(
             gettext('Reset statistics'),
-            S(gettext('Are you sure you want to reset the statistics for table "%s"?')).sprintf(d._label).value(),
+            gettext('Are you sure you want to reset the statistics for table "%s"?', d._label),
             function (e) {
               if (e) {
                 var data = d;
@@ -273,7 +272,7 @@ function(
 
           Alertify.confirm(
             gettext('Detach Partition'),
-            S(gettext('Are you sure you want to detach the partition %s?')).sprintf(d._label).value(),
+            gettext('Are you sure you want to detach the partition %s?', d._label),
             function (e) {
               if (e) {
                 $.ajax({
@@ -331,8 +330,8 @@ function(
           is_sys_table: undefined,
           coll_inherits: [],
           hastoasttable: true,
-          toast_autovacuum_enabled: false,
-          autovacuum_enabled: false,
+          toast_autovacuum_enabled: 'x',
+          autovacuum_enabled: 'x',
           primary_key: [],
           partitions: [],
           partition_type: 'range',
@@ -402,7 +401,7 @@ function(
 
             return false;
           },
-          disabled: function(m) {
+          readonly: function(m) {
             if (!m.isNew())
               return true;
             return false;
@@ -462,12 +461,12 @@ function(
               var self = this,
                 collection = self.model.get(self.field.get('name'));
 
-              collection.on('change:is_primary_key', function(m) {
+              collection.on('change:is_primary_key', function(local_model) {
                 var primary_key_coll = self.model.get('primary_key'),
-                  column_name = m.get('name'),
+                  column_name = local_model.get('name'),
                   primary_key, primary_key_column_coll;
 
-                if(m.get('is_primary_key')) {
+                if(local_model.get('is_primary_key')) {
                 // Add column to primary key.
                   if (primary_key_coll.length < 1) {
                     primary_key = new (primary_key_coll.model)({}, {
@@ -563,7 +562,9 @@ function(
             control: 'unique-col-collection',
             columns : ['name', 'columns'],
             canAdd: function(m) {
-              if (m.get('is_partitioned')) {
+              if (m.get('is_partitioned') && !_.isUndefined(m.top.node_info) && !_.isUndefined(m.top.node_info.server)
+              && !_.isUndefined(m.top.node_info.server.version) &&
+                m.top.node_info.server.version < 110000) {
                 setTimeout(function() {
                   var coll = m.get('primary_key');
                   coll.remove(coll.filter(function() { return true; }));
@@ -715,11 +716,17 @@ function(
         },{
           id: 'fillfactor', label: gettext('Fill factor'), type: 'int',
           mode: ['create', 'edit'], min: 10, max: 100,
-          disabled: 'inSchema',group: gettext('Advanced'),
+          group: gettext('Advanced'),
+          disabled: function(m) {
+            if(m.get('is_partitioned')) {
+              return true;
+            }
+            return m.inSchema();
+          },
         },{
           id: 'relhasoids', label: gettext('Has OIDs?'), cell: 'switch',
           type: 'switch', mode: ['properties', 'create', 'edit'],
-          disabled: 'inSchema', group: gettext('Advanced'),
+          disabled: true, group: gettext('Advanced'),
         },{
           id: 'relpersistence', label: gettext('Unlogged?'), cell: 'switch',
           type: 'switch', mode: ['properties', 'create', 'edit'],
@@ -792,10 +799,11 @@ function(
 
             return false;
           },
+          readonly: function(m) {
+            return !m.isNew();
+          },
           disabled: function(m) {
-            if (!m.isNew() || !m.get('is_partitioned'))
-              return true;
-            return false;
+            return !m.get('is_partitioned');
           },
         },{
           id: 'partition_keys', label:gettext('Partition Keys'),
@@ -862,10 +870,10 @@ function(
           editable: true, type: 'collection',
           group: 'partition', mode: ['edit', 'create'],
           deps: ['is_partitioned', 'partition_type'],
-          canEdit: false, canDelete: true,
+          canEdit: true, canDelete: true,
           customDeleteTitle: gettext('Detach Partition'),
           customDeleteMsg: gettext('Are you sure you wish to detach this partition?'),
-          columns:['is_attach', 'partition_name', 'values_from', 'values_to', 'values_in'],
+          columns:['is_attach', 'partition_name', 'is_default', 'values_from', 'values_to', 'values_in', 'values_modulus', 'values_remainder'],
           control: Backform.SubNodeCollectionControl.extend({
             row: Backgrid.PartitionRow,
             initialize: function() {
@@ -930,10 +938,30 @@ function(
         },{
           id: 'partition_note', label: gettext('Partition'),
           type: 'note', group: 'partition',
-          text: gettext('The control above is used to Create/Attach/Detach partitions.<br>' +
-            '<ul><li>Create Mode: User will be able to create N number of partitions. Mode switch control is disabled in this scenario.</li>' +
-            '<li>Edit Mode: User will be able to create/attach/detach N number of partitions. ' +
-            'In attach mode there will be list of suitable tables to be attached.</li></ul>'),
+          text: [
+            '<ul><li>',
+            '<strong>', gettext('Create a table: '), '</strong>',
+            gettext('User can create multiple partitions while creating new partitioned table. Operation switch is disabled in this scenario.'),
+            '</li><li>',
+            '<strong>', gettext('Edit existing table: '), '</strong>',
+            gettext('User can create/attach/detach multiple partitions. In attach operation user can select table from the list of suitable tables to be attached.'),
+            '</li><li>',
+            '<strong>', gettext('Default: '), '</strong>',
+            gettext('The default partition can store rows that do not fall into any existing partition’s range or list.'),
+            '</li><li>',
+            '<strong>', gettext('From/To/In input: '), '</strong>',
+            gettext('From/To/In input: Values for these fields must be quoted with single quote. For more than one partition key values must be comma(,) separated.'),
+            '</li><li>',
+            '<strong>', gettext('Example: From/To: '), '</strong>',
+            gettext('Enabled for range partition. Consider partitioned table with multiple keys of type Integer, then values should be specified like \'100\',\'200\'.'),
+            '</li><li>',
+            '<strong>', gettext('In: '), '</strong>',
+            gettext('Enabled for list partition. Values must be comma(,) separated and quoted with single quote.'),
+            '</li><li>',
+            '<strong>', gettext('Modulus/Remainder: '), '</strong>',
+            gettext('Enabled for hash partition.'),
+            '</li></ul>',
+          ].join(''),
           visible: function(m) {
             if(!_.isUndefined(m.node_info) && !_.isUndefined(m.node_info.server)
               && !_.isUndefined(m.node_info.server.version) &&
@@ -967,6 +995,16 @@ function(
           id: 'vacuum_settings_str', label: gettext('Storage settings'),
           type: 'multiline', group: gettext('Advanced'), mode: ['properties'],
         }],
+        sessChanged: function() {
+          /* If only custom autovacuum option is enabled then check if the options table is also changed. */
+          if(_.size(this.sessAttrs) == 2 && this.sessAttrs['autovacuum_custom'] && this.sessAttrs['toast_autovacuum']) {
+            return this.get('vacuum_table').sessChanged() || this.get('vacuum_toast').sessChanged();
+          }
+          if(_.size(this.sessAttrs) == 1 && (this.sessAttrs['autovacuum_custom'] || this.sessAttrs['toast_autovacuum'])) {
+            return this.get('vacuum_table').sessChanged() || this.get('vacuum_toast').sessChanged();
+          }
+          return pgBrowser.DataModel.prototype.sessChanged.apply(this);
+        },
         validate: function(keys) {
           var msg,
             name = this.get('name'),
@@ -1020,16 +1058,12 @@ function(
         },
         isInheritedTable: function(m) {
           if(!m.inSchema.apply(this, [m])) {
-            if(
-              (!_.isUndefined(m.get('coll_inherits')) && m.get('coll_inherits').length != 0)
-                ||
-                  (!_.isUndefined(m.get('typname')) && String(m.get('typname')).replace(/^\s+|\s+$/g, '') !== '')
-            ) {
-              // Either of_types or coll_inherits has value
-              return false;
-            } else {
-              return true;
-            }
+            // Either of_types or coll_inherits has value
+            return (
+              (_.isUndefined(m.get('coll_inherits')) || m.get('coll_inherits').length == 0)
+                &&
+                  (_.isUndefined(m.get('typname')) || String(m.get('typname')).replace(/^\s+|\s+$/g, '') === '')
+            );
           }
           return false;
         },
@@ -1109,11 +1143,7 @@ function(
           if(this.node_info &&  'schema' in this.node_info)
           {
             // We will disbale control if it's in 'edit' mode
-            if (m.isNew()) {
-              return false;
-            } else {
-              return true;
-            }
+            return !m.isNew();
           }
           return true;
         },
@@ -1176,22 +1206,14 @@ function(
       canCreate_with_trigger_enable: function(itemData, item, data) {
         if(this.canCreate.apply(this, [itemData, item, data])) {
           // We are here means we can create menu, now let's check condition
-          if(itemData.tigger_count > 0) {
-            return true;
-          } else {
-            return false;
-          }
+          return (itemData.tigger_count > 0);
         }
       },
       // Check to whether table has enable trigger(s)
       canCreate_with_trigger_disable: function(itemData, item, data) {
         if(this.canCreate.apply(this, [itemData, item, data])) {
           // We are here means we can create menu, now let's check condition
-          if(itemData.tigger_count > 0 && itemData.has_enable_triggers > 0) {
-            return true;
-          } else {
-            return false;
-          }
+          return (itemData.tigger_count > 0 && itemData.has_enable_triggers > 0);
         }
       },
     });

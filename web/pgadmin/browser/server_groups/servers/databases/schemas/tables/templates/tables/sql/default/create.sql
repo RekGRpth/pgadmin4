@@ -42,7 +42,7 @@ CREATE {% if data.relpersistence %}UNLOGGED {% endif %}TABLE {{conn|qtIdent(data
 {% if data.columns and data.columns|length > 0 %}
 {% for c in data.columns %}
 {% if c.name and c.cltype %}
-    {% if c.inheritedfromtable %}-- Inherited from table {{c.inheritedfromtable}}: {% elif c.inheritedfromtype %}-- Inherited from type {{c.inheritedfromtype}}: {% endif %}{{conn|qtIdent(c.name)}} {% if is_sql %}{{c.displaytypname}}{% else %}{{ GET_TYPE.CREATE_TYPE_SQL(conn, c.cltype, c.attlen, c.attprecision, c.hasSqrBracket) }}{% endif %}{% if c.collspcname %} COLLATE {{c.collspcname}}{% endif %}{% if c.attnotnull %} NOT NULL{% endif %}{% if c.defval is defined and c.defval is not none %} DEFAULT {{c.defval}}{% endif %}
+    {% if c.inheritedfromtable %}-- Inherited from table {{c.inheritedfromtable}}: {% elif c.inheritedfromtype %}-- Inherited from type {{c.inheritedfromtype}}: {% endif %}{{conn|qtIdent(c.name)}} {% if is_sql %}{{c.displaytypname}}{% else %}{{ GET_TYPE.CREATE_TYPE_SQL(conn, c.cltype, c.attlen, c.attprecision, c.hasSqrBracket) }}{% endif %}{% if c.collspcname %} COLLATE {{c.collspcname}}{% endif %}{% if c.attnotnull %} NOT NULL{% endif %}{% if c.defval is defined and c.defval is not none and c.defval != '' %} DEFAULT {{c.defval}}{% endif %}
 {% if not loop.last %},
 {% endif %}
 {% endif %}
@@ -65,15 +65,15 @@ CREATE {% if data.relpersistence %}UNLOGGED {% endif %}TABLE {{conn|qtIdent(data
 {% endif %}
 WITH (
     OIDS = {% if data.relhasoids %}TRUE{% else %}FALSE{% endif %}{% if data.fillfactor %},
-    FILLFACTOR = {{ data.fillfactor }}{% endif %}{% if data.autovacuum_custom %},
-    autovacuum_enabled = {% if data.autovacuum_enabled %}TRUE{% else %}FALSE{% endif %}{% endif %}{% if data.toast_autovacuum %},
-    toast.autovacuum_enabled = {% if data.toast_autovacuum_enabled %}TRUE{% else %}FALSE{% endif %}
-{% endif %}{% if data.autovacuum_enabled and data.vacuum_table|length > 0 %}
-{% for opt in data.vacuum_table %}{% if opt.name and opt.value %}
+    FILLFACTOR = {{ data.fillfactor }}{% endif %}{% if data.autovacuum_enabled in ('t', 'f') %},
+    autovacuum_enabled = {% if data.autovacuum_enabled == 't' %}TRUE{% else %}FALSE{% endif %}{% endif %}{% if data.toast_autovacuum_enabled in ('t', 'f') %},
+    toast.autovacuum_enabled = {% if data.toast_autovacuum_enabled == 't' %}TRUE{% else %}FALSE{% endif %}
+{% endif %}{% if data.autovacuum_custom and data.vacuum_table|length > 0 %}
+{% for opt in data.vacuum_table %}{% if opt.name and opt.value is defined %}
 ,
     {{opt.name}} = {{opt.value}}{% endif %}
-{% endfor %}{% endif %}{% if data.toast_autovacuum_enabled and data.vacuum_toast|length > 0 %}
-{% for opt in data.vacuum_toast %}{% if opt.name and opt.value %}
+{% endfor %}{% endif %}{% if data.toast_autovacuum and data.vacuum_toast|length > 0 %}
+{% for opt in data.vacuum_toast %}{% if opt.name and opt.value is defined %}
 ,
     toast.{{opt.name}} = {{opt.value}}{% endif %}
 {% endfor %}{% endif %}
@@ -128,6 +128,21 @@ COMMENT ON COLUMN {{conn|qtIdent(data.schema, data.name, c.name)}}
 
 ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
     {{ VARIABLE.SET(conn, 'COLUMN', c.name, c.attoptions) }}
+
+{% endif %}
+{###  Alter column statistics value ###}
+{% if c.attstattarget is defined and c.attstattarget > -1 %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    ALTER COLUMN {{conn|qtTypeIdent(c.name)}} SET STATISTICS {{c.attstattarget}};
+
+{% endif %}
+{###  Alter column storage value ###}
+{% if c.attstorage is defined and c.attstorage != c.defaultstorage %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    ALTER COLUMN {{conn|qtTypeIdent(c.name)}} SET STORAGE {%if c.attstorage == 'p' %}
+PLAIN{% elif c.attstorage == 'm'%}MAIN{% elif c.attstorage == 'e'%}
+EXTERNAL{% elif c.attstorage == 'x'%}EXTENDED{% endif %};
+
 {% endif %}
 {###  ACL ###}
 {% if c.attacl and c.attacl|length > 0 %}
@@ -156,3 +171,18 @@ ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
 {{CONSTRAINTS.CONSTRAINT_COMMENTS(conn, data.schema, data.name, data.foreign_key)}}
 {{CONSTRAINTS.CONSTRAINT_COMMENTS(conn, data.schema, data.name, data.check_constraint)}}
 {{CONSTRAINTS.CONSTRAINT_COMMENTS(conn, data.schema, data.name, data.exclude_constraint)}}
+{#####################################################}
+{## Enable Row Level Security Policy on table ##}
+{#####################################################}
+{% if data.rlspolicy %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    ENABLE ROW LEVEL SECURITY;
+{% endif %}
+
+{#####################################################}
+{## Force Enable Row Level Security Policy on table ##}
+{#####################################################}
+{% if data.forcerlspolicy %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    FORCE ROW LEVEL SECURITY;
+{% endif %}

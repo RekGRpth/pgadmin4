@@ -2,25 +2,26 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.fts_dictionary', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backform',
+  'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backform',
   'pgadmin.node.schema.dir/child', 'pgadmin.node.schema.dir/schema_child_tree_node',
   'pgadmin.browser.collection',
 ], function(
-  gettext, url_for, $, _, S, pgAdmin, pgBrowser, Backform, schemaChild,
+  gettext, url_for, $, _, pgAdmin, pgBrowser, Backform, schemaChild,
   schemaChildTreeNode
 ) {
 
   // Extend the browser's node model class to create a option/value pair
   var OptionLabelModel = pgAdmin.Browser.Node.Model.extend({
+    idAttribute: 'option',
     defaults: {
-      options: undefined,
+      option: undefined,
       value: undefined,
     },
     // Define the schema for the Options
@@ -114,6 +115,7 @@ define('pgadmin.node.fts_dictionary', [
         defaults: {
           name: undefined,        // FTS Dictionary name
           owner: undefined,       // FTS Dictionary owner
+          is_sys_obj: undefined,  // Is system object
           description: undefined, // Comment on FTS Dictionary
           schema: undefined,      // Schema name FTS dictionary belongs to
           template: undefined,    // Template list for FTS dictionary node
@@ -137,7 +139,7 @@ define('pgadmin.node.fts_dictionary', [
           type: 'text', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          editable: false, type: 'text', disabled: true, mode:['properties'],
+          editable: false, type: 'text', mode:['properties'],
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
           type: 'text', mode: ['properties', 'edit','create'], node: 'role',
@@ -147,11 +149,14 @@ define('pgadmin.node.fts_dictionary', [
           type: 'text', mode: ['create','edit'], node: 'schema',
           cache_node: 'database', control: 'node-list-by-id',
         },{
+          id: 'is_sys_obj', label: gettext('System FTS dictionary?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
+        },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'template', label: gettext('Template'),type: 'text',
-          disabled: function(m) { return !m.isNew(); }, url: 'fetch_templates',
+          readonly: function(m) { return !m.isNew(); }, url: 'fetch_templates',
           group: gettext('Definition'), control: 'node-ajax-options',
           cache_node: 'fts_template',
         },{

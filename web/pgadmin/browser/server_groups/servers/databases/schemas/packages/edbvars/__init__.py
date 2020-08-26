@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -52,8 +52,8 @@ class EdbVarModule(CollectionNodeModule):
       - Returns a snippet of css.
     """
 
-    NODE_TYPE = 'edbvar'
-    COLLECTION_LABEL = gettext("Variables")
+    _NODE_TYPE = 'edbvar'
+    _COLLECTION_LABEL = gettext("Variables")
 
     def __init__(self, *args, **kwargs):
         """
@@ -80,7 +80,7 @@ class EdbVarModule(CollectionNodeModule):
         Load the module script for Functions, when the
         package node is initialized.
         """
-        return packages.PackageModule.NODE_TYPE
+        return packages.PackageModule.node_type
 
     @property
     def node_inode(self):
@@ -137,6 +137,8 @@ class EdbVarView(PGChildNodeView, DataTypeReader):
     * sql(gid, sid, did, scid, pkgid, varid):
       - Returns the SQL for the Functions object.
 
+    * compare(**kwargs):
+      - This function will compare the nodes from two different schemas.
     """
 
     node_type = blueprint.node_type
@@ -158,7 +160,8 @@ class EdbVarView(PGChildNodeView, DataTypeReader):
             {'get': 'list'}
         ],
         'nodes': [{'get': 'nodes'}, {'get': 'nodes'}],
-        'sql': [{'get': 'sql'}]
+        'sql': [{'get': 'sql'}],
+        'compare': [{'get': 'compare'}, {'get': 'compare'}]
     })
 
     def check_precondition(f):
@@ -206,7 +209,8 @@ class EdbVarView(PGChildNodeView, DataTypeReader):
             pkgid: Package Id
         """
 
-        SQL = render_template("/".join([self.sql_template_path, 'node.sql']),
+        SQL = render_template("/".join([self.sql_template_path,
+                                        self._NODE_SQL]),
                               pkgid=pkgid)
         status, res = self.conn.execute_dict(SQL)
 
@@ -232,7 +236,7 @@ class EdbVarView(PGChildNodeView, DataTypeReader):
 
         res = []
         SQL = render_template(
-            "/".join([self.sql_template_path, 'node.sql']),
+            "/".join([self.sql_template_path, self._NODE_SQL]),
             pkgid=pkgid
         )
         status, rset = self.conn.execute_2darray(SQL)
@@ -269,7 +273,7 @@ class EdbVarView(PGChildNodeView, DataTypeReader):
         """
         resp_data = {}
         SQL = render_template("/".join([self.sql_template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               pkgid=pkgid, varid=varid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
@@ -301,7 +305,7 @@ class EdbVarView(PGChildNodeView, DataTypeReader):
             varid: variable Id
         """
         SQL = render_template(
-            "/".join([self.sql_template_path, 'properties.sql']),
+            "/".join([self.sql_template_path, self._PROPERTIES_SQL]),
             varid=varid,
             pkgid=pkgid)
 

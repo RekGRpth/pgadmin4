@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -34,15 +34,24 @@ function ($, _, clipboard, RangeSelectionHelper, rangeBoundaryNavigator) {
       self.copied_rows = [];
       setPasteRowButtonEnablement(self.can_edit, false);
     }
-    var csvText = rangeBoundaryNavigator.rangesToCsv(dataView.getItems(), columnDefinitions, selectedRanges, CSVOptions);
+    var csvText = rangeBoundaryNavigator.rangesToCsv(dataView.getItems(), columnDefinitions,
+      selectedRanges, CSVOptions, copyWithHeader());
     if (csvText) {
       clipboard.copyTextToClipboard(csvText);
     }
   };
 
+  var copyWithHeader = function () {
+    return !$('.copy-with-header').hasClass('visibility-hidden');
+  };
+
   var setPasteRowButtonEnablement = function (canEditFlag, isEnabled) {
     if (canEditFlag) {
       $('#btn-paste-row').prop('disabled', !isEnabled);
+      if(isEnabled && window.parent.$) {
+        // trigger copied event to all sessions
+        window.parent.$(window.parent.document).trigger('pgadmin-sqleditor:rows-copied', copyWithHeader());
+      }
     }
   };
   return copyData;

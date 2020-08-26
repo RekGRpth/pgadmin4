@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -28,7 +28,7 @@ class AppStarter:
         """ This function start the subprocess to start pgAdmin app """
         random_server_port = str(random.randint(10000, 65535))
         env = {
-            "PGADMIN_PORT": random_server_port,
+            "PGADMIN_INT_PORT": random_server_port,
             "SQLITE_PATH": str(self.app_config.TEST_SQLITE_PATH)
         }
         env.update(os.environ)
@@ -49,7 +49,7 @@ class AppStarter:
                     random_server_port
                 )
 
-            except WebDriverException as e:
+            except WebDriverException:
                 # In case of WebDriverException sleep for 1 second and retry
                 # again. Retry 10 times and if still app will not start then
                 # raise exception.
@@ -58,14 +58,19 @@ class AppStarter:
                     retry_count = retry_count + 1
                     launch_browser(retry_count)
                 else:
-                    raise Exception('Unable to start python server even after '
-                                    'retrying 60 times.')
+                    raise RuntimeError('Unable to start python server even '
+                                       'after retrying 60 times.')
 
-        launch_browser(0)
+        if self.driver is not None:
+            launch_browser(0)
+        else:
+            return "http://" + self.app_config.DEFAULT_SERVER + ":" \
+                   + random_server_port
 
     def stop_app(self):
         """ This function stop the started app by killing process """
-        self.driver.quit()
+        if self.driver is not None:
+            self.driver.quit()
         # os.killpg supported in Mac and Unix as this function not supported in
         # Windows
         try:

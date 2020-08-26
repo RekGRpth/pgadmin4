@@ -2,20 +2,20 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.browser.node', [
   'sources/tree/pgadmin_tree_node', 'sources/url_for',
-  'sources/gettext', 'jquery', 'underscore', 'underscore.string', 'sources/pgadmin',
+  'sources/gettext', 'jquery', 'underscore', 'sources/pgadmin',
   'pgadmin.browser.menu', 'backbone', 'pgadmin.alertifyjs', 'pgadmin.browser.datamodel',
   'backform', 'sources/browser/generate_url', 'pgadmin.help', 'sources/utils',
   'pgadmin.browser.utils', 'pgadmin.backform',
 ], function(
   pgadminTreeNode, url_for,
-  gettext, $, _, S, pgAdmin,
+  gettext, $, _, pgAdmin,
   Menu, Backbone, Alertify, pgBrowser,
   Backform, generateUrl, help,
   commonUtils
@@ -116,7 +116,7 @@ define('pgadmin.browser.node', [
         callback: 'refresh',
         priority: 1,
         label: gettext('Refresh...'),
-        icon: 'fa fa-refresh',
+        icon: 'fa fa-sync-alt',
       }]);
 
       if (self.canEdit) {
@@ -131,7 +131,7 @@ define('pgadmin.browser.node', [
           data: {
             'action': 'edit',
           },
-          icon: 'fa fa-pencil-square-o',
+          icon: 'fa fa-edit',
         }]);
       }
 
@@ -142,12 +142,12 @@ define('pgadmin.browser.node', [
           module: self,
           applies: ['object', 'context'],
           callback: 'delete_obj',
-          priority: 2,
-          label: gettext('Delete/Drop'),
+          priority: self.dropPriority,
+          label: (self.dropAsRemove) ? gettext('Remove %s', self.label) : gettext('Delete/Drop'),
           data: {
             'url': 'drop',
           },
-          icon: 'fa fa-trash',
+          icon: 'fa fa-trash-alt',
           enable: _.isFunction(self.canDrop) ?
             function() {
               return !!(self.canDrop.apply(self, arguments));
@@ -166,7 +166,7 @@ define('pgadmin.browser.node', [
             data: {
               'url': 'delete',
             },
-            icon: 'fa fa-trash',
+            icon: 'fa fa-trash-alt',
             enable: _.isFunction(self.canDropCascade) ?
               function() {
                 return self.canDropCascade.apply(self, arguments);
@@ -177,6 +177,14 @@ define('pgadmin.browser.node', [
 
       // Show query tool only in context menu of supported nodes.
       if (_.indexOf(pgAdmin.unsupported_nodes, self.type) == -1) {
+        let enable = function(itemData) {
+          if (itemData._type == 'database' && itemData.allowConn)
+            return true;
+          else if (itemData._type != 'database')
+            return true;
+          else
+            return false;
+        };
         pgAdmin.Browser.add_menus([{
           name: 'show_query_tool',
           node: self.type,
@@ -185,15 +193,16 @@ define('pgadmin.browser.node', [
           callback: 'show_query_tool',
           priority: 998,
           label: gettext('Query Tool...'),
-          icon: 'fa fa-bolt',
-          enable: function(itemData) {
-            if (itemData._type == 'database' && itemData.allowConn)
-              return true;
-            else if (itemData._type != 'database')
-              return true;
-            else
-              return false;
-          },
+          icon: 'pg-font-icon icon-query-tool',
+          enable: enable,
+        }]);
+
+        // show search objects same as query tool
+        pgAdmin.Browser.add_menus([{
+          name: 'search_objects', node: self.type, module: pgAdmin.SearchObjects,
+          applies: ['context'], callback: 'show_search_objects',
+          priority: 997, label: gettext('Search Objects...'),
+          icon: 'fa fa-search', enable: enable,
         }]);
       }
 
@@ -203,9 +212,7 @@ define('pgadmin.browser.node', [
         // For each script type create menu
         _.each(self.hasScriptTypes, function(stype) {
 
-          var type_label = S(
-            gettext('%s Script')
-          ).sprintf(stype.toUpperCase()).value();
+          var type_label = gettext('%s Script',stype.toUpperCase());
 
           stype = stype.toLowerCase();
 
@@ -218,11 +225,11 @@ define('pgadmin.browser.node', [
             callback: 'show_script',
             priority: 4,
             label: type_label,
-            category: 'Scripts',
+            category: gettext('Scripts'),
             data: {
               'script': stype,
             },
-            icon: 'fa fa-pencil',
+            icon: 'fa fa-pencil-alt',
             enable: self.check_user_permission,
           }]);
         });
@@ -283,7 +290,7 @@ define('pgadmin.browser.node', [
       if (this.model) {
         // This will be the URL, used for object manipulation.
         // i.e. Create, Update in these cases
-        var urlBase = this.generate_url(item, type, node, false);
+        var urlBase = this.generate_url(item, type, node, false, null, that.url_jump_after_node);
 
         if (!urlBase)
           // Ashamed of myself, I don't know how to manipulate this
@@ -329,9 +336,9 @@ define('pgadmin.browser.node', [
             <div class="error-in-footer">
               <div class="d-flex px-2 py-1">
                 <div class="pr-2">
-                  <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i>
+                  <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true" role="img"></i>
                 </div>
-                <div class="alert-text">${msg}</div>
+                <div role="alert" class="alert-text">${msg}</div>
                 <div class="ml-auto close-error-bar">
                   <a class="close-error fa fa-times text-danger"></a>
                 </div>
@@ -344,7 +351,12 @@ define('pgadmin.browser.node', [
                 this.empty().css('visibility', 'hidden');
               }.bind(that.statusBar));
             }
-            callback(true);
+
+            var sessHasChanged = false;
+            if(this.sessChanged && this.sessChanged()){
+              sessHasChanged = true;
+            }
+            callback(true, sessHasChanged);
 
             return true;
           };
@@ -393,14 +405,14 @@ define('pgadmin.browser.node', [
 
           if (!newModel.isNew()) {
             // This is definetely not in create mode
-            var msgDiv = '<div class="alert alert-info pg-panel-message pg-panel-properties-message">' +
+            var msgDiv = '<div role="status" class="pg-panel-message pg-panel-properties-message">' +
               gettext('Retrieving data from the server...') + '</div>',
               $msgDiv = $(msgDiv);
-            var timer = setTimeout(function(ctx) {
+            var timer = setTimeout(function(_ctx) {
               // notify user if request is taking longer than 1 second
 
-              if (!_.isUndefined(ctx)) {
-                $msgDiv.appendTo(ctx);
+              if (!_.isUndefined(_ctx)) {
+                $msgDiv.appendTo(_ctx);
               }
             }, 1000, ctx);
 
@@ -435,9 +447,8 @@ define('pgadmin.browser.node', [
                   )) {
                     Alertify.pgNotifier(
                       options.textStatus, xhr,
-                      S(
-                        gettext('Error retrieving properties - %s')
-                      ).sprintf(options.errorThrown || _label).value(), function(msg) {
+                      gettext('Error retrieving properties - %s', options.errorThrown || _label),
+                      function(msg) {
                         if(msg === 'CRYPTKEY_SET') {
                           fetchAjaxHook();
                         } else {
@@ -498,7 +509,7 @@ define('pgadmin.browser.node', [
         isPrivate: true,
         isLayoutMember: false,
         elContainer: true,
-        content: '<div class="obj_properties container-fluid"><div class="alert alert-info pg-panel-message">' + gettext('Please wait while we fetch information about the node from the server...') + '</div></div>',
+        content: '<div class="obj_properties container-fluid"><div role="status" class="pg-panel-message">' + gettext('Please wait while we fetch information about the node from the server...') + '</div></div>',
         onCreate: function(myPanel, $container) {
           $container.addClass('pg-no-overflow');
         },
@@ -533,6 +544,14 @@ define('pgadmin.browser.node', [
      * Override this, when a node is not deletable.
      */
     canDropCascade: false,
+    /*********************************************************************************
+    dropAsRemove should be true in case, Drop object label needs to be replaced by Remove
+    */
+    dropAsRemove: false,
+    /******************************************************************************
+    dropPriority is set to 2 by default, override it when change is required
+    */
+    dropPriority: 2,
     // List of common callbacks - that can be used for different
     // operations!
     callbacks: {
@@ -565,23 +584,25 @@ define('pgadmin.browser.node', [
 
         var self = this,
           isParent = (_.isArray(this.parent_type) ?
-            function(d) {
-              return (_.indexOf(self.parent_type, d._type) != -1);
-            } : function(d) {
-              return (self.parent_type == d._type);
+            function(_d) {
+              return (_.indexOf(self.parent_type, _d._type) != -1);
+            } : function(_d) {
+              return (self.parent_type == _d._type);
             }),
           addPanel = function() {
-            var d = window.document,
-              b = d.body,
-              el = d.createElement('div');
+            var body = window.document.body,
+              el = document.createElement('div');
 
-            d.body.insertBefore(el, d.body.firstChild);
+            body.insertBefore(el, body.firstChild);
 
             let w, h, x, y;
             if(screen.width < 800) {
-              w= pgAdmin.toPx(el, '95%', 'width', true);
+              w = pgAdmin.toPx(el, '95%', 'width', true);
             } else {
-              w= pgAdmin.toPx(el, self.width || pgBrowser.stdW.default+'px', 'width', true);
+              w = pgAdmin.toPx(
+                el, self.width || (pgBrowser.stdW.default + 'px'),
+                'width', true
+              );
 
               /* Fit to standard sizes */
               if(w <= pgBrowser.stdW.sm) {
@@ -598,7 +619,10 @@ define('pgadmin.browser.node', [
             if(screen.height < 600) {
               h = pgAdmin.toPx(el, '95%', 'height', true);
             } else {
-              h = pgAdmin.toPx(el, self.height || pgBrowser.stdH.default+'px', 'height', true);
+              h = pgAdmin.toPx(
+                el, self.height || (pgBrowser.stdH.default + 'px'),
+                'height', true
+              );
 
               /* Fit to standard sizes */
               if(h <= pgBrowser.stdH.sm) {
@@ -612,10 +636,22 @@ define('pgadmin.browser.node', [
               }
             }
 
-            x = (b.offsetWidth - w) / 2,
-            y = (b.offsetHeight - h) / 4;
+            x = (body.offsetWidth - w) / 2;
+            y = (body.offsetHeight - h) / 4;
 
-            var p = pgBrowser.docker.addPanel(
+            // If the screen resolution is higher, but - it is zoomed, dialog
+            // may be go out of window, and will not be accessible through the
+            // keyboard.
+            if (w > window.innerWidth) {
+              x = 0;
+              w = window.innerWidth;
+            }
+            if (h > window.innerHeight) {
+              y = 0;
+              h = window.innerHeight;
+            }
+
+            var new_panel = pgBrowser.docker.addPanel(
               'node_props', wcDocker.DOCK.FLOAT, undefined, {
                 w: w + 'px',
                 h: h + 'px',
@@ -624,10 +660,9 @@ define('pgadmin.browser.node', [
               }
             );
 
-            b.removeChild(el);
-            // delete(el);
+            body.removeChild(el);
 
-            return p;
+            return new_panel;
           };
 
         if (args.action == 'create') {
@@ -669,11 +704,7 @@ define('pgadmin.browser.node', [
             return;
           }
 
-          if (!d)
-            return;
-
-          l = S(gettext('Create - %s')).sprintf(
-            [this.label]).value();
+          l = gettext('Create - %s', this.label);
           p = addPanel();
 
           setTimeout(function() {
@@ -696,7 +727,7 @@ define('pgadmin.browser.node', [
 
               Alertify.confirm(
                 gettext('Edit in progress?'),
-                S(msg).sprintf(o.label.toLowerCase(), d.label).value(),
+                commonUtils.sprintf(msg, o.label.toLowerCase(), d.label),
                 function() {
                   setTimeout(function() {
                     o.showProperties(i, d, p, args.action);
@@ -744,31 +775,34 @@ define('pgadmin.browser.node', [
         var objName = d.label;
 
         var msg, title;
+
         if (input.url == 'delete') {
 
-          msg = S(gettext('Are you sure you want to drop %s "%s" and all the objects that depend on it?'))
-            .sprintf(obj.label.toLowerCase(), d.label).value();
-          title = S(gettext('DROP CASCADE %s?')).sprintf(obj.label).value();
+          msg = gettext('Are you sure you want to drop %s "%s" and all the objects that depend on it?',
+            obj.label.toLowerCase(), d.label);
+          title = gettext('DROP CASCADE %s?', obj.label);
 
           if (!(_.isFunction(obj.canDropCascade) ?
             obj.canDropCascade.apply(obj, [d, i]) : obj.canDropCascade)) {
             Alertify.error(
-              S(gettext('The %s "%s" cannot be dropped.'))
-                .sprintf(obj.label, d.label).value(),
+              gettext('The %s "%s" cannot be dropped.', obj.label, d.label),
               10
             );
             return;
           }
         } else {
-          msg = S(gettext('Are you sure you want to drop %s "%s"?'))
-            .sprintf(obj.label.toLowerCase(), d.label).value();
-          title = S(gettext('DROP %s?')).sprintf(obj.label).value();
+          if (obj.dropAsRemove) {
+            msg = gettext('Are you sure you want to remove %s "%s"?', obj.label.toLowerCase(), d.label);
+            title = gettext('Remove %s?', obj.label);
+          } else {
+            msg = gettext('Are you sure you want to drop %s "%s"?', obj.label.toLowerCase(), d.label);
+            title = gettext('Drop %s?', obj.label);
+          }
 
           if (!(_.isFunction(obj.canDrop) ?
             obj.canDrop.apply(obj, [d, i]) : obj.canDrop)) {
             Alertify.error(
-              S(gettext('The %s "%s" cannot be dropped.'))
-                .sprintf(obj.label, d.label).value(),
+              gettext('The %s "%s" cannot be dropped/removed.', obj.label, d.label),
               10
             );
             return;
@@ -789,28 +823,31 @@ define('pgadmin.browser.node', [
                 return true;
               })
               .fail(function(jqx) {
-                var msg = jqx.responseText;
+                var errmsg = jqx.responseText;
                 /* Error from the server */
                 if (jqx.status == 417 || jqx.status == 410 || jqx.status == 500) {
                   try {
                     var data = JSON.parse(jqx.responseText);
-                    msg = data.errormsg;
+                    errmsg = data.info || data.errormsg;
                   } catch (e) {
                     console.warn(e.stack || e);
                   }
                 }
                 pgBrowser.report_error(
-                  S(gettext('Error dropping %s: "%s"'))
-                    .sprintf(obj.label, objName)
-                    .value(), msg);
+                  gettext('Error dropping/removing %s: "%s"', obj.label, objName), errmsg);
+
               });
           },
-          null).show();
+          null
+        ).set('labels', {
+          ok: gettext('Yes'),
+          cancel: gettext('No'),
+        }).show();
       },
       // Callback for creating script(s) & opening them in Query editor
       show_script: function(args, item) {
         var scriptType = args.script,
-          obj = this,
+          obj,
           t = pgBrowser.tree,
           i = item || t.selected(),
           d = i && i.length == 1 ? t.itemData(i) : undefined;
@@ -867,7 +904,7 @@ define('pgadmin.browser.node', [
           return;
 
         // Go further only if node type is a Server
-        if (data && data._type && data._type == 'server') {
+        if (data._type && data._type == 'server') {
           var element = $(item).find('span.aciTreeItem').first() || null,
             // First element will be icon and second will be colour code
             bgcolor = data.icon.split(' ')[1] || null,
@@ -875,7 +912,7 @@ define('pgadmin.browser.node', [
 
           if (bgcolor) {
             // li tag for the current branch
-            var first_level_element = element.parents()[3] || null,
+            var first_level_element = (element && element.parents()[3]) || null,
               dynamic_class = 'pga_server_' + data._id + '_bgcolor',
               style_tag;
 
@@ -991,7 +1028,7 @@ define('pgadmin.browser.node', [
           data = item && t.itemData(item);
 
         // In case of unload remove the collection counter
-        if (self.is_collection && 'collection_count' in data) {
+        if (self.is_collection &&  data === Object(data) &&'collection_count' in data) {
           delete data.collection_count;
           t.setLabel(item, {
             label: _.escape(data._label),
@@ -1041,8 +1078,9 @@ define('pgadmin.browser.node', [
         tree = pgAdmin.Browser.tree,
         j = panel.$container.find('.obj_properties').first(),
         view = j.data('obj-view'),
-        content = $('<div tabindex="1"></div>')
-          .addClass('pg-prop-content col-12');
+        content = $('<div></div>')
+          .addClass('pg-prop-content col-12'),
+        confirm_close = true;
 
       // Handle key press events for Cancel, save and help button
       var handleKeyDown = function(event, context) {
@@ -1051,7 +1089,7 @@ define('pgadmin.browser.node', [
 
         switch (event.which) {
         case keyCode.ESCAPE:
-          closePanel();
+          closePanel(true);
           break;
         case keyCode.ENTER:
           // Return if event is fired from child element
@@ -1080,7 +1118,7 @@ define('pgadmin.browser.node', [
 
       // Template function to create the status bar
       var createStatusBar = function(location) {
-          var statusBar = $('<div></div>').addClass(
+          var statusBar = $('<div role="status"></div>').addClass(
             'pg-prop-status-bar'
           ).appendTo(j);
           statusBar.css('visibility', 'hidden');
@@ -1106,7 +1144,8 @@ define('pgadmin.browser.node', [
               tmpl = _.template([
                 '<button tabindex="0" type="<%= type %>" ',
                 'class="btn <%=extraClasses.join(\' \')%>"',
-                '<% if (disabled) { %> disabled="disabled"<% } %> title="<%-tooltip%>">',
+                '<% if (disabled) { %> disabled="disabled"<% } %> title="<%-tooltip%>"',
+                '<% if (label != "") {} else { %> aria-label="<%-tooltip%>"<% } %> >',
                 '<span class="<%= icon %>"></span><% if (label != "") { %>&nbsp;<%-label%><% } %></button>',
               ].join(' '));
             if (location == 'header') {
@@ -1139,18 +1178,17 @@ define('pgadmin.browser.node', [
         properties = function() {
 
           // Avoid unnecessary reloads
-          var panel = this,
-            i = tree.selected(),
+          var i = tree.selected(),
             d = i && tree.itemData(i),
             n = i && d && pgBrowser.Nodes[d._type],
             treeHierarchy = n.getTreeNodeHierarchy(i);
 
-          if (_.isEqual($(panel).data('node-prop'), treeHierarchy)) {
+          if (_.isEqual($(this).data('node-prop'), treeHierarchy)) {
             return;
           }
 
           // Cache the current IDs for next time
-          $(panel).data('node-prop', treeHierarchy);
+          $(this).data('node-prop', treeHierarchy);
 
           if (!content.hasClass('has-pg-prop-btn-group'))
             content.addClass('has-pg-prop-btn-group');
@@ -1194,7 +1232,7 @@ define('pgadmin.browser.node', [
               type: 'edit',
               tooltip: gettext('Edit'),
               extraClasses: ['btn', 'btn-primary', 'pull-right', 'm-1'],
-              icon: 'fa fa-sm fa-pencil',
+              icon: 'fa fa-sm fa-pencil-alt',
               disabled: !that.canEdit,
               register: function(btn) {
                 btn.on('click',() => {
@@ -1207,8 +1245,8 @@ define('pgadmin.browser.node', [
               label: '',
               type: 'help',
               tooltip: gettext('SQL help for this object type.'),
-              extraClasses: ['btn-secondary', 'btn-secondary', 'm-1'],
-              icon: 'fa fa-lg fa-info',
+              extraClasses: ['btn-primary-icon', 'btn-primary-icon', 'm-1'],
+              icon: 'fa fa-info',
               disabled: (that.sqlAlterHelp == '' && that.sqlCreateHelp == '') ? true : false,
               register: function(btn) {
                 btn.on('click',() => {
@@ -1231,14 +1269,14 @@ define('pgadmin.browser.node', [
 
           var fullUrl = '';
           if (that.sqlCreateHelp == '' && that.sqlAlterHelp != '') {
-            fullUrl = help.getHelpUrl(url, that.sqlAlterHelp, server.version);
+            fullUrl = help.getHelpUrl(url, that.sqlAlterHelp, server.version, server.server_type);
           } else if (that.sqlCreateHelp != '' && that.sqlAlterHelp == '') {
-            fullUrl = help.getHelpUrl(url, that.sqlCreateHelp, server.version);
+            fullUrl = help.getHelpUrl(url, that.sqlCreateHelp, server.version, server.server_type);
           } else {
             if (view.model.isNew()) {
-              fullUrl = help.getHelpUrl(url, that.sqlCreateHelp, server.version);
+              fullUrl = help.getHelpUrl(url, that.sqlCreateHelp, server.version, server.server_type);
             } else {
-              fullUrl = help.getHelpUrl(url, that.sqlAlterHelp, server.version);
+              fullUrl = help.getHelpUrl(url, that.sqlAlterHelp, server.version, server.server_type);
             }
           }
 
@@ -1249,8 +1287,90 @@ define('pgadmin.browser.node', [
           window.open(that.dialogHelp, 'pgadmin_help');
         }.bind(panel),
 
-        onSave = function(view, saveBtn) {
-          var m = view.model,
+        warnBeforeChangesLost = function(warn_text, yes_callback) {
+          var $props = this.$container.find('.obj_properties').first(),
+            objview = $props && $props.data('obj-view'),
+            self = this;
+
+          let confirm_on_properties_close = pgBrowser.get_preferences_for_module('browser').confirm_on_properties_close;
+          if (confirm_on_properties_close && confirm_close && objview && objview.model) {
+            if(objview.model.sessChanged()){
+              Alertify.confirm(
+                gettext('Warning'),
+                warn_text,
+                function() {
+                  setTimeout(function(){
+                    yes_callback();
+                  }.bind(self), 50);
+                  return true;
+                },
+                function() {
+                  return true;
+                }
+              ).set('labels', {
+                ok: gettext('Yes'),
+                cancel: gettext('No'),
+              }).show();
+            } else {
+              return true;
+            }
+          } else {
+            yes_callback();
+            return true;
+          }
+        }.bind(panel),
+
+        warnBeforeAttributeChange = function(yes_callback) {
+          var $props = this.$container.find('.obj_properties').first(),
+            objview = $props && $props.data('obj-view'),
+            self = this;
+
+          if (objview && objview.model && !_.isUndefined(objview.model.warn_text) && !_.isNull(objview.model.warn_text)) {
+            let warn_text;
+            warn_text = gettext(objview.model.warn_text);
+            if(objview.model.sessChanged()){
+              Alertify.confirm(
+                gettext('Warning'),
+                warn_text,
+                function() {
+                  setTimeout(function(){
+                    yes_callback();
+                  }.bind(self), 50);
+                  return true;
+                },
+                function() {
+                  return true;
+                }
+              ).set('labels', {
+                ok: gettext('Yes'),
+                cancel: gettext('No'),
+              }).show();
+            } else {
+              return true;
+            }
+          } else {
+            yes_callback();
+            return true;
+          }
+        }.bind(panel),
+
+        informBeforeAttributeChange = function(ok_callback) {
+          var $props = this.$container.find('.obj_properties').first(),
+            objview = $props && $props.data('obj-view');
+
+          if (objview && objview.model && !_.isUndefined(objview.model.inform_text) && !_.isNull(objview.model.inform_text)) {
+            Alertify.alert(
+              gettext('Warning'),
+              gettext(objview.model.inform_text)
+            );
+
+          }
+          ok_callback();
+          return true;
+        }.bind(panel),
+
+        onSave = function(_view, saveBtn) {
+          var m = _view.model,
             d = m.toJSON(true),
             // Generate a timer for the request
             timer = setTimeout(function() {
@@ -1292,7 +1412,7 @@ define('pgadmin.browser.node', [
                 if (pnlDependents)
                   $(pnlDependents).removeData('node-prop');
               },
-              error: function(m, jqxhr) {
+              error: function(_m, jqxhr) {
                 Alertify.pgNotifier(
                   'error', jqxhr,
                   gettext('Error saving properties')
@@ -1309,11 +1429,11 @@ define('pgadmin.browser.node', [
         }.bind(panel),
 
         editFunc = function() {
-          var panel = this;
+          var self = this;
           if (action && action == 'properties') {
             action = 'edit';
           }
-          panel.$container.attr('action-mode', action);
+          self.$container.attr('action-mode', action);
           // We need to release any existing view, before
           // creating the new view.
           if (view) {
@@ -1367,7 +1487,7 @@ define('pgadmin.browser.node', [
             // Save it to release it later
             j.data('obj-view', view);
 
-            panel.icon(
+            self.icon(
               _.isFunction(that['node_image']) ?
                 (that['node_image']).apply(that, [data, view.model]) :
                 (that['node_image'] || ('icon-' + that.type))
@@ -1378,8 +1498,8 @@ define('pgadmin.browser.node', [
               label: '',
               type: 'help',
               tooltip: gettext('SQL help for this object type.'),
-              extraClasses: ['btn-secondary', 'pull-left', 'mx-1'],
-              icon: 'fa fa-lg fa-info',
+              extraClasses: ['btn-primary-icon', 'pull-left', 'mx-1'],
+              icon: 'fa fa-info',
               disabled: (that.sqlAlterHelp == '' && that.sqlCreateHelp == '') ? true : false,
               register: function(btn) {
                 btn.on('click',() => {
@@ -1390,8 +1510,8 @@ define('pgadmin.browser.node', [
               label: '',
               type: 'help',
               tooltip: gettext('Help for this dialog.'),
-              extraClasses: ['btn-secondary', 'pull-left', 'mx-1'],
-              icon: 'fa fa-lg fa-question',
+              extraClasses: ['btn-primary-icon', 'pull-left', 'mx-1'],
+              icon: 'fa fa-question',
               disabled: (that.dialogHelp == '') ? true : false,
               register: function(btn) {
                 btn.on('click',() => {
@@ -1403,13 +1523,13 @@ define('pgadmin.browser.node', [
               type: 'cancel',
               tooltip: gettext('Cancel changes to this object.'),
               extraClasses: ['btn-secondary', 'mx-1'],
-              icon: 'fa fa-close pg-alertify-button',
+              icon: 'fa fa-times pg-alertify-button',
               disabled: false,
               register: function(btn) {
                 btn.on('click',() => {
                   // Removing the action-mode
-                  panel.$container.removeAttr('action-mode');
-                  onCancelFunc.call(arguments);
+                  self.$container.removeAttr('action-mode');
+                  onCancelFunc.call(true);
                 });
               },
             }, {
@@ -1421,9 +1541,15 @@ define('pgadmin.browser.node', [
               disabled: true,
               register: function(btn) {
                 btn.on('click',() => {
-                  setTimeout(function() {
-                    editFunc.call();
-                  }, 0);
+                  warnBeforeChangesLost.call(
+                    self,
+                    gettext('Changes will be lost. Are you sure you want to reset?'),
+                    function() {
+                      setTimeout(function() {
+                        editFunc.call();
+                      }, 0);
+                    }
+                  );
                 });
               },
             }, {
@@ -1436,21 +1562,41 @@ define('pgadmin.browser.node', [
               register: function(btn) {
                 // Save the changes
                 btn.on('click',() => {
-                  onSave.call(this, view, btn);
+                  warnBeforeAttributeChange.call(
+                    self,
+                    function() {
+                      informBeforeAttributeChange.call(self, function(){
+                        setTimeout(function() {
+                          onSave.call(this, view, btn);
+                        }, 0);
+                      });
+                    }
+                  );
                 });
               },
             }], 'footer', 'pg-prop-btn-group-below');
 
             btn_grp.on('keydown', 'button', function(event) {
-              if (event.keyCode == 9 && $(this).nextAll('button:not([disabled])').length == 0) {
-                // set focus back to first editable input element of current active tab once we cycle through all enabled buttons.
-                commonUtils.findAndSetFocus(view.$el.find('.tab-content div.active'));
+              if (!event.shiftKey && event.keyCode == 9 && $(this).nextAll('button:not([disabled])').length == 0) {
+                // set focus back to first focusable element on dialog
+                view.$el.closest('.wcFloating').find('[tabindex]:not([tabindex="-1"]').first().focus();
                 return false;
+              }
+              let btnGroup = $(self.$container.find('.pg-prop-btn-group'));
+              let el = $(btnGroup).find('button:first');
+              if (self.$container.find('.number-cell.editable:last').is(':visible')){
+                if (event.keyCode === 9 && event.shiftKey) {
+                  if ($(el).is($(event.target))){
+                    $(self.$container.find('td.editable:last').trigger('click'));
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }
+                }
               }
             });
 
             setTimeout(function() {
-              pgBrowser.keyboardNavigation.getDialogTabNavigator(panel.pgElContainer);
+              pgBrowser.keyboardNavigation.getDialogTabNavigator(self.pgElContainer);
             }, 200);
           }
 
@@ -1463,19 +1609,31 @@ define('pgadmin.browser.node', [
 
           // Show contents before buttons
           j.prepend(content);
+          view.$el.closest('.wcFloating').find('.wcFrameButtonBar > .wcFrameButton[style!="display: none;"]').on('keydown', function(e) {
+
+            if(e.shiftKey && e.keyCode === 9) {
+              e.stopPropagation();
+              setTimeout(() => {
+                view.$el.closest('.wcFloating').find('[tabindex]:not([tabindex="-1"]):not([disabled])').last().focus();
+              }, 10);
+            }
+          });
         }.bind(panel),
-        closePanel = function() {
+        closePanel = function(confirm_close_flag) {
+          if(!_.isUndefined(confirm_close_flag)) {
+            confirm_close = confirm_close_flag;
+          }
           // Closing this panel
           this.close();
         }.bind(panel),
-        updateTreeItem = function(that) {
+        updateTreeItem = function(obj) {
           var _old = data,
             _new = _.clone(view.model.tnode),
             info = _.clone(view.model.node_info);
 
           // Clear the cache for this node now.
           setTimeout(function() {
-            that.clear_cache.apply(that, item);
+            obj.clear_cache.apply(obj, item);
           }, 0);
 
           pgBrowser.Events.trigger(
@@ -1493,26 +1651,25 @@ define('pgadmin.browser.node', [
               },
             }
           );
-          closePanel();
+          closePanel(false);
         },
-        saveNewNode = function(that) {
-          var panel = this,
-            j = panel.$container.find('.obj_properties').first(),
-            view = j.data('obj-view');
+        saveNewNode = function(obj) {
+          var $props = this.$container.find('.obj_properties').first(),
+            objview = $props.data('obj-view');
 
           // Clear the cache for this node now.
           setTimeout(function() {
-            that.clear_cache.apply(that, item);
+            obj.clear_cache.apply(obj, item);
           }, 0);
           try {
             pgBrowser.Events.trigger(
-              'pgadmin:browser:tree:add', _.clone(view.model.tnode),
-              _.clone(view.model.node_info)
+              'pgadmin:browser:tree:add', _.clone(objview.model.tnode),
+              _.clone(objview.model.node_info)
             );
           } catch (e) {
             console.warn(e.stack || e);
           }
-          closePanel();
+          closePanel(false);
         }.bind(panel, that),
         editInNewPanel = function() {
           // Open edit in separate panel
@@ -1529,7 +1686,6 @@ define('pgadmin.browser.node', [
 
       if (action) {
         if (action == 'create') {
-          onCancelFunc = closePanel;
           onSaveFunc = saveNewNode;
         }
         if (action != 'properties') {
@@ -1544,12 +1700,21 @@ define('pgadmin.browser.node', [
         onEdit = editInNewPanel.bind(panel);
       }
       if (panel.closeable()) {
-        var onCloseFunc = function() {
-          var j = this.$container.find('.obj_properties').first(),
-            view = j && j.data('obj-view');
+        panel.on(wcDocker.EVENT.CLOSING, warnBeforeChangesLost.bind(
+          panel,
+          gettext('Changes will be lost. Are you sure you want to close the dialog?'),
+          function() {
+            panel.off(wcDocker.EVENT.CLOSING);
+            panel.close();
+          }
+        ));
 
-          if (view) {
-            view.remove({
+        var onCloseFunc = function() {
+          var $props = this.$container.find('.obj_properties').first(),
+            objview = $props && $props.data('obj-view');
+
+          if (objview) {
+            objview.remove({
               data: true,
               internal: true,
               silent: true,
@@ -1596,11 +1761,14 @@ define('pgadmin.browser.node', [
      *   type:  Create/drop/edit/properties/sql/depends/statistics
      *   d:     Provide the ItemData for the current item node
      *   with_id: Required id information at the end?
-     *
+     *   jump_after_node: This will skip all the value between jump_after_node
+     *   to the last node, excluding jump_after_node and the last node. This is particularly
+     *   helpful in partition table where we need to skip parent table OID of a partitioned
+     *   table in URL formation. Partitioned table itself is a "table" and can be multilevel
      * Supports url generation for create, drop, edit, properties, sql,
      * depends, statistics
      */
-    generate_url: function(item, type, d, with_id, info) {
+    generate_url: function(item, type, d, with_id, info, jump_after_node) {
       var opURL = {
           'create': 'obj',
           'drop': 'obj',
@@ -1618,13 +1786,13 @@ define('pgadmin.browser.node', [
 
       if (self.parent_type) {
         if (_.isString(self.parent_type)) {
-          var p = treeInfo[self.parent_type];
+          let p = treeInfo[self.parent_type];
           if (p) {
             priority = p.priority;
           }
         } else {
           _.each(self.parent_type, function(o) {
-            var p = treeInfo[o];
+            let p = treeInfo[o];
             if (p) {
               if (priority < p.priority) {
                 priority = p.priority;
@@ -1633,9 +1801,16 @@ define('pgadmin.browser.node', [
           });
         }
       }
+
+      let jump_after_priority = priority;
+      if(jump_after_node && treeInfo[jump_after_node]) {
+        jump_after_priority = treeInfo[jump_after_node].priority;
+      }
+
       var nodePickFunction = function(treeInfoValue) {
-        return (treeInfoValue.priority <= priority);
+        return (treeInfoValue.priority <= jump_after_priority || treeInfoValue.priority == priority);
       };
+
       return generateUrl.generate_url(pgBrowser.URL, treeInfo, actionType, self.type, nodePickFunction, itemID);
     },
     // Base class for Node Data Collection
@@ -1659,7 +1834,7 @@ define('pgadmin.browser.node', [
         )), function(o) {
           return o.priority;
         }), function(o) {
-          hash = S('%s/%s').sprintf(hash, encodeURI(o._id)).value();
+          hash = commonUtils.sprintf('%s/%s', hash, encodeURI(o._id));
         });
       }
 

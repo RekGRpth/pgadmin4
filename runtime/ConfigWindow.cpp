@@ -2,80 +2,37 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 // ConfigWindow.h - Configuration window
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "pgAdmin4.h"
 #include "ConfigWindow.h"
 #include "ui_ConfigWindow.h"
 
+#include <QSettings>
+
 ConfigWindow::ConfigWindow(QWidget *parent) :
-    QDialog(parent),
-    ui(new Ui::ConfigWindow)
+    QDialog(parent)
 {
+    initConfigWindow();
+}
+
+void ConfigWindow::initConfigWindow()
+{
+    QSettings settings;
+
+    ui = new Ui::ConfigWindow;
     ui->setupUi(this);
-}
 
-ConfigWindow::~ConfigWindow()
-{
-    delete ui;
-}
+    m_needRestart = false;
 
-void ConfigWindow::on_buttonBox_accepted()
-{
-    this->close();
-}
+    ui->browserCommandLineEdit->setText(settings.value("BrowserCommand").toString());
 
-void ConfigWindow::on_buttonBox_rejected()
-{
-    this->close();
-}
-
-void ConfigWindow::on_chkFixedPort_stateChanged(int state)
-{
-    if (state == Qt::Checked)
-        ui->spinPortNumber->setEnabled(true);
-    else
-        ui->spinPortNumber->setEnabled(false);
-}
-
-QString ConfigWindow::getBrowserCommand()
-{
-    return ui->browserCommandLineEdit->text();
-}
-
-bool ConfigWindow::getFixedPort()
-{
-    return ui->chkFixedPort->isChecked();
-}
-
-int ConfigWindow::getPortNumber()
-{
-    return ui->spinPortNumber->value();
-}
-
-QString ConfigWindow::getPythonPath()
-{
-    return ui->pythonPathLineEdit->text();
-}
-
-QString ConfigWindow::getApplicationPath()
-{
-    return ui->applicationPathLineEdit->text();
-}
-
-
-void ConfigWindow::setBrowserCommand(QString command)
-{
-    ui->browserCommandLineEdit->setText(command);
-}
-
-void ConfigWindow::setFixedPort(bool fixedPort)
-{
-    if (fixedPort)
+    if(settings.value("FixedPort").toBool())
     {
         ui->chkFixedPort->setCheckState(Qt::Checked);
         ui->spinPortNumber->setEnabled(true);
@@ -85,20 +42,65 @@ void ConfigWindow::setFixedPort(bool fixedPort)
         ui->chkFixedPort->setCheckState(Qt::Unchecked);
         ui->spinPortNumber->setEnabled(false);
     }
+
+    ui->spinPortNumber->setValue(settings.value("PortNumber").toInt());
+
+    if (settings.value("OpenTabAtStartup", true).toBool())
+    {
+        ui->chkOpenTabAtStartup->setCheckState(Qt::Checked);
+    }
+    else
+    {
+        ui->chkOpenTabAtStartup->setCheckState(Qt::Unchecked);
+    }
+
+    ui->pythonPathLineEdit->setText(settings.value("PythonPath").toString());
+    ui->applicationPathLineEdit->setText(settings.value("ApplicationPath").toString());
 }
 
-void ConfigWindow::setPortNumber(int port)
+void ConfigWindow::on_buttonBox_accepted()
 {
-    ui->spinPortNumber->setValue(port);
+    QSettings settings;
+
+    // Save the settings, and return true if a restart is required, otherwise false.
+    QString browsercommand = ui->browserCommandLineEdit->text();
+    bool fixedport = ui->chkFixedPort->isChecked();
+    int portnumber = ui->spinPortNumber->value();
+    bool opentabatstartup = ui->chkOpenTabAtStartup->isChecked();
+    QString pythonpath = ui->pythonPathLineEdit->text();
+    QString applicationpath = ui->applicationPathLineEdit->text();
+
+    m_needRestart = (settings.value("FixedPort").toBool() != fixedport ||
+                     settings.value("PortNumber").toInt() != portnumber ||
+                     settings.value("PythonPath").toString() != pythonpath ||
+                     settings.value("ApplicationPath").toString() != applicationpath);
+
+    settings.setValue("BrowserCommand", browsercommand);
+    settings.setValue("FixedPort", fixedport);
+    settings.setValue("PortNumber", portnumber);
+    settings.setValue("OpenTabAtStartup", opentabatstartup);
+    settings.setValue("PythonPath", pythonpath);
+    settings.setValue("ApplicationPath", applicationpath);
+
+    settings.sync();
+
+    emit accepted(m_needRestart);
+    emit closing(true);
+
+    this->close();
 }
 
-void ConfigWindow::setPythonPath(QString path)
+void ConfigWindow::on_buttonBox_rejected()
 {
-    ui->pythonPathLineEdit->setText(path);
+    emit closing(false);
+    this->close();
 }
 
-void ConfigWindow::setApplicationPath(QString path)
+void ConfigWindow::on_chkFixedPort_stateChanged(int state)
 {
-    ui->applicationPathLineEdit->setText(path);
+    if (state == Qt::Checked)
+        ui->spinPortNumber->setEnabled(true);
+    else
+        ui->spinPortNumber->setEnabled(false);
 }
 

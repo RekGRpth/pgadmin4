@@ -5,10 +5,10 @@
     //margin is calculated with -$alertify-borderremove-margin, adjust the header
     min-height: $title-height + $alertify-borderremove-margin !important;
     max-height: $title-height + $alertify-borderremove-margin !important;
-    background-color: $color-primary;
+    background-color: $alert-header-bg;
     font-size: $font-size-base;
     font-weight: bold;
-    color: $color-primary-fg;
+    color: $alert-header-fg;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -19,8 +19,13 @@
     margin: -24px - $alertify-borderremove-margin; //-24px is default by alertify
     margin-bottom: 0px;
     &:hover {
-      background-color: $color-primary;
+      background-color: $alert-header-bg;
     }
+  }
+
+  .ajs-body {
+    background-color: $alert-dialog-body-bg !important;
+    color: $color-fg !important;
   }
 
   &.ajs-resizable,
@@ -45,6 +50,7 @@
     & .ajs-body {
       & .ajs-content {
         top: 0 !important;
+        bottom: 0px !important;
         padding: 0px;
       }
     }
@@ -64,6 +70,8 @@
     padding: 0;
     min-height: $footer-min-height;
     border-top: $panel-border;
+    background-color: $color-bg !important;
+    color: $color-fg !important;
     & .ajs-buttons {
       border: none;
       border-radius: 0rem;
@@ -115,15 +123,13 @@
     border: $panel-border;
     border-radius: $panel-border-radius;
     box-shadow: $dialog-box-shadow;
+    background-color: $alert-dialog-body-bg !important;
+    color: $color-fg !important;
   }
   .ajs-content {
     padding-left: 0 !important;
     padding-right: 0 !important;
   }
-}
-
-.alertify.ajs-frameless .ajs-body .ajs-content {
-  bottom: 0px !important;
 }
 
 .alertify.ajs-maximized .ajs-commands,
@@ -140,7 +146,7 @@
   width: 20px;
   height: 20px;
   border: $input-btn-border-width solid $btn-secondary-border !important;
-  background-color: $color-secondary !important;
+  background-color: $alert-action-bg !important;
   font-size: 12px;
   border-radius: $btn-border-radius;
   position: relative;
@@ -151,7 +157,7 @@
 }
 
 .ajs-pin:hover, .ajs-maximize:hover, .ajs-close:hover {
-  background-color: $btn-secondary-hover-bg !important;
+  background-color: $alert-action-hover-bg !important;
 }
 
 .alertify.ajs-modeless.ajs-pinnable .ajs-commands button.ajs-pin {
@@ -188,14 +194,15 @@
   @at-root .ajs-button#{&} {
     font-family: $font-family-icon;
     margin-right: 5px;
+    font-weight: 900;
   }
 }
 
 .pg-alertify-icon-button {
   &:before {
-    font-size: 1.1em !important;
     line-height: 1.2;
     font-family: $font-family-icon;
+    font-weight: 900;
   }
 }
 
@@ -205,20 +212,30 @@
 }
 
 .ajs-message.ajs-error.ajs-visible {
-  background: $color-danger-lighter;
-  border: $border-width solid $color-danger;
+  background: $alert-danger-bg;
+  border: $border-width solid $alert-danger-color;
+  color: $alert-danger-color;
   @extend .ajs-text-smoothing;
 }
 
 .ajs-message.ajs-success.ajs-visible {
-  background: $color-success-light;
-  border: $border-width solid $color-success;
+  background: $alert-success-bg;
+  border: $border-width solid $alert-success-color;
+  color: $alert-success-color;
+  @extend .ajs-text-smoothing;
+}
+
+.ajs-message.ajs-warning.ajs-visible {
+  background: $alert-warning-bg;
+  border: $border-width solid $alert-warning-color;
+  color: $alert-warning-color;
   @extend .ajs-text-smoothing;
 }
 
 .ajs-message.ajs-visible {
-  background: $color-primary-light;
-  border: $border-width solid $color-primary;
+  background: $alert-primary-bg;
+  border: $border-width solid $alert-primary-color;
+  color: $alert-primary-color;
   @extend .ajs-text-smoothing;
 }
 
@@ -233,4 +250,60 @@
 /* It sometimes is applied to dialog and blocks the dialog from editing */
 .alertify .ajs-dialog.ajs-capture:before {
   display: none;
+}
+
+.alertify-no-animation {
+  .alertify .ajs-dimmer,
+  .alertify .ajs-modal,
+  .alertify-notifier,
+  .alertify-notifier .ajs-message.ajs-visible,
+  .alertify-notifier .ajs-message,
+  .alertify-notifier.ajs-center .ajs-message.ajs-visible,
+  .alertify-notifier.ajs-center .ajs-message
+  {
+    -moz-transition: none;
+    -webkit-transition: none;
+    -o-transition: none;
+    transition: none;
+    -webkit-transform: none;
+    transform: none;
+  }
+
+  .alertify.ajs-zoom.ajs-in:not(.ajs-hidden) .ajs-dialog {
+    -webkit-animation-name: ajs-noanimate;
+    animation-name: ajs-noanimate;
+  }
+  .alertify.ajs-zoom.ajs-out.ajs-hidden .ajs-dialog {
+    -webkit-animation-name: ajs-noanimate;
+    animation-name: ajs-noanimate;
+  }
+
+  @-webkit-keyframes ajs-noanimate {
+    -webkit-transform: none;
+    transform: none;
+  }
+  @keyframes ajs-noanimate {
+    -webkit-transform: none;
+    transform: none;
+  }
+}
+
+.alert-text-body {
+  color: $alert-color-fg;
+}
+
+.ajs-commands, .ajs-close {
+  button {
+    @extend .btn-secondary;
+    outline: none !important;
+  }
+}
+
+.wizard-header {
+  .ml-auto {
+    button {
+      @extend .btn-secondary;
+      outline: none !important;
+     }
+  }
 }

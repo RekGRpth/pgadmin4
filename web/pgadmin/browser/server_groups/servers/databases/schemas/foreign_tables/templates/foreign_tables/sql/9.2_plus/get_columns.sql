@@ -1,7 +1,7 @@
 SELECT
     attname, attndims, atttypmod, attoptions, attfdwoptions, format_type(t.oid,NULL) AS datatype,
     attnotnull, attstattarget, attnum, format_type(t.oid, att.atttypmod) AS fulltype,
-    CASE WHEN length(cn.nspname) > 0 AND length(cl.collname) > 0 THEN
+    CASE WHEN length(cn.nspname::text) > 0 AND length(cl.collname::text) > 0 THEN
     concat(cn.nspname, '."', cl.collname,'"') ELSE '' END AS collname,
     (SELECT COUNT(1) from pg_type t2 WHERE t2.typname=t.typname) > 1 AS isdup,
     pg_catalog.pg_get_expr(def.adbin, def.adrelid) AS typdefault
@@ -16,7 +16,7 @@ LEFT OUTER JOIN
 LEFT OUTER JOIN
     pg_type b ON t.typelem=b.oid
 LEFT OUTER JOIN
-    pg_collation cl ON t.typcollation=cl.oid
+    pg_collation cl ON att.attcollation=cl.oid
 LEFT OUTER JOIN
     pg_namespace cn ON cl.collnamespace=cn.oid
 WHERE

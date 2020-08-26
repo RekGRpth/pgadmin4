@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -16,6 +16,7 @@ import config
 from flask import current_app, session
 from flask_security import current_user
 from flask_babelex import gettext
+from werkzeug.exceptions import InternalServerError
 
 from pgadmin.utils import get_complete_file_path
 from pgadmin.utils.crypto import decrypt
@@ -25,12 +26,10 @@ from pgadmin.model import Server, User
 from pgadmin.utils.exception import ConnectionLost, SSHTunnelConnectionLost,\
     CryptKeyMissing
 from pgadmin.utils.master_password import get_crypt_key
-from threading import Lock
+from pgadmin.utils.exception import ObjectGone
 
 if config.SUPPORT_SSH_TUNNEL:
     from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
-
-connection_restore_lock = Lock()
 
 
 class ServerManager(object):
@@ -40,6 +39,7 @@ class ServerManager(object):
     This class contains the information about the given server.
     And, acts as connection manager for that particular session.
     """
+    _INFORMATION_MSG = gettext("Information is not available.")
 
     def __init__(self, server):
         self.connections = dict()
@@ -123,7 +123,6 @@ class ServerManager(object):
         res['ver'] = self.ver
         res['sversion'] = self.sversion
         if hasattr(self, 'password') and self.password:
-            # If running under PY2
             if hasattr(self.password, 'decode'):
                 res['password'] = self.password.decode('utf-8')
             else:
@@ -133,7 +132,6 @@ class ServerManager(object):
 
         if self.use_ssh_tunnel:
             if hasattr(self, 'tunnel_password') and self.tunnel_password:
-                # If running under PY2
                 if hasattr(self.tunnel_password, 'decode'):
                     res['tunnel_password'] = \
                         self.tunnel_password.decode('utf-8')
@@ -152,39 +150,35 @@ class ServerManager(object):
 
         return res
 
-    def ServerVersion(self):
+    def server_version(self):
         return self.ver
 
     @property
     def version(self):
         return self.sversion
 
-    def MajorVersion(self):
+    def major_version(self):
         if self.sversion is not None:
             return int(self.sversion / 10000)
-        raise Exception("Information is not available.")
+        raise InternalServerError(self._INFORMATION_MSG)
 
-    def MinorVersion(self):
+    def minor_version(self):
         if self.sversion:
             return int(int(self.sversion / 100) % 100)
-        raise Exception("Information is not available.")
+        raise InternalServerError(self._INFORMATION_MSG)
 
-    def PatchVersion(self):
+    def patch_version(self):
         if self.sversion:
             return int(int(self.sversion / 100) / 100)
-        raise Exception("Information is not available.")
+        raise InternalServerError(self._INFORMATION_MSG)
 
     def connection(
             self, database=None, conn_id=None, auto_reconnect=True, did=None,
             async_=None, use_binary_placeholder=False, array_to_string=False
     ):
         if database is not None:
-            if hasattr(str, 'decode') and \
-                    not isinstance(database, unicode):
-                database = database.decode('utf-8')
-            if did is not None:
-                if did in self.db_info:
-                    self.db_info[did]['datname'] = database
+            if did is not None and did in self.db_info:
+                self.db_info[did]['datname'] = database
         else:
             if did is None:
                 database = self.db
@@ -214,7 +208,7 @@ WHERE db.oid = {0}""".format(did))
                                 database = self.db_info[did]['datname']
 
                         if did not in self.db_info:
-                            raise Exception(gettext(
+                            raise ObjectGone(gettext(
                                 "Could not find the specified database."
                             ))
 
@@ -267,12 +261,9 @@ WHERE db.oid = {0}""".format(did))
 
         from pgadmin.browser.server_groups.servers.types import ServerType
 
-        self.ver = data.get('ver', None)
-        self.sversion = data.get('sversion', None)
-
         if self.ver and not self.server_type:
             for st in ServerType.types():
-                if st.instanceOf(self.ver):
+                if st.instance_of(self.ver):
                     self.server_type = st.stype
                     self.server_cls = st
                     break
@@ -281,9 +272,9 @@ WHERE db.oid = {0}""".format(did))
         # first connection for identifications.
         self.pinged = datetime.datetime.now()
         try:
-            if 'password' in data and data['password']:
-                if hasattr(data['password'], 'encode'):
-                    data['password'] = data['password'].encode('utf-8')
+            if 'password' in data and data['password'] and \
+                    hasattr(data['password'], 'encode'):
+                data['password'] = data['password'].encode('utf-8')
             if 'tunnel_password' in data and data['tunnel_password']:
                 data['tunnel_password'] = \
                     data['tunnel_password'].encode('utf-8')
@@ -292,80 +283,79 @@ WHERE db.oid = {0}""".format(did))
 
         connections = data['connections']
 
-        with connection_restore_lock:
-            for conn_id in connections:
-                conn_info = connections[conn_id]
-                if conn_info['conn_id'] in self.connections:
-                    conn = self.connections[conn_info['conn_id']]
-                else:
-                    conn = self.connections[conn_info['conn_id']] = Connection(
-                        self, conn_info['conn_id'], conn_info['database'],
-                        conn_info['auto_reconnect'], conn_info['async_'],
-                        use_binary_placeholder=conn_info[
-                            'use_binary_placeholder'],
-                        array_to_string=conn_info['array_to_string']
+        for conn_id in connections:
+            conn_info = connections[conn_id]
+            if conn_info['conn_id'] in self.connections:
+                conn = self.connections[conn_info['conn_id']]
+            else:
+                conn = self.connections[conn_info['conn_id']] = Connection(
+                    self, conn_info['conn_id'], conn_info['database'],
+                    conn_info['auto_reconnect'], conn_info['async_'],
+                    use_binary_placeholder=conn_info[
+                        'use_binary_placeholder'],
+                    array_to_string=conn_info['array_to_string']
+                )
+
+            # only try to reconnect if connection was connected previously
+            # and auto_reconnect is true.
+            if conn_info['wasConnected'] and conn_info['auto_reconnect']:
+                try:
+                    # Check SSH Tunnel needs to be created
+                    if self.use_ssh_tunnel == 1 and \
+                       not self.tunnel_created:
+                        status, error = self.create_ssh_tunnel(
+                            data['tunnel_password'])
+
+                        # Check SSH Tunnel is alive or not.
+                        self.check_ssh_tunnel_alive()
+
+                    conn.connect(
+                        password=data['password'],
+                        server_types=ServerType.types()
                     )
-
-                # only try to reconnect if connection was connected previously
-                # and auto_reconnect is true.
-                if conn_info['wasConnected'] and conn_info['auto_reconnect']:
-                    try:
-                        # Check SSH Tunnel needs to be created
-                        if self.use_ssh_tunnel == 1 and \
-                           not self.tunnel_created:
-                            status, error = self.create_ssh_tunnel(
-                                data['tunnel_password'])
-
-                            # Check SSH Tunnel is alive or not.
-                            self.check_ssh_tunnel_alive()
-
-                        conn.connect(
-                            password=data['password'],
-                            server_types=ServerType.types()
-                        )
-                        # This will also update wasConnected flag in
-                        # connection so no need to update the flag manually.
-                    except CryptKeyMissing:
-                        # maintain the status as this will help to restore once
-                        # the key is available
-                        conn.wasConnected = conn_info['wasConnected']
-                        conn.auto_reconnect = conn_info['auto_reconnect']
-                    except Exception as e:
-                        current_app.logger.exception(e)
-                        self.connections.pop(conn_info['conn_id'])
-                        raise
+                    # This will also update wasConnected flag in
+                    # connection so no need to update the flag manually.
+                except CryptKeyMissing:
+                    # maintain the status as this will help to restore once
+                    # the key is available
+                    conn.wasConnected = conn_info['wasConnected']
+                    conn.auto_reconnect = conn_info['auto_reconnect']
+                except Exception as e:
+                    current_app.logger.exception(e)
+                    self.connections.pop(conn_info['conn_id'])
+                    raise
 
     def _restore_connections(self):
-        with connection_restore_lock:
-            for conn_id in self.connections:
-                conn = self.connections[conn_id]
-                # only try to reconnect if connection was connected previously
-                # and auto_reconnect is true.
-                wasConnected = conn.wasConnected
-                auto_reconnect = conn.auto_reconnect
-                if conn.wasConnected and conn.auto_reconnect:
-                    try:
-                        # Check SSH Tunnel needs to be created
-                        if self.use_ssh_tunnel == 1 and \
-                           not self.tunnel_created:
-                            status, error = self.create_ssh_tunnel(
-                                self.tunnel_password
-                            )
+        for conn_id in self.connections:
+            conn = self.connections[conn_id]
+            # only try to reconnect if connection was connected previously
+            # and auto_reconnect is true.
+            wasConnected = conn.wasConnected
+            auto_reconnect = conn.auto_reconnect
+            if conn.wasConnected and conn.auto_reconnect:
+                try:
+                    # Check SSH Tunnel needs to be created
+                    if self.use_ssh_tunnel == 1 and \
+                       not self.tunnel_created:
+                        status, error = self.create_ssh_tunnel(
+                            self.tunnel_password
+                        )
 
-                            # Check SSH Tunnel is alive or not.
-                            self.check_ssh_tunnel_alive()
+                        # Check SSH Tunnel is alive or not.
+                        self.check_ssh_tunnel_alive()
 
-                        conn.connect()
-                        # This will also update wasConnected flag in
-                        # connection so no need to update the flag manually.
-                    except CryptKeyMissing:
-                        # maintain the status as this will help to restore once
-                        # the key is available
-                        conn.wasConnected = wasConnected
-                        conn.auto_reconnect = auto_reconnect
-                    except Exception as e:
-                        current_app.logger.exception(e)
-                        raise
+                    conn.connect()
+                    # This will also update wasConnected flag in
+                    # connection so no need to update the flag manually.
+                except CryptKeyMissing:
+                    # maintain the status as this will help to restore once
+                    # the key is available
+                    conn.wasConnected = wasConnected
+                    conn.auto_reconnect = auto_reconnect
+                except Exception as e:
+                    self.connections.pop(conn_id)
+                    current_app.logger.exception(e)
+                    raise
 
     def release(self, database=None, conn_id=None, did=None):
         # Stop the SSH tunnel if release() function calls without
@@ -376,16 +366,16 @@ WHERE db.oid = {0}""".format(did))
         if did is not None:
             if did in self.db_info and 'datname' in self.db_info[did]:
                 database = self.db_info[did]['datname']
-                if hasattr(str, 'decode') and \
-                        not isinstance(database, unicode):
-                    database = database.decode('utf-8')
                 if database is None:
                     return False
             else:
                 return False
 
-        my_id = (u'CONN:{0}'.format(conn_id)) if conn_id is not None else \
-            (u'DB:{0}'.format(database)) if database is not None else None
+        my_id = None
+        if conn_id is not None:
+            my_id = u'CONN:{0}'.format(conn_id)
+        elif database is not None:
+            my_id = u'DB:{0}'.format(database)
 
         if my_id is not None:
             if my_id in self.connections:
@@ -407,8 +397,14 @@ WHERE db.oid = {0}""".format(did))
             else:
                 return False
 
-        for con in self.connections:
-            self.connections[con]._release()
+        for con_key in list(self.connections.keys()):
+            conn = self.connections[con_key]
+            # Cancel the ongoing transaction before closing the connection
+            # as it may hang forever
+            if conn.connected() and conn.conn_id is not None and \
+               conn.conn_id.startswith('CONN:'):
+                conn.cancel_transaction(conn.conn_id[5:])
+            conn._release()
 
         self.connections = dict()
         self.ver = None
@@ -480,18 +476,14 @@ WHERE db.oid = {0}""".format(did))
 
             try:
                 tunnel_password = decrypt(tunnel_password, crypt_key)
-                # Handling of non ascii password (Python2)
-                if hasattr(str, 'decode'):
-                    tunnel_password = \
-                        tunnel_password.decode('utf-8').encode('utf-8')
                 # password is in bytes, for python3 we need it in string
-                elif isinstance(tunnel_password, bytes):
+                if isinstance(tunnel_password, bytes):
                     tunnel_password = tunnel_password.decode()
 
             except Exception as e:
                 current_app.logger.exception(e)
-                return False, "Failed to decrypt the SSH tunnel " \
-                              "password.\nError: {0}".format(str(e))
+                return False, gettext("Failed to decrypt the SSH tunnel "
+                                      "password.\nError: {0}").format(str(e))
 
         try:
             # If authentication method is 1 then it uses identity file
@@ -511,13 +503,14 @@ WHERE db.oid = {0}""".format(did))
                     ssh_password=tunnel_password,
                     remote_bind_address=(self.host, self.port)
                 )
-
+            # flag tunnel threads in daemon mode to fix hang issue.
+            self.tunnel_object.daemon_forward_servers = True
             self.tunnel_object.start()
             self.tunnel_created = True
         except BaseSSHTunnelForwarderError as e:
             current_app.logger.exception(e)
-            return False, "Failed to create the SSH tunnel." \
-                          "\nError: {0}".format(str(e))
+            return False, gettext("Failed to create the SSH tunnel.\n"
+                                  "Error: {0}").format(str(e))
 
         # Update the port to communicate locally
         self.local_bind_port = self.tunnel_object.local_bind_port

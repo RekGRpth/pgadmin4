@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -22,6 +22,7 @@ from pgadmin.utils.ajax import success_return, \
     make_response as ajax_response, internal_server_error
 from pgadmin.utils.menu import MenuItem
 from pgadmin.utils.preferences import Preferences
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 
 MODULE_NAME = 'preferences'
 
@@ -78,7 +79,7 @@ def script():
     return Response(
         response=render_template("preferences/preferences.js", _=gettext),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )
 
 
@@ -113,40 +114,62 @@ def preferences(module=None, preference=None):
     def label(p):
         return gettext(p['label'])
 
-    for m in pref:
-        if len(m['categories']):
-            om = {
-                "id": m['id'],
-                "label": gettext(m['label']),
-                "inode": True,
-                "open": True,
-                "branch": []
-            }
-
-            for c in m['categories']:
-                for p in c['preferences']:
-                    if 'label' in p and p['label'] is not None:
-                        p['label'] = gettext(p['label'])
-                    if 'help_str' in p and p['help_str'] is not None:
-                        p['help_str'] = gettext(p['help_str'])
-                oc = {
-                    "id": c['id'],
-                    "mid": m['id'],
-                    "label": gettext(c['label']),
-                    "inode": False,
-                    "open": False,
-                    "preferences": sorted(c['preferences'], key=label)
-                }
-
-                (om['branch']).append(oc)
-            om['branch'] = sorted(om['branch'], key=label)
-
-            res.append(om)
+    _group_pref_by_categories(pref, res, label)
 
     return ajax_response(
         response=sorted(res, key=label),
         status=200
     )
+
+
+def _group_pref_by_categories(pref, res, label):
+    """
+    Group preference by categories type.
+    :param pref: preference data.
+    :param res: response for request.
+    :param label: get label.
+    :return:
+    """
+    for pref_d in pref:
+        if len(pref_d['categories']):
+            _iterate_categories(pref_d, label, res)
+
+
+def _iterate_categories(pref_d, label, res):
+    """
+    Iterate preference categories.
+    :param pref_d: preference data
+    :param label: get label.
+    :param res: response.
+    :return:
+    """
+    om = {
+        "id": pref_d['id'],
+        "label": gettext(pref_d['label']),
+        "inode": True,
+        "open": True,
+        "branch": []
+    }
+
+    for c in pref_d['categories']:
+        for p in c['preferences']:
+            if 'label' in p and p['label'] is not None:
+                p['label'] = gettext(p['label'])
+            if 'help_str' in p and p['help_str'] is not None:
+                p['help_str'] = gettext(p['help_str'])
+        oc = {
+            "id": c['id'],
+            "mid": pref_d['id'],
+            "label": gettext(c['label']),
+            "inode": False,
+            "open": False,
+            "preferences": sorted(c['preferences'], key=label)
+        }
+
+        (om['branch']).append(oc)
+    om['branch'] = sorted(om['branch'], key=label)
+
+    res.append(om)
 
 
 @blueprint.route("/get_all", methods=["GET"], endpoint='get_all')
@@ -190,7 +213,7 @@ def save(pid):
     # This will execute every time as could not find the better way to know
     # that which preference is getting updated.
 
-    misc_preference = Preferences.module('miscellaneous')
+    misc_preference = Preferences.module('misc')
     user_languages = misc_preference.preference(
         'user_language'
     )

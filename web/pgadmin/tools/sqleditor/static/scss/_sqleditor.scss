@@ -18,6 +18,11 @@
   z-index: 0;
 }
 
+.connection_status {
+  background-color: $sql-title-bg;
+  color: $sql-title-fg;
+  border-right: $border-width solid $border-color;
+}
 
 .editor-title {
   padding: $sql-title-padding;
@@ -39,10 +44,6 @@
   background: $color-primary-light;
 }
 
-.connection_status {
-  width: 40px;
-}
-
 
 .ajs-body .warn-icon {
   color: $color-warning;
@@ -55,16 +56,6 @@
   width: 100%;
   border-top: $panel-border;
   border-bottom: $panel-border;
-}
-
-.connection_status .fa-clock-o,
-.connection_status .fa-hourglass-half {
-  color: $color-warning;
-}
-
-.connection_status .fa-exclamation-circle,
-.connection_status .fa-exclamation-triangle {
-  color: $color-danger;
 }
 
 li.CodeMirror-hint-active {
@@ -110,7 +101,7 @@ li.CodeMirror-hint-active {
 .slick-cell.cell-move-handle {
   font-weight: bold;
   text-align: right;
-  border-right: solid  $color-gray;
+  border-right: solid  $border-color;
   background: $color-gray-lighter;
   cursor: move;
 }
@@ -129,7 +120,7 @@ li.CodeMirror-hint-active {
 }
 
 .cell-selection {
-  border-right-color: $color-gray-light;
+  border-right-color: $border-color;
   border-right-style: solid;
   background: $color-gray-lighter;
   color:  $color-gray;
@@ -138,7 +129,8 @@ li.CodeMirror-hint-active {
 }
 
 #datagrid .slick-header .slick-header-columns {
-  background: $color-bg;
+  background: $sql-grid-title-cell-bg;
+  color: $sql-grid-title-cell-fg;
   height: 40px;
   border-bottom: $panel-border;
 }
@@ -157,7 +149,6 @@ li.CodeMirror-hint-active {
 
 #datagrid .slick-header .slick-header-column.selected {
   background-color: $color-primary;
-  color: $color-primary-fg;
 }
 .slick-row .slick-cell {
   border-bottom: $panel-border;
@@ -219,9 +210,31 @@ li.CodeMirror-hint-active {
 /* Override selected row color */
 #datagrid .slick-row .slick-cell.selected {
     background-color: $table-bg-selected;
+    color: $datagrid-selected-color;
 }
 
 /* color the first column */
+
+#datagrid .slick-row {
+    .slick-cell {
+        background-color: $sql-grid-data-cell-bg;
+        color: $sql-grid-data-cell-fg;
+    }
+
+    .slick-cell.l0.r0 {
+        background-color: $sql-grid-title-cell-bg;
+        color: $sql-grid-title-cell-fg;
+    }
+}
+
+#datagrid div.slick-header.ui-state-default {
+  background-color: $sql-grid-title-cell-bg;
+  color: $sql-grid-title-cell-fg;
+  border-bottom: none;
+  border-right: none;
+  border-top: none;
+}
+
 #datagrid .slick-row .slick-cell.l0.r0.selected {
   background-color: $color-primary;
   color: $color-primary-fg;
@@ -233,17 +246,10 @@ li.CodeMirror-hint-active {
   border-bottom: $table-hover-border;
 }
 
-#datagrid div.slick-header.ui-state-default {
-  background: $color-bg;
-  border-bottom: none;
-  border-right: none;
-  border-top: none;
-}
-
 .pg-text-editor {
   z-index:10000;
   position:absolute;
-  background: $color-bg-theme;
+  background: $color-bg;
   padding: 0.25rem;
   border: $panel-border;
   box-shadow: $dropdown-box-shadow;
@@ -293,9 +299,60 @@ div.strikeout:before {
   left: 0;
   border-top: 1px solid $color-danger;
   width: 100%;
+  font-weight: 900;
 }
 
 div.strikeout:after {
   content: "\00B7";
   font-size: 1px;
+  font-weight: 900;
 }
+
+.sql-scratch {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: hidden;
+
+  textarea {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border: none;
+    resize: none;
+  }
+}
+
+.connection_status .obtaining-conn {
+  background-image: $loader-icon-small !important;
+  background-position: center center;
+  background-repeat: no-repeat;
+  &:before {
+    content:'';
+  }
+  min-width: 50%;
+  min-height: 100%;
+}
+
+.sql-editor-grid-container {
+  height: 100%;
+  overflow: auto;
+
+  .ui-widget-content {
+    background-color: $input-bg;
+    color: $input-color;
+  }
+
+  .ui-state-default {
+    color: $color-fg;
+  }
+}
+
+.sql-editor-grid-container.has-no-footer {
+  height: 100%;
+}
+
+
+/* Setting it to hardcoded white as the SVG generated is having white bg
+ * Need to check what can be done.
+ */

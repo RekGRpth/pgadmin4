@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.pga_jobstep', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'alertify', 'backform',
+  'sources/pgadmin', 'pgadmin.browser', 'alertify', 'backform',
   'backgrid', 'pgadmin.backform', 'pgadmin.backgrid',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, Alertify, Backform, Backgrid) {
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, Alertify, Backform, Backgrid) {
 
   if (!pgBrowser.Nodes['coll-pga_jobstep']) {
     pgBrowser.Nodes['coll-pga_jobstep'] =
@@ -45,10 +45,10 @@ define('pgadmin.node.pga_jobstep', [
       is_editable = _.isFunction(editable) ? !!editable.apply(column, [model]) : !!editable;
       if (is_editable) {
         this.$el.addClass('editable');
-        input.bootstrapSwitch('disabled', false);
+        input.bootstrapToggle('disabled', false);
       } else {
         this.$el.removeClass('editable');
-        input.bootstrapSwitch('disabled', true);
+        input.bootstrapToggle('disabled', true);
         // Set self value into model
         setTimeout(function () {
           model.set(self_name, true);
@@ -120,7 +120,7 @@ define('pgadmin.node.pga_jobstep', [
         initialize: function() {
           pgBrowser.Node.Model.prototype.initialize.apply(this, arguments);
           if (this.isNew() && this.get('jstconntype')) {
-            var args = arguments && arguments.length > 1 && arguments[1];
+            var args = arguments.length > 1 && arguments[1];
 
             if (args) {
               if (!_.isUndefined(args['node_info']) ||
@@ -171,7 +171,7 @@ define('pgadmin.node.pga_jobstep', [
           options: {
             'onText': gettext('Local'), 'offText': gettext('Remote'),
             'onColor': 'primary', 'offColor': 'primary', width: '65',
-          }, helpMessage: gettext('Select <b>Local</b> if the job step will execute on the local database server, or <b>Remote</b> to specify a remote database server.'),
+          }, helpMessage: gettext('Select <strong>Local</strong> if the job step will execute on the local database server, or <strong>Remote</strong> to specify a remote database server.'),
         },{
           id: 'jstdbname', label: gettext('Database'), type: 'text',
           mode: ['properties'], disabled: function() { return false; },
@@ -190,11 +190,8 @@ define('pgadmin.node.pga_jobstep', [
           id: 'jstconnstr', label: gettext('Connection string'), type: 'text',
           deps: ['jstkind', 'jstconntype'], disabled: function(m) {
             return !m.get('jstkind') || m.get('jstconntype');
-          }, helpMessage: S(
-            gettext('Please specify the connection string for the remote database server. Each parameter setting is in the form keyword = value. Spaces around the equal sign are optional. To write an empty value, or a value containing spaces, surround it with single quotes, e.g., keyword = \'a value\'. Single quotes and backslashes within the value must be escaped with a backslash, i.e., \' and \\.<br>For more information, please see the documentation on %s')
-          ).sprintf(
-            '<a href="https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING" target="_blank">libpq connection strings</a>'
-          ).value(), mode: ['create', 'edit'],
+          }, helpMessage: gettext('Please specify the connection string for the remote database server. Each parameter setting is in the form keyword = value. Spaces around the equal sign are optional. To write an empty value, or a value containing spaces, surround it with single quotes, e.g., keyword = \'a value\'. Single quotes and backslashes within the value must be escaped with a backslash, i.e., \' and \\.<br>For more information, please see the documentation on <a href="https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING" target="_blank">libpq connection strings</a>.'
+          ), mode: ['create', 'edit'],
         },{
           id: 'jstonerror', label: gettext('On error'), cell: 'select2',
           control: 'select2', options: [
@@ -209,18 +206,8 @@ define('pgadmin.node.pga_jobstep', [
         },{
           id: 'jstcode', label: '', cell: 'string', deps: ['jstkind'],
           type: 'text', group: gettext('Code'),
-          control: Backform.SqlFieldControl.extend({
-            render: function() {
-              if (this.model.get('jstkind')) {
-                this.field.set('label', gettext('SQL query'));
-              } else {
-                this.field.set('label', gettext('Script'));
-              }
-              return Backform.SqlFieldControl.prototype.render.apply(
-                this, arguments
-              );
-            },
-          }),
+          tabPanelCodeClass: 'sql-code-control',
+          control: Backform.SqlCodeControl,
         }],
         validate: function() {
           var val = this.get('jstname'),
@@ -283,9 +270,7 @@ define('pgadmin.node.pga_jobstep', [
                     break;
                   }
 
-                  msg = S(
-                    gettext('Invalid parameter in the connection string - %s.')
-                  ).sprintf(m[1]).value();
+                  msg = gettext('Invalid parameter in the connection string - %s.', m[1]);
                   break;
                 }
               }
@@ -319,7 +304,7 @@ define('pgadmin.node.pga_jobstep', [
             !_.isUndefined(val) && !_.isNull(val) &&
               String(val).replace(/^\s+|\s+$/g, '') == ''
           ) {
-            msg = gettext('Please select valid on error option .');
+            msg = gettext('Please select valid on error option.');
             this.errorModel.set('jstonerror', msg);
           } else {
             this.errorModel.unset('jstonerror');

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -10,13 +10,13 @@
 // Backup dialog
 define([
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'pgadmin.alertifyjs', 'backbone', 'pgadmin.backgrid',
+  'pgadmin.alertifyjs', 'backbone', 'pgadmin.backgrid',
   'pgadmin.backform', 'pgadmin.browser', 'sources/utils',
   'tools/backup/static/js/menu_utils',
   'tools/backup/static/js/backup_dialog',
   'sources/nodes/supported_database_node',
 ], function(
-  gettext, url_for, $, _, S, alertify, Backbone, Backgrid, Backform, pgBrowser,
+  gettext, url_for, $, _, alertify, Backbone, Backgrid, Backform, pgBrowser,
   commonUtils, menuUtils, globalBackupDialog, supportedNodes
 ) {
 
@@ -178,7 +178,10 @@ define([
       type: 'int',
       min: 0,
       max: 9,
-      disabled: false,
+      deps: ['format'],
+      disabled: function(m) {
+        return (m.get('format') === 'tar');
+      },
       visible: function(m) {
         if (!_.isUndefined(m.get('type')) && m.get('type') === 'server')
           return false;
@@ -197,7 +200,7 @@ define([
           var t = pgBrowser.tree,
             i = t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
-          return d.version >= 110000;
+          return _.isUndefined(d) ? false : d.version >= 110000;
         }
         return true;
       },
@@ -207,7 +210,7 @@ define([
       type: 'int',
       deps: ['format'],
       disabled: function(m) {
-        return !(m.get('format') === 'Directory');
+        return (m.get('format') !== 'directory');
       },
       visible: function(m) {
         if (!_.isUndefined(m.get('type')) && m.get('type') === 'server')
@@ -389,9 +392,9 @@ define([
           var t = pgBrowser.tree,
             i = t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined,
-            s = pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
+            s = _.isUndefined(d) ? undefined : pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
 
-          return s.version >= 110000;
+          return _.isUndefined(s) ? false : s.version >= 110000;
         },
       }],
     }, {
@@ -464,9 +467,9 @@ define([
           var t = pgBrowser.tree,
             i = t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined,
-            s = pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
+            s = _.isUndefined(d) ? undefined : pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
 
-          return s.version >= 110000;
+          return _.isUndefined(s) ? false : s.version >= 110000;
         },
       }],
     }, {
@@ -513,6 +516,14 @@ define([
         deps: ['use_column_inserts', 'use_insert_commands'],
         group: gettext('Miscellaneous'),
         disabled: function(m) {
+          var t = pgBrowser.tree,
+            i = t.selected(),
+            d = i && i.length == 1 ? t.itemData(i) : undefined,
+            s = _.isUndefined(d) ? undefined : pgBrowser.Nodes[d._type].getTreeNodeHierarchy(i)['server'];
+
+          if (!_.isUndefined(s) && s.version >= 120000)
+            return true;
+
           if (m.get('use_column_inserts') || m.get('use_insert_commands')) {
             setTimeout(function() { m.set('with_oids', false); }, 10);
             return true;
@@ -569,7 +580,7 @@ define([
         callback: 'start_backup_global',
         priority: 12,
         label: gettext('Backup Globals...'),
-        icon: 'fa fa-floppy-o',
+        icon: 'fa fa-save',
         enable: menuUtils.menuEnabledServer,
       }, {
         name: 'backup_server',
@@ -578,7 +589,7 @@ define([
         callback: 'start_backup_server',
         priority: 12,
         label: gettext('Backup Server...'),
-        icon: 'fa fa-floppy-o',
+        icon: 'fa fa-save',
         enable: menuUtils.menuEnabledServer,
       }, {
         name: 'backup_global_ctx',
@@ -588,7 +599,7 @@ define([
         callback: 'start_backup_global',
         priority: 12,
         label: gettext('Backup Globals...'),
-        icon: 'fa fa-floppy-o',
+        icon: 'fa fa-save',
         enable: menuUtils.menuEnabledServer,
       }, {
         name: 'backup_server_ctx',
@@ -598,7 +609,7 @@ define([
         callback: 'start_backup_server',
         priority: 12,
         label: gettext('Backup Server...'),
-        icon: 'fa fa-floppy-o',
+        icon: 'fa fa-save',
         enable: menuUtils.menuEnabledServer,
       }, {
         name: 'backup_object',
@@ -607,7 +618,7 @@ define([
         callback: 'backup_objects',
         priority: 11,
         label: gettext('Backup...'),
-        icon: 'fa fa-floppy-o',
+        icon: 'fa fa-save',
         enable: supportedNodes.enabled.bind(
           null, pgBrowser.treeMenu, menuUtils.backupSupportedNodes
         ),
@@ -622,7 +633,7 @@ define([
           callback: 'backup_objects',
           priority: 11,
           label: gettext('Backup...'),
-          icon: 'fa fa-floppy-o',
+          icon: 'fa fa-save',
           enable: supportedNodes.enabled.bind(
             null, pgBrowser.treeMenu, menuUtils.backupSupportedNodes
           ),
@@ -639,7 +650,7 @@ define([
         alertify,
         BackupModel
       );
-      dialog.draw(action, item, {'globals': true}, pgBrowser.stdW.md, pgBrowser.stdH.md);
+      dialog.draw(action, item, {'globals': true}, pgBrowser.stdW.calc(pgBrowser.stdW.md), pgBrowser.stdH.calc(pgBrowser.stdH.md));
     },
     start_backup_server: function(action, item) {
       let dialog = new globalBackupDialog.BackupDialog(
@@ -648,7 +659,7 @@ define([
         alertify,
         BackupObjectModel
       );
-      dialog.draw(action, item, {'server': true}, pgBrowser.stdW.md, pgBrowser.stdH.md);
+      dialog.draw(action, item, {'server': true}, pgBrowser.stdW.calc(pgBrowser.stdW.md), pgBrowser.stdH.calc(pgBrowser.stdH.md));
     },
     // Callback to draw Backup Dialog for objects
     backup_objects: function(action, treeItem) {
@@ -658,7 +669,7 @@ define([
         alertify,
         BackupObjectModel
       );
-      dialog.draw(action, treeItem, null, pgBrowser.stdW.md, pgBrowser.stdH.md);
+      dialog.draw(action, treeItem, null, pgBrowser.stdW.calc(pgBrowser.stdW.md), pgBrowser.stdH.calc(pgBrowser.stdH.md));
     },
   };
   return pgBrowser.Backup;

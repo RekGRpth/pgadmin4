@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -82,10 +82,10 @@ define([
       '          </div>' +
       '          <% if (this.options.show_header_cancel_btn) { %>' +
       '            <div class="ml-auto">' +
-      '              <button class="ajs-close wizard-cancel-event pull-right"' +
+      '              <button aria-label="' + gettext('Close') +'" tabindex="0" class="ajs-close wizard-cancel-event pull-right"' +
       '                title="' + gettext('Close') + '"></button>' +
       '              <% if (this.options.show_header_maximize_btn) { %>' +
-      '                <button class="ajs-maximize wizard-maximize-event mr-1 pull-right"' +
+      '                <button aria-label="' + gettext('Maximize') + '" tabindex="0"  class="ajs-maximize wizard-maximize-event mr-1 pull-right"' +
       '                  title="' + gettext('Maximize') + '"></button>' +
       '              <% } %>' +
       '            </div>' +
@@ -100,13 +100,13 @@ define([
       '        <% } %>' +
       '        <div class="col-sm-<% if (this.options.show_left_panel) { %>9<% }' +
       '          else { %>12<% } %> wizard-right-panel">' +
-      '          <% if ( typeof show_description !=  "undefined"){ %>' +
+      '          <% if ( typeof show_description !=  "undefined" && show_description != ""){ %>' +
       '            <div class="wizard-description">' +
       '              <%= show_description %>' +
       '            </div>' +
       '          <% } %>' +
       '          <div class="wizard-progress-bar"><% if (show_progress_bar) { %>' +
-      '            <p class="alert alert-info col-sm-12"><%= show_progress_bar %></p><% } %>' +
+      '            <p role="status" class="alert alert-info col-sm-12"><%= show_progress_bar %></p><% } %>' +
       '          </div>' +
       '          <div class="wizard-right-panel_content">' +
       '          </div>' +
@@ -117,31 +117,31 @@ define([
       '          <div class="error-in-footer"> ' +
       '            <div class="d-flex px-2 py-1"> ' +
       '              <div class="pr-2"> ' +
-      '                <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i> ' +
+      '                <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true" role="img"></i> ' +
       '              </div> ' +
-      '              <div class="alert-text"></div> ' +
+      '              <div role="alert" class="alert-text"></div> ' +
       '              <div class="ml-auto close-error-bar"> ' +
-      '                <a class="close-error fa fa-times text-danger"></a> ' +
+      '                <a aria-label="' + gettext('Close error bar') + '" class="close-error fa fa-times text-danger"></a> ' +
       '              </div> ' +
       '            </div> ' +
       '          </div> ' +
       '        </div>' +
       '        <div class="wizard-buttons d-flex">' +
       '          <div>' +
-      '            <button title = "' + gettext('Help for this dialog.') + '"' +
-      '              class="btn btn-secondary pull-left wizard-help" <%=this.options.wizard_help ? "" : "disabled" %>>' +
-      '              <span class="fa fa-lg fa-question"></span></button>' +
+      '            <button tabindex="0" aria-label="' + gettext('Help') + '" title = "' + gettext('Help for this dialog.') + '"' +
+      '              class="btn btn-primary-icon pull-left wizard-help" <%=this.options.wizard_help ? "" : "disabled" %>>' +
+      '              <span class="fa fa-lg fa-question" role="img"></span></button>' +
       '          </div>' +
       '          <div class="ml-auto">' +
       '              <button class="btn btn-secondary wizard-cancel" <%=this.options.disable_cancel ? "disabled" : ""%>>' +
-      '                <i class="fa fa-close"></i>&nbsp;' + gettext('Cancel') + '</button>' +
+      '                <i class="fa fa-times" role="img"></i>&nbsp;' + gettext('Cancel') + '</button>' +
       '              <button class="btn btn-secondary wizard-back" <%=this.options.disable_prev ? "disabled" : ""%>>' +
-      '                <i class="fa fa-backward"></i>&nbsp;' + gettext('Back') + '</button>' +
+      '                <i class="fa fa-backward" role="img"></i>&nbsp;' + gettext('Back') + '</button>' +
       '              <button class="btn btn-secondary wizard-next" <%=this.options.disable_next ? "disabled" : ""%>>' +
       '                ' + gettext('Next') +
       '                &nbsp;<i class="fa fa-forward"></i></button>' +
       '              <button class="btn btn-primary wizard-finish" <%=this.options.disable_finish ? "disabled" : ""%>>' +
-      '                <i class="fa fa-check"></i>&nbsp;' + gettext('Finish') + '</button>' +
+      '                <i class="fa fa-check" role="img"></i>&nbsp;' + gettext('Finish') + '</button>' +
       '          </div>' +
       '        </div>' +
       '      </div>' +
@@ -155,6 +155,7 @@ define([
       'click button.wizard-finish': 'finishWizard',
       'click button.wizard-help': 'onDialogHelp',
       'click a.close-error': 'closeErrorMsg',
+      'keydown': 'keydownHandler',
     },
     initialize: function(options) {
       this.options = _.extend({}, this.options, options.options);
@@ -183,11 +184,10 @@ define([
 
       /* OnLoad Callback */
       this.onLoad();
-
       setTimeout(function() {
         var container = $(self.el);
         commonUtils.findAndSetFocus(container);
-      }, 100);
+      }, 500);
 
       return this;
     },
@@ -238,6 +238,9 @@ define([
       delete this.$el; // Delete the jQuery wrapped object variable
       delete this.el; // Delete the variable reference to this node
       return true;
+    },
+    keydownHandler: function(event) {
+      commonUtils.handleKeyNavigation(event);
     },
     enableDisableNext: function(disable) {
       if (typeof(disable) != 'undefined') {

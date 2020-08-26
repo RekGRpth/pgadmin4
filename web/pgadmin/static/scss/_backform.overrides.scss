@@ -12,8 +12,9 @@
   }
 
   .control-label::before {
-    font: normal normal normal 16px/1 FontAwesome;
+    font: normal normal normal 16px/1 $font-family-icon;
     content: "\f071";
+    font-weight: 900;
     text-decoration: inherit;
     position: absolute;
     color: $color-danger;
@@ -37,13 +38,13 @@
 }
 .backform-tab .tab-pane {
 	padding: 0.5rem;
-	&.SQL {
-    height: 100%;
-    padding: 0px;
+	&.SQL, &.sql-code-control {
+        height: 100%;
+        padding: 0px;
 
-    & .pgadmin-controls.SQL {
-      padding: 0px;
-    }
+        & .pgadmin-controls.SQL {
+          padding: 0px;
+        }
 	}
 }
 

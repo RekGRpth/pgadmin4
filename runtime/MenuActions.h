@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 // MenuActions.h - Common file for menu actions.
@@ -12,9 +12,6 @@
 #ifndef MENUACTIONS_H
 #define MENUACTIONS_H
 
-#include "pgAdmin4.h"
-
-// App headers
 #include "LogWindow.h"
 #include "ConfigWindow.h"
 
@@ -23,19 +20,21 @@ class MenuActions: public QObject
     Q_OBJECT
 public:
     MenuActions();
-    ~MenuActions();
 
     void setAppServerUrl(QString appServerUrl);
-    void setLogFile(QString logFile);
-    QString getAppServerUrl() { return m_appServerUrl; }
+    QString getAppServerUrl() const { return m_appServerUrl; }
 
 private:
-    QString m_appServerUrl, m_logFile;
-    LogWindow *m_logWindow;
+    QString m_appServerUrl = "";
+    LogWindow *m_logWindow = Q_NULLPTR;
+    ConfigWindow *m_configWindow = Q_NULLPTR;
+
+public slots:
+    void onConfigDone(bool needRestart) const;
 
 protected slots:
-    void onNew();
-    void onCopyUrl();
+    void onNew() const;
+    void onCopyUrl() const;
     void onConfig();
     void onLog();
     void onQuit();

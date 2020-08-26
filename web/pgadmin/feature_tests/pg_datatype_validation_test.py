@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -18,6 +18,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver import ActionChains
 from regression.python_test_utils import test_utils
 from regression.feature_utils.base_feature_test import BaseFeatureTest
+from regression.feature_utils.locators import NavMenuLocators, \
+    QueryToolLocators
+from regression.feature_utils.tree_area_locators import TreeAreaLocators
 
 CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
 
@@ -78,35 +81,57 @@ class PGDataypeFeatureTest(BaseFeatureTest):
         connection.close()
 
     def _update_preferences(self):
-        self.page.find_by_id("mnu_file").click()
-        self.page.find_by_id("mnu_preferences").click()
+        file_menu = self.page.find_by_css_selector(
+            NavMenuLocators.file_menu_css)
+        file_menu.click()
+
+        self.page.retry_click(
+            (By.CSS_SELECTOR, NavMenuLocators.preference_menu_item_css),
+            (By.XPATH, NavMenuLocators.specified_preference_tree_node
+             .format('Browser'))
+        )
+
         wait = WebDriverWait(self.page.driver, 10)
 
+        browser_node = self.page.find_by_xpath(
+            NavMenuLocators.specified_preference_tree_node.format('Browser'))
+        if self.page.find_by_xpath(
+            NavMenuLocators.specified_pref_node_exp_status.
+                format('Browser')).get_attribute('aria-expanded') == 'false':
+            ActionChains(self.driver).double_click(browser_node).perform()
+
+        self.page.retry_click(
+            (By.XPATH, NavMenuLocators.specified_sub_node_of_pref_tree_node.
+             format('Browser', 'Display')),
+            (By.XPATH, NavMenuLocators.show_system_objects_pref_label_xpath))
+
+        # Wait till the preference dialogue box is displayed by checking the
+        # visibility of Show System Object label
         wait.until(EC.presence_of_element_located(
-            (By.XPATH, "//*[contains(string(), 'Show system objects?')]"))
+            (By.XPATH, NavMenuLocators.show_system_objects_pref_label_xpath))
         )
 
-        self.page.find_by_css_selector(
-            ".ajs-dialog.pg-el-container .ajs-maximize").click()
+        maximize_button = self.page.find_by_css_selector(
+            NavMenuLocators.maximize_pref_dialogue_css)
+        maximize_button.click()
 
+        specified_preference_tree_node_name = 'Query Tool'
         sql_editor = self.page.find_by_xpath(
-            "//*[contains(@class,'aciTreeLi') and contains(.,'Query Tool')]")
+            NavMenuLocators.specified_preference_tree_node.
+            format(specified_preference_tree_node_name))
+        if self.page.find_by_xpath(
+            NavMenuLocators.specified_pref_node_exp_status.
+                format(specified_preference_tree_node_name)).\
+                get_attribute('aria-expanded') == 'false':
+            ActionChains(self.driver).double_click(sql_editor).perform()
 
-        sql_editor.find_element_by_xpath(
-            "//*[contains(@class,'aciTreeText') and contains(.,'Options')]"
-        ).click()
+        option_node = self.page.find_by_xpath(
+            NavMenuLocators.specified_sub_node_of_pref_tree_node.format(
+                specified_preference_tree_node_name, 'Editor'))
+        option_node.click()
 
-        insert_bracket_pairs_control = self.page.find_by_xpath(
-            "//div[contains(@class,'pgadmin-control-group') and "
-            "contains(.,'Insert bracket pairs?')]"
-        )
-
-        switch_btn = insert_bracket_pairs_control.\
-            find_element_by_class_name('toggle')
-
-        # check if switch is on then only toggle.
-        if 'off' not in switch_btn.get_attribute('class'):
-            switch_btn.click()
+        self.page.set_switch_box_status(
+            NavMenuLocators.insert_bracket_pair_switch_btn, 'No')
 
         # save and close the preference dialog.
         self.page.click_modal('Save')
@@ -121,8 +146,10 @@ class PGDataypeFeatureTest(BaseFeatureTest):
         'yellow','green','blue','purple');
         """
         self.page.fill_codemirror_area_with(query)
-        self.page.find_by_id("btn-flash").click()
-        self._clear_query_tool()
+        execute_query = self.page.find_by_css_selector(
+            QueryToolLocators.btn_execute_query_css)
+        execute_query.click()
+        self.page.clear_query_tool()
 
     def runTest(self):
         self.page.wait_for_spinner_to_disappear()
@@ -137,21 +164,21 @@ class PGDataypeFeatureTest(BaseFeatureTest):
         self.page.remove_server(self.server)
 
     def _schema_node_expandable(self):
-        self.page.toggle_open_tree_item(self.server['name'])
-        self.page.toggle_open_tree_item('Databases')
-        self.page.toggle_open_tree_item(self.test_db)
+        self.page.expand_database_node(
+            self.server['name'],
+            self.server['db_password'], self.test_db)
 
     def _check_datatype(self):
         # Slick grid does not render all the column if viewport is not enough
         # wide. So execute test as batch of queries.
-        self.page.select_tree_item(self.test_db)
+        self.page.click_a_tree_node(
+            self.test_db,
+            TreeAreaLocators.sub_nodes_of_databases_node(self.server['name']))
         self.page.open_query_tool()
         self._create_enum_type()
         for batch in config_data:
             query = self.construct_select_query(batch)
-            self.page.fill_codemirror_area_with(query)
-            self.page.find_by_id("btn-flash").click()
-
+            self.page.execute_query(query)
             wait = WebDriverWait(self.page.driver, 5)
 
             # wait for the visibility of the grid to appear
@@ -168,12 +195,13 @@ class PGDataypeFeatureTest(BaseFeatureTest):
             ))
 
             canvas = wait.until(EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "#datagrid .slick-viewport .grid-canvas"))
+                (By.CSS_SELECTOR, QueryToolLocators.query_output_canvas_css))
             )
 
             # For every sample data-type value, check the expected output.
             cnt = 2
-            cells = canvas.find_elements_by_css_selector('.slick-cell')
+            cells = canvas.find_elements_by_css_selector(
+                QueryToolLocators.query_output_cells)
             # remove first element as it is row number.
             cells.pop(0)
             for val, cell, datatype in zip(
@@ -202,7 +230,7 @@ class PGDataypeFeatureTest(BaseFeatureTest):
                         "for datatype {0}\n{1} does not match with {2}".format(
                             datatype, val, expected_output
                         )
-            self._clear_query_tool()
+            self.page.clear_query_tool()
 
     def construct_select_query(self, batch):
         query = 'SELECT '
@@ -232,18 +260,6 @@ class PGDataypeFeatureTest(BaseFeatureTest):
             "for datatype {0}\n{1} does not match with {2}".format(
                 datatype, source_code, string_to_find
             )
-
-    def _clear_query_tool(self):
-        self.page.click_element(
-            self.page.find_by_xpath("//*[@id='btn-clear-dropdown']")
-        )
-        ActionChains(self.driver)\
-            .move_to_element(self.page.find_by_xpath("//*[@id='btn-clear']"))\
-            .perform()
-        self.page.click_element(
-            self.page.find_by_xpath("//*[@id='btn-clear']")
-        )
-        self.page.click_modal('Yes')
 
     def _is_datatype_available_in_current_database(self, datatype):
         if datatype == '':

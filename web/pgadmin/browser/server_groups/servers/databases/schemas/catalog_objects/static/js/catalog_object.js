@@ -2,15 +2,15 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.catalog_object', [
-  'sources/gettext', 'jquery', 'underscore', 'underscore.string', 'sources/pgadmin',
+  'sources/gettext', 'jquery', 'underscore', 'sources/pgadmin',
   'pgadmin.browser', 'pgadmin.browser.collection',
-], function(gettext, $, _, S, pgAdmin, pgBrowser) {
+], function(gettext, $, _, pgAdmin, pgBrowser) {
 
   if (!pgBrowser.Nodes['coll-catalog_object']) {
     pgAdmin.Browser.Nodes['coll-catalog_object'] =
@@ -45,20 +45,24 @@ define('pgadmin.node.catalog_object', [
           name: undefined,
           namespaceowner: undefined,
           nspacl: undefined,
+          is_sys_obj: undefined,
           description: undefined,
         },
         schema: [{
           id: 'name', label: gettext('Name'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text', readonly: true,
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text',
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text', readonly: true,
+        },{
+          id: 'is_sys_obj', label: gettext('System catalog object?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
-          type: 'multiline' ,  disabled: true,
+          type: 'multiline' ,  readonly: true,
         },
         ],
       }),

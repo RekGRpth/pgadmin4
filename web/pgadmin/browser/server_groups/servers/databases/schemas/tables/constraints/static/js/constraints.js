@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -22,8 +22,8 @@ define('pgadmin.node.constraints', [
         label: gettext('Constraints'),
         type: 'coll-constraints',
         columns: ['name', 'comment'],
-        canDrop: false,
-        canDropCascade: false,
+        canDrop: true,
+        canDropCascade: true,
       });
   }
 
@@ -33,6 +33,7 @@ define('pgadmin.node.constraints', [
       label: gettext('Constraints'),
       collection_type: 'coll-constraints',
       parent_type: ['table','partition'],
+      url_jump_after_node: 'schema',
       Init: function() {
         /* Avoid mulitple registration of menus */
         if (this.initialized)

@@ -27,9 +27,10 @@ FROM
             (d).privilege_type AS privilege_type
         FROM
             (SELECT aclexplode(db.relacl) AS d FROM pg_class db
-            WHERE db.oid = {{foid}}::OID) a
+            WHERE db.oid = {{foid}}::OID) a ORDER BY privilege_type
         ) d
     ) d
     LEFT JOIN pg_catalog.pg_roles g ON (d.grantor = g.oid)
     LEFT JOIN pg_catalog.pg_roles gt ON (d.grantee = gt.oid)
-GROUP BY g.rolname, gt.rolname;
+GROUP BY g.rolname, gt.rolname
+ORDER BY grantee;

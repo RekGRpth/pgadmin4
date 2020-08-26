@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -18,6 +18,7 @@ from flask import Response, url_for, render_template, session, request, \
     current_app
 from flask_babelex import gettext
 from flask_security import login_required, current_user
+from urllib.parse import unquote
 
 from config import PG_DEFAULT_DRIVER, ON_DEMAND_RECORD_COUNT
 from pgadmin.misc.file_manager import Filemanager
@@ -38,24 +39,14 @@ from pgadmin.utils.exception import ConnectionLost, SSHTunnelConnectionLost,\
     CryptKeyMissing
 from pgadmin.utils.sqlautocomplete.autocomplete import SQLAutoComplete
 from pgadmin.tools.sqleditor.utils.query_tool_preferences import \
-    RegisterQueryToolPreferences
+    register_query_tool_preferences
 from pgadmin.tools.sqleditor.utils.query_tool_fs_utils import \
     read_file_generator
 from pgadmin.tools.sqleditor.utils.filter_dialog import FilterDialog
 from pgadmin.tools.sqleditor.utils.query_history import QueryHistory
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 
 MODULE_NAME = 'sqleditor'
-
-# import unquote from urllib for python2.x and python3.x
-try:
-    from urllib import unquote
-except ImportError:
-    from urllib.parse import unquote
-
-if sys.version_info[0:2] <= (2, 7):
-    IS_PY2 = True
-else:
-    IS_PY2 = False
 
 
 class SqlEditorModule(PgAdminModule):
@@ -120,7 +111,7 @@ class SqlEditorModule(PgAdminModule):
         ]
 
     def register_preferences(self):
-        RegisterQueryToolPreferences(self)
+        register_query_tool_preferences(self)
 
 
 blueprint = SqlEditorModule(MODULE_NAME, __name__, static_url_path='/static')
@@ -269,10 +260,7 @@ def start_view_data(trans_id):
         update_session_grid_transaction(trans_id, session_obj)
 
         # Execute sql asynchronously
-        try:
-            status, result = conn.execute_async(sql)
-        except (ConnectionLost, SSHTunnelConnectionLost) as e:
-            raise
+        status, result = conn.execute_async(sql)
     else:
         status = False
         result = error_msg
@@ -321,8 +309,7 @@ def extract_sql_from_network_parameters(request_data, request_arguments,
     if request_data:
         sql_parameters = json.loads(request_data, encoding='utf-8')
 
-        if (IS_PY2 and type(sql_parameters) is unicode) \
-                or type(sql_parameters) is str:
+        if type(sql_parameters) is str:
             return dict(sql=str(sql_parameters), explain_plan=None)
         return sql_parameters
     else:
@@ -349,7 +336,6 @@ def poll(trans_id):
     primary_keys = None
     types = {}
     client_primary_key = None
-    rset = None
     has_oids = False
     oids = None
     additional_messages = None
@@ -399,25 +385,9 @@ def poll(trans_id):
                 additional_messages = ''.join(messages)
             notifies = conn.get_notifies()
 
-            # Procedure/Function output may comes in the form of Notices
-            # from the database server, so we need to append those outputs
-            # with the original result.
-            if result is None:
-                result = conn.status_message()
-                if (result != 'SELECT 1' or result != 'SELECT 0') and \
-                   result is not None and additional_messages:
-                    result = additional_messages + result
-                else:
-                    result = None
-
             if st:
                 if 'primary_keys' in session_obj:
                     primary_keys = session_obj['primary_keys']
-
-                if 'has_oids' in session_obj:
-                    has_oids = session_obj['has_oids']
-                    if has_oids:
-                        oids = {'oid': 'oid'}
 
                 # Fetch column information
                 columns_info = conn.get_column_info()
@@ -428,49 +398,35 @@ def poll(trans_id):
 
                 # If trans_obj is a QueryToolCommand then check for updatable
                 # resultsets and primary keys
-                if isinstance(trans_obj, QueryToolCommand):
-                    trans_obj.check_updatable_results_pkeys()
+                if isinstance(trans_obj, QueryToolCommand) and \
+                        trans_obj.check_updatable_results_pkeys_oids():
                     pk_names, primary_keys = trans_obj.get_primary_keys()
+                    session_obj['has_oids'] = trans_obj.has_oids()
+                    # Update command_obj in session obj
+                    session_obj['command_obj'] = pickle.dumps(
+                        trans_obj, -1)
                     # If primary_keys exist, add them to the session_obj to
                     # allow for saving any changes to the data
                     if primary_keys is not None:
                         session_obj['primary_keys'] = primary_keys
 
+                if 'has_oids' in session_obj:
+                    has_oids = session_obj['has_oids']
+                    if has_oids:
+                        oids = {'oid': 'oid'}
+
                 if columns_info is not None:
-                    # If it is a QueryToolCommand that has obj_id attribute
-                    # then it should also be editable
-                    if hasattr(trans_obj, 'obj_id') and \
-                        (not isinstance(trans_obj, QueryToolCommand) or
-                         trans_obj.can_edit()):
-                        # Get the template path for the column
-                        template_path = 'columns/sql/#{0}#'.format(
-                            conn.manager.version
-                        )
+                    # Only QueryToolCommand or TableCommand can be editable
+                    if hasattr(trans_obj, 'obj_id') and trans_obj.can_edit():
+                        columns = trans_obj.get_columns_types(conn)
 
-                        SQL = render_template(
-                            "/".join([template_path, 'nodes.sql']),
-                            tid=trans_obj.obj_id,
-                            has_oids=True
-                        )
-                        # rows with attribute not_null
-                        colst, rset = conn.execute_2darray(SQL)
-                        if not colst:
-                            return internal_server_error(errormsg=rset)
-
-                    for key, col in enumerate(columns_info):
-                        col_type = dict()
-                        col_type['type_code'] = col['type_code']
-                        col_type['type_name'] = None
-                        col_type['internal_size'] = col['internal_size']
-                        columns[col['name']] = col_type
-
-                        if rset:
-                            col_type['not_null'] = col['not_null'] = \
-                                rset['rows'][key]['not_null']
-
-                            col_type['has_default_val'] = \
-                                col['has_default_val'] = \
-                                rset['rows'][key]['has_default_val']
+                    else:
+                        for col in columns_info:
+                            col_type = dict()
+                            col_type['type_code'] = col['type_code']
+                            col_type['type_name'] = None
+                            col_type['internal_size'] = col['internal_size']
+                            columns[col['name']] = col_type
 
                 if columns:
                     st, types = fetch_pg_types(columns, trans_obj)
@@ -482,9 +438,6 @@ def poll(trans_id):
                         for col_type in types:
                             if col_type['oid'] == col_info['type_code']:
                                 typname = col_type['typname']
-
-                                typname = compose_type_name(col_info, typname)
-
                                 col_info['type_name'] = typname
 
                         # Using characters %, (, ) in the argument names is not
@@ -492,6 +445,7 @@ def poll(trans_id):
                         col_info['pgadmin_alias'] = \
                             re.sub("[%()]+", "|", col_name)
                     session_obj['columns_info'] = columns
+
                 # status of async_fetchmany_2darray is True and result is none
                 # means nothing to fetch
                 if result and rows_affected > -1:
@@ -511,6 +465,17 @@ def poll(trans_id):
                 # As we changed the transaction object we need to
                 # restore it and update the session variable.
                 update_session_grid_transaction(trans_id, session_obj)
+
+            # Procedure/Function output may comes in the form of Notices
+            # from the database server, so we need to append those outputs
+            # with the original result.
+            if result is None:
+                result = conn.status_message()
+                if result is not None and additional_messages is not None:
+                    result = additional_messages + result
+                else:
+                    result = result if result is not None \
+                        else additional_messages
 
         elif status == ASYNC_EXECUTION_ABORTED:
             status = 'Cancel'
@@ -545,22 +510,6 @@ def poll(trans_id):
         },
         encoding=conn.python_encoding
     )
-
-
-def compose_type_name(col_info, typname):
-    # If column is of type character, character[],
-    # character varying and character varying[]
-    # then add internal size to it's name for the
-    # correct sql query.
-    if col_info['internal_size'] >= 0:
-        if typname == 'character' or typname == 'character varying':
-            typname = typname + '(' + str(col_info['internal_size']) + ')'
-        elif typname == 'character[]' or typname == 'character varying[]':
-            typname = '%s(%s)[]'.format(
-                typname[:-2],
-                str(col_info['internal_size'])
-            )
-    return typname
 
 
 @blueprint.route(
@@ -685,13 +634,36 @@ def generate_client_primary_key_name(columns_info):
     return temp_key
 
 
+def _check_and_connect(trans_obj):
+    """
+    Check and connect to the database for transaction.
+    :param trans_obj: Transaction object.
+    :return: If any error return error with error msg,
+    if not then return connection object.
+    """
+    manager = get_driver(
+        PG_DEFAULT_DRIVER).connection_manager(trans_obj.sid)
+    if hasattr(trans_obj, 'conn_id'):
+        conn = manager.connection(did=trans_obj.did,
+                                  conn_id=trans_obj.conn_id)
+    else:
+        conn = manager.connection(did=trans_obj.did)  # default connection
+
+    # Connect to the Server if not connected.
+    if not conn.connected():
+        status, msg = conn.connect()
+        if not status:
+            return True, msg, conn
+    return False, '', conn
+
+
 @blueprint.route(
     '/save/<int:trans_id>', methods=["PUT", "POST"], endpoint='save'
 )
 @login_required
 def save(trans_id):
     """
-    This method is used to save the changes to the server
+    This method is used to save the data changes to the server
 
     Args:
         trans_id: unique transaction id
@@ -726,22 +698,13 @@ def save(trans_id):
                 }
             )
 
-        manager = get_driver(
-            PG_DEFAULT_DRIVER).connection_manager(trans_obj.sid)
-        if hasattr(trans_obj, 'conn_id'):
-            conn = manager.connection(did=trans_obj.did,
-                                      conn_id=trans_obj.conn_id)
-        else:
-            conn = manager.connection(did=trans_obj.did)  # default connection
+        is_error, errmsg, conn = _check_and_connect(trans_obj)
+        if is_error:
+            return make_json_response(
+                data={'status': status, 'result': u"{}".format(errmsg)}
+            )
 
-        # Connect to the Server if not connected.
-        if not conn.connected():
-            status, msg = conn.connect()
-            if not status:
-                return make_json_response(
-                    data={'status': status, 'result': u"{}".format(msg)}
-                )
-        status, res, query_res, _rowid = trans_obj.save(
+        status, res, query_results, _rowid = trans_obj.save(
             changed_data,
             session_obj['columns_info'],
             session_obj['client_primary_key'],
@@ -749,7 +712,7 @@ def save(trans_id):
     else:
         status = False
         res = error_msg
-        query_res = None
+        query_results = None
         _rowid = None
 
     transaction_status = conn.transaction_status()
@@ -758,10 +721,11 @@ def save(trans_id):
         data={
             'status': status,
             'result': res,
-            'query_result': query_res,
+            'query_results': query_results,
             '_rowid': _rowid,
             'transaction_status': transaction_status
-        }
+        },
+        encoding=conn.python_encoding
     )
 
 
@@ -961,6 +925,52 @@ def set_limit(trans_id):
     return make_json_response(data={'status': status, 'result': res})
 
 
+def _check_for_transaction_before_cancel(trans_id):
+    """
+    Check if transaction exists or not before cancel it.
+    :param trans_id: Transaction ID for check.
+    :return: return error is transaction not found, else return grid data.
+    """
+
+    if 'gridData' not in session:
+        return True, ''
+
+    grid_data = session['gridData']
+
+    # Return from the function if transaction id not found
+    if str(trans_id) not in grid_data:
+        return True, ''
+
+    return False, grid_data
+
+
+def _check_and_cancel_transaction(trans_obj, delete_connection, conn, manager):
+    """
+    Check for connection and cancel current transaction.
+    :param trans_obj: transaction object for cancel.
+    :param delete_connection: Flag for remove connection.
+    :param conn: Connection
+    :param manager: Manager
+    :return: Return status and result of transaction cancel.
+    """
+    if conn.connected():
+        # on successful connection cancel the running transaction
+        status, result = conn.cancel_transaction(
+            trans_obj.conn_id, trans_obj.did)
+
+        # Delete connection if we have created it to
+        # cancel the transaction
+        if delete_connection:
+            manager.release(did=trans_obj.did)
+    else:
+        status = False
+        result = gettext(
+            'Not connected to server or connection with the server has '
+            'been closed.'
+        )
+    return status, result
+
+
 @blueprint.route(
     '/cancel/<int:trans_id>',
     methods=["PUT", "POST"], endpoint='cancel_transaction'
@@ -973,17 +983,8 @@ def cancel_transaction(trans_id):
     Args:
         trans_id: unique transaction id
     """
-
-    if 'gridData' not in session:
-        return make_json_response(
-            success=0,
-            errormsg=gettext('Transaction ID not found in the session.'),
-            info='DATAGRID_TRANSACTION_REQUIRED', status=404)
-
-    grid_data = session['gridData']
-
-    # Return from the function if transaction id not found
-    if str(trans_id) not in grid_data:
+    is_error, grid_data = _check_for_transaction_before_cancel(trans_id)
+    if is_error:
         return make_json_response(
             success=0,
             errormsg=gettext('Transaction ID not found in the session.'),
@@ -1013,21 +1014,9 @@ def cancel_transaction(trans_id):
                 return internal_server_error(errormsg=str(msg))
             delete_connection = True
 
-        if conn.connected():
-            # on successful connection cancel the running transaction
-            status, result = conn.cancel_transaction(
-                trans_obj.conn_id, trans_obj.did)
-
-            # Delete connection if we have created it to
-            # cancel the transaction
-            if delete_connection:
-                manager.release(did=trans_obj.did)
-        else:
-            status = False
-            result = gettext(
-                'Not connected to server or connection with the server has '
-                'been closed.'
-            )
+        status, result = _check_and_cancel_transaction(trans_obj,
+                                                       delete_connection, conn,
+                                                       manager)
     else:
         status = False
         result = gettext(
@@ -1223,7 +1212,7 @@ def script():
             _=gettext
         ),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )
 
 
@@ -1238,10 +1227,6 @@ def load_file():
         file_data = json.loads(request.data, encoding='utf-8')
 
     file_path = unquote(file_data['file_name'])
-    if hasattr(str, 'decode'):
-        file_path = unquote(
-            file_data['file_name']
-        ).encode('utf-8').decode('utf-8')
 
     # retrieve storage directory path
     storage_manager_path = get_storage_directory()
@@ -1285,10 +1270,6 @@ def save_file():
 
     # generate full path of file
     file_path = unquote(file_data['file_name'])
-    if hasattr(str, 'decode'):
-        file_path = unquote(
-            file_data['file_name']
-        ).encode('utf-8').decode('utf-8')
 
     try:
         Filemanager.check_access_permission(storage_manager_path, file_path)
@@ -1301,26 +1282,27 @@ def save_file():
             file_path.lstrip('/').lstrip('\\')
         )
 
-    if hasattr(str, 'decode'):
-        file_content = file_data['file_content']
-    else:
-        file_content = file_data['file_content'].encode()
+    # Get value for encoding if file is already loaded to SQL editor
+    def get_file_encoding_of_loaded_file(file_name):
+        encoding = 'utf-8'
+        for ele in Filemanager.loaded_file_encoding_list:
+            if file_name in ele:
+                encoding = ele[file_name]
+        return encoding
+
+    enc = get_file_encoding_of_loaded_file(os.path.basename(file_path))
+
+    file_content = file_data['file_content'].encode(enc)
 
     # write to file
     try:
         with open(file_path, 'wb+') as output_file:
-            if hasattr(str, 'decode'):
-                output_file.write(file_content.encode('utf-8'))
-            else:
-                output_file.write(file_content)
+            output_file.write(file_content)
     except IOError as e:
-        if e.strerror == 'Permission denied':
-            err_msg = "Error: {0}".format(e.strerror)
-        else:
-            err_msg = "Error: {0}".format(e.strerror)
+        err_msg = gettext("Error: {0}").format(e.strerror)
         return internal_server_error(errormsg=err_msg)
     except Exception as e:
-        err_msg = "Error: {0}".format(e.strerror)
+        err_msg = gettext("Error: {0}").format(e.strerror)
         return internal_server_error(errormsg=err_msg)
 
     return make_json_response(
@@ -1368,14 +1350,18 @@ def start_query_download_tool(trans_id):
                         field_separator=blueprint.csv_field_separator.get(),
                         replace_nulls_with=blueprint.replace_nulls_with.get()
                     ),
-                    mimetype='text/csv'
+                    mimetype='text/csv' if
+                    blueprint.csv_field_separator.get() == ','
+                    else 'text/plain'
                 )
 
                 if 'filename' in data and data['filename'] != "":
                     filename = data['filename']
                 else:
                     import time
-                    filename = str(int(time.time())) + ".csv"
+                    filename = '{0}.{1}'. \
+                        format(int(time.time()), 'csv' if blueprint.
+                               csv_field_separator.get() == ',' else 'txt')
 
                 # We will try to encode report file name with latin-1
                 # If it fails then we will fallback to default ascii file name
@@ -1391,8 +1377,12 @@ def start_query_download_tool(trans_id):
                 ] = "attachment;filename={0}".format(filename)
 
                 return r
+        except (ConnectionLost, SSHTunnelConnectionLost):
+            raise
         except Exception as e:
-            err_msg = "Error: {0}".format(e.strerror)
+            current_app.logger.error(e)
+            err_msg = "Error: {0}".format(
+                e.strerror if hasattr(e, 'strerror') else str(e))
             return internal_server_error(errormsg=err_msg)
     else:
         return internal_server_error(

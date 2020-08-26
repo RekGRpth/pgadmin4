@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -15,15 +15,14 @@ from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
 from regression.python_test_utils import test_utils as utils
 from . import utils as schema_utils
+from unittest.mock import patch
 
 
 class SchemaDeleteTestCase(BaseTestGenerator):
     """ This class will add new schema under database node. """
 
-    scenarios = [
-        # Fetching default URL for extension node.
-        ('Check Schema Node URL', dict(url='/browser/schema/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('schema_delete',
+                                         schema_utils.test_cases)
 
     def setUp(self):
         self.database_info = parent_node_dict["database"][-1]
@@ -38,17 +37,27 @@ class SchemaDeleteTestCase(BaseTestGenerator):
         self.schema_details = schema_utils.create_schema(connection,
                                                          self.schema_name)
 
+    def delete_schema(self):
+        """
+        This function returns the schema delete response
+        :return: schema delete response
+        """
+        return self.tester.delete(
+            self.url + str(utils.SERVER_GROUP) + '/' + str(self.server_id) +
+            '/' + str(self.db_id) + '/' + str(self.schema_id),
+            follow_redirects=True)
+
     def runTest(self):
         """ This function will delete schema under database node. """
-        server_id = self.database_info["server_id"]
-        db_id = self.database_info["db_id"]
+        self.server_id = self.database_info["server_id"]
+        self.db_id = self.database_info["db_id"]
         db_con = database_utils.connect_database(self, utils.SERVER_GROUP,
-                                                 server_id, db_id)
+                                                 self.server_id, self.db_id)
         if not db_con['data']["connected"]:
             raise Exception("Could not connect to database to delete the"
                             " schema.")
 
-        schema_id = self.schema_details[0]
+        self.schema_id = self.schema_details[0]
         schema_name = self.schema_details[1]
         schema_response = schema_utils.verify_schemas(self.server,
                                                       self.db_name,
@@ -56,11 +65,22 @@ class SchemaDeleteTestCase(BaseTestGenerator):
         if not schema_response:
             raise Exception("Could not find the schema to delete.")
 
-        response = self.tester.delete(self.url + str(utils.SERVER_GROUP) +
-                                      '/' + str(server_id) + '/' +
-                                      str(db_id) + '/' + str(schema_id),
-                                      follow_redirects=True)
-        self.assertEquals(response.status_code, 200)
+        if self.is_positive_test:
+            response = self.delete_schema()
+        else:
+            if hasattr(self, "error_deleting_schema"):
+                with patch(self.mock_data["function_name"],
+                           return_value=eval(self.mock_data["return_value"])):
+                    response = self.delete_schema()
+
+            if hasattr(self, "wrong_schema_id"):
+                self.schema_id = 99999
+                response = self.delete_schema()
+
+        actual_response_code = response.status_code
+        expected_response_code = self.expected_data['status_code']
+        self.assertEquals(actual_response_code, expected_response_code)
 
     def tearDown(self):
-        pass
+        # Disconnect the database
+        database_utils.disconnect_database(self, self.server_id, self.db_id)

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -24,7 +24,7 @@ describe('alertify_wrapper', function () {
 
       expect(spyObj).toHaveBeenCalled();
       expect(spyObj.calls.mostRecent().args[0]).toContain('Yay, congrats!');
-      expect(spyObj.calls.mostRecent().args[0]).toContain('class="fa fa-check text-success"');
+      expect(spyObj.calls.mostRecent().args[0]).toContain('class="fa fa-check"');
     });
   });
 
@@ -35,12 +35,12 @@ describe('alertify_wrapper', function () {
 
       expect(spyOrigError).toHaveBeenCalled();
       expect(spyOrigError.calls.mostRecent().args[0]).toContain('bad, very bad');
-      expect(spyOrigError.calls.mostRecent().args[0]).toContain('class="fa fa-exclamation-triangle text-danger"');
+      expect(spyOrigError.calls.mostRecent().args[0]).toContain('class="fa fa-exclamation-triangle"');
     });
   });
 
   describe('alertify_error calls pgRespErrorNotify notifier', function() {
-    it('which alertifies response error for ajax calls', () => {
+    it('which alertifies response error for ajax calls', (done) => {
       $.ajax({
         url: 'http://some/dummy/url',
         dataType: 'json',
@@ -107,6 +107,8 @@ describe('alertify_wrapper', function () {
           expect(spyOrigError.calls.mostRecent().args[0]).toContain(
             gettext('Some prefix message')
           );
+
+          done();
         },
       });
     });

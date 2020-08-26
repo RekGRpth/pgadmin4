@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 /////////////////////////////////////////////////////////////
@@ -19,7 +19,7 @@ export function childCreateMenuEnabled(itemData, item, data) {
 
   if (node)
     return node.anyFamilyMember(
-      (node) => (node.getData()._type === 'schema')
+      (parentNode) => (parentNode.getData()._type === 'schema')
     );
 
   return false;

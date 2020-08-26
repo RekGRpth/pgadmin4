@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -214,7 +214,7 @@ define('pgadmin.preferences', [
                 onText: gettext('True'),
                 offText: gettext('False'),
                 onColor: 'success',
-                offColor: 'primary',
+                offColor: 'ternary',
                 size: 'mini',
               };
               return 'switch';
@@ -223,7 +223,7 @@ define('pgadmin.preferences', [
                 onText: gettext('Show'),
                 offText: gettext('Hide'),
                 onColor: 'success',
-                offColor: 'primary',
+                offColor: 'ternary',
                 size: 'mini',
                 width: '56',
               };
@@ -242,10 +242,17 @@ define('pgadmin.preferences', [
                 // Convert the array to SelectControl understandable options.
               _.each(p.options, function(o) {
                 if ('label' in o && 'value' in o) {
-                  opts.push({
+                  let push_var = {
                     'label': o.label,
                     'value': o.value,
-                  });
+                  };
+                  push_var['label'] = o.label;
+                  push_var['value'] = o.value;
+
+                  if('preview_src' in o) {
+                    push_var['preview_src'] = o.preview_src;
+                  }
+                  opts.push(push_var);
                   if (o.value == p.value)
                     has_value = true;
                 } else {
@@ -313,7 +320,7 @@ define('pgadmin.preferences', [
             switch (eventName) {
             case 'selected':
               if (!d)
-                return true;
+                break;
 
               if (d.preferences) {
                 /*
@@ -323,14 +330,14 @@ define('pgadmin.preferences', [
 
                 renderPreferencePanel(d.preferences);
 
-                return true;
+                break;
               } else {
                 selectFirstCategory(api, item);
               }
               break;
             case 'added':
               if (!d)
-                return true;
+                break;
 
               // We will add the preferences in to the preferences data
               // collection.
@@ -393,6 +400,7 @@ define('pgadmin.preferences', [
             jTree.aciTree({
               selectable: true,
               expand: true,
+              fullRow: true,
               ajax: {
                 url: url_for('preferences.index'),
               },
@@ -412,11 +420,12 @@ define('pgadmin.preferences', [
               buttons: [{
                 text: '',
                 key: 112,
-                className: 'btn btn-secondary pull-left fa fa-question pg-alertify-icon-button',
+                className: 'btn btn-primary-icon pull-left fa fa-question pg-alertify-icon-button',
                 attrs: {
                   name: 'dialog_help',
                   type: 'button',
                   label: gettext('Preferences'),
+                  'aria-label': gettext('Help'),
                   url: url_for(
                     'help.static', {
                       'filename': 'preferences.html',
@@ -454,6 +463,7 @@ define('pgadmin.preferences', [
             }
 
             if (e.button.text == gettext('Save')) {
+              let requires_refresh = false;
               preferences.updateAll();
 
               /* Find the modules changed */
@@ -463,8 +473,27 @@ define('pgadmin.preferences', [
                 if(!modulesChanged[pref.module]) {
                   modulesChanged[pref.module] = true;
                 }
+
+                if(pref.name == 'theme') {
+                  requires_refresh = true;
+                }
               });
 
+              if(requires_refresh) {
+                Alertify.confirm(
+                  gettext('Refresh required'),
+                  gettext('A page refresh is required to apply the theme. Do you wish to refresh the page now?'),
+                  function() {
+                    /* If user clicks Yes */
+                    location.reload();
+                    return true;
+                  },
+                  function() {/* If user clicks No */ return true;}
+                ).set('labels', {
+                  ok: gettext('Refresh'),
+                  cancel: gettext('Later'),
+                });
+              }
               // Refresh preferences cache
               pgBrowser.cache_preferences(modulesChanged);
             }
@@ -483,7 +512,7 @@ define('pgadmin.preferences', [
 
     },
     show: function() {
-      Alertify.preferencesDlg(true).resizeTo(pgAdmin.Browser.stdW.lg,pgAdmin.Browser.stdH.lg);
+      Alertify.preferencesDlg(true).resizeTo(pgAdmin.Browser.stdW.calc(pgAdmin.Browser.stdW.lg),pgAdmin.Browser.stdH.calc(pgAdmin.Browser.stdH.lg));
     },
   };
 

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -20,6 +20,7 @@ from pgadmin.utils.ajax import precondition_required
 from pgadmin.utils.driver import get_driver
 from pgadmin.utils.menu import Panel
 from pgadmin.utils.preferences import Preferences
+from pgadmin.utils.constants import PREF_LABEL_DISPLAY, MIMETYPE_APP_JS
 
 from config import PG_DEFAULT_DRIVER
 
@@ -56,11 +57,11 @@ class DashboardModule(PgAdminModule):
                 title=gettext('Dashboard'),
                 icon='',
                 content='',
-                isCloseable=True,
-                isPrivate=False,
+                is_closeable=True,
+                is_private=False,
                 limit=1,
-                isIframe=False,
-                canHide=True
+                is_iframe=False,
+                can_hide=True
             ).__dict__
         ]
 
@@ -117,7 +118,7 @@ class DashboardModule(PgAdminModule):
         self.display_graphs = self.dashboard_preference.register(
             'display', 'show_graphs',
             gettext("Show graphs?"), 'boolean', True,
-            category_label=gettext('Display'),
+            category_label=PREF_LABEL_DISPLAY,
             help_str=gettext('If set to True, graphs '
                              'will be displayed on dashboards.')
         )
@@ -125,7 +126,7 @@ class DashboardModule(PgAdminModule):
         self.display_server_activity = self.dashboard_preference.register(
             'display', 'show_activity',
             gettext("Show activity?"), 'boolean', True,
-            category_label=gettext('Display'),
+            category_label=PREF_LABEL_DISPLAY,
             help_str=gettext('If set to True, activity tables '
                              'will be displayed on dashboards.')
         )
@@ -133,7 +134,7 @@ class DashboardModule(PgAdminModule):
         self.graph_data_points = self.dashboard_preference.register(
             'display', 'graph_data_points',
             gettext("Show graph data points?"), 'boolean', False,
-            category_label=gettext('Display'),
+            category_label=PREF_LABEL_DISPLAY,
             help_str=gettext('If set to True, data points will be '
                              'visible on graph lines.')
         )
@@ -141,7 +142,7 @@ class DashboardModule(PgAdminModule):
         self.graph_mouse_track = self.dashboard_preference.register(
             'display', 'graph_mouse_track',
             gettext("Show mouse hover tooltip?"), 'boolean', True,
-            category_label=gettext('Display'),
+            category_label=PREF_LABEL_DISPLAY,
             help_str=gettext('If set to True, tooltip will appear on mouse '
                              'hover on the graph lines giving the data point '
                              'details')
@@ -191,52 +192,35 @@ def check_precondition(f):
             kwargs['sid']
         )
 
-        stats_type = ('activity', 'prepared', 'locks', 'config')
+        def get_error(i_node_type):
+            stats_type = ('activity', 'prepared', 'locks', 'config')
+            if f.__name__ in stats_type:
+                return precondition_required(
+                    gettext("Please connect to the selected {0}"
+                            " to view the table.".format(i_node_type))
+                )
+            else:
+                return precondition_required(
+                    gettext("Please connect to the selected {0}"
+                            " to view the graph.".format(i_node_type))
+                )
 
         # Below check handle the case where existing server is deleted
         # by user and python server will raise exception if this check
         # is not introduce.
         if g.manager is None:
-            if f.__name__ in stats_type:
-                return precondition_required(
-                    gettext("Please connect to the selected server"
-                            " to view the table.")
-                )
-            else:
-                return precondition_required(
-                    gettext("Please connect to the selected server"
-                            " to view the graph.")
-                )
+            return get_error('server')
 
         if 'did' in kwargs:
             g.conn = g.manager.connection(did=kwargs['did'])
-            # If the selected DB not connected then return error to browser
-            if not g.conn.connected():
-                if f.__name__ in stats_type:
-                    return precondition_required(
-                        gettext("Please connect to the selected database"
-                                " to view the table.")
-                    )
-                else:
-                    return precondition_required(
-                        gettext("Please connect to the selected database to"
-                                " view the graph.")
-                    )
+            node_type = 'database'
         else:
             g.conn = g.manager.connection()
+            node_type = 'server'
 
-            # If DB not connected then return error to browser
-            if not g.conn.connected():
-                if f.__name__ in stats_type:
-                    return precondition_required(
-                        gettext("Please connect to the selected server"
-                                " to view the table.")
-                    )
-                else:
-                    return precondition_required(
-                        gettext("Please connect to the selected server"
-                                " to view the graph.")
-                    )
+        # If not connected then return error to browser
+        if not g.conn.connected():
+            return get_error(node_type)
 
         # Set template path for sql scripts
         g.server_type = g.manager.server_type
@@ -263,7 +247,7 @@ def script():
             _=gettext
         ),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )
 
 
@@ -282,7 +266,6 @@ def index(sid=None, did=None):
 
     """
     rates = {}
-    settings = {}
 
     # Get the server version
     if sid is not None:

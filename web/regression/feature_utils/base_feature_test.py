@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -48,12 +48,15 @@ class BaseFeatureTest(BaseTestGenerator):
             raise
 
     def runTest(self):
+        # To be implemented by child classes
         pass
 
     def before(self):
+        # To be implemented by child classes
         pass
 
     def after(self):
+        # To be implemented by child classes
         pass
 
     def tearDown(self):
@@ -107,7 +110,5 @@ class BaseFeatureTest(BaseTestGenerator):
         try:
             os.mkdir(path)
         except OSError as e:
-            if e.errno == errno.EEXIST:
-                pass
-            else:
+            if e.errno != errno.EEXIST:
                 raise

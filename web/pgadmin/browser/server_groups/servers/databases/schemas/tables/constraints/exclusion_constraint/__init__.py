@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -20,12 +20,10 @@ from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
 from pgadmin.browser.utils import PGChildNodeView
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
+from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
+    constraints.exclusion_constraint import utils as exclusion_utils
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ExclusionConstraintModule(ConstraintTypeModule):
@@ -52,8 +50,8 @@ class ExclusionConstraintModule(ConstraintTypeModule):
         initialized.
     """
 
-    NODE_TYPE = 'exclusion_constraint'
-    COLLECTION_LABEL = _("Exclusion Constraints")
+    _NODE_TYPE = 'exclusion_constraint'
+    _COLLECTION_LABEL = _("Exclusion Constraints")
 
     def __init__(self, *args, **kwargs):
         """
@@ -94,7 +92,7 @@ class ExclusionConstraintModule(ConstraintTypeModule):
 
         Returns: node type of the server module.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
     @property
     def module_use_template_javascript(self):
@@ -223,21 +221,19 @@ class ExclusionConstraintView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             self.template_path = 'exclusion_constraint/sql/#{0}#'.format(
                 self.manager.version)
 
             # We need parent's name eg table name and schema name
-            SQL = render_template("/".join([self.template_path,
-                                            'get_parent.sql']),
-                                  tid=kwargs['tid'])
-            status, rset = self.conn.execute_2darray(SQL)
-            if not status:
-                return internal_server_error(errormsg=rset)
-
-            for row in rset['rows']:
-                self.schema = row['schema']
-                self.table = row['table']
+            schema, table = exclusion_utils.get_parent(self.conn,
+                                                       kwargs['tid'])
+            self.schema = schema
+            self.table = table
 
             return f(*args, **kwargs)
         return wrap
@@ -265,60 +261,21 @@ class ExclusionConstraintView(PGChildNodeView):
         Returns:
 
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
-                              did=did, tid=tid, cid=exid)
-
-        status, res = self.conn.execute_dict(sql)
-
+        status, res = exclusion_utils.get_exclusion_constraints(
+            self.conn, did, tid, exid)
         if not status:
-            return internal_server_error(errormsg=res)
+            return res
 
-        if len(res['rows']) == 0:
+        if len(res) == 0:
             return gone(_(
                 """Could not find the exclusion constraint in the table."""
             ))
 
-        result = res['rows'][0]
-
-        sql = render_template(
-            "/".join([self.template_path, 'get_constraint_cols.sql']),
-            cid=exid,
-            colcnt=result['col_count'])
-        status, res = self.conn.execute_dict(sql)
-
-        if not status:
-            return internal_server_error(errormsg=res)
-
-        columns = []
-        for row in res['rows']:
-            if row['options'] & 1:
-                order = False
-                nulls_order = True if (row['options'] & 2) else False
-            else:
-                order = True
-                nulls_order = True if (row['options'] & 2) else False
-
-            columns.append({"column": row['coldef'].strip('"'),
-                            "oper_class": row['opcname'],
-                            "order": order,
-                            "nulls_order": nulls_order,
-                            "operator": row['oprname'],
-                            "col_type": row['datatype']
-                            })
-
-        result['columns'] = columns
-
-        # Add Include details of the index supported for PG-11+
-        if self.manager.version >= 110000:
-            sql = render_template(
-                "/".join([self.template_path, 'get_constraint_include.sql']),
-                cid=exid)
-            status, res = self.conn.execute_dict(sql)
-
-            if not status:
-                return internal_server_error(errormsg=res)
-
-            result['include'] = [col['colname'] for col in res['rows']]
+        result = res
+        if exid:
+            result = res[0]
+        result['is_sys_obj'] = (
+            result['oid'] <= self.datlastsysoid)
 
         return ajax_response(
             response=result,
@@ -374,22 +331,18 @@ class ExclusionConstraintView(PGChildNodeView):
             self.manager.version)
 
         # We need parent's name eg table name and schema name
-        SQL = render_template("/".join([self.template_path,
-                                        'get_parent.sql']),
-                              tid=tid)
-        status, rset = self.conn.execute_2darray(SQL)
-        if not status:
-            return internal_server_error(errormsg=rset)
-
-        for row in rset['rows']:
-            self.schema = row['schema']
-            self.table = row['table']
+        schema, table = exclusion_utils.get_parent(self.conn, tid)
+        self.schema = schema
+        self.table = table
 
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               did=did,
                               tid=tid)
         status, res = self.conn.execute_dict(SQL)
+
+        for row in res['rows']:
+            row['_type'] = self.node_type
 
         return res['rows']
 
@@ -412,7 +365,7 @@ class ExclusionConstraintView(PGChildNodeView):
         """
 
         SQL = render_template("/".join([self.template_path,
-                                        'nodes.sql']),
+                                        self._NODES_SQL]),
                               tid=tid,
                               exid=exid)
         status, rset = self.conn.execute_2darray(SQL)
@@ -450,7 +403,7 @@ class ExclusionConstraintView(PGChildNodeView):
         """
         res = []
         SQL = render_template("/".join([self.template_path,
-                                        'nodes.sql']),
+                                        self._NODES_SQL]),
                               tid=tid)
         status, rset = self.conn.execute_2darray(SQL)
 
@@ -489,20 +442,13 @@ class ExclusionConstraintView(PGChildNodeView):
             self.manager.version)
 
         # We need parent's name eg table name and schema name
-        SQL = render_template("/".join([self.template_path,
-                                        'get_parent.sql']),
-                              tid=tid)
-        status, rset = self.conn.execute_2darray(SQL)
-        if not status:
-            return internal_server_error(errormsg=rset)
-
-        for row in rset['rows']:
-            self.schema = row['schema']
-            self.table = row['table']
+        schema, table = exclusion_utils.get_parent(self.conn, tid)
+        self.schema = schema
+        self.table = table
 
         res = []
         SQL = render_template("/".join([self.template_path,
-                                        'nodes.sql']),
+                                        self._NODES_SQL]),
                               tid=tid)
         status, rset = self.conn.execute_2darray(SQL)
 
@@ -515,6 +461,41 @@ class ExclusionConstraintView(PGChildNodeView):
                     icon="icon-exclusion_constraint"
                 ))
         return res
+
+    @staticmethod
+    def parse_input_data(data):
+        """
+        This function is used to parse the input data.
+        :param data:
+        :return:
+        """
+        for k, v in data.items():
+            try:
+                # comments should be taken as is because if user enters a
+                # json comment it is parsed by loads which should not happen
+                if k in ('comment',):
+                    data[k] = v
+                else:
+                    data[k] = json.loads(v, encoding='utf-8')
+            except (ValueError, TypeError, KeyError):
+                data[k] = v
+
+        return data
+
+    @staticmethod
+    def check_required_args(data, required_args):
+        """
+        This function is used to check the required arguments.
+        :param data:
+        :param required_args:
+        :return:
+        """
+        for arg in required_args:
+            if arg not in data or \
+                    (isinstance(data[arg], list) and len(data[arg]) < 1):
+                return arg
+
+        return None
 
     @check_precondition
     def create(self, gid, sid, did, scid, tid, exid=None):
@@ -534,43 +515,22 @@ class ExclusionConstraintView(PGChildNodeView):
         """
         required_args = ['columns']
 
-        data = request.form if request.form else json.loads(
-            request.data, encoding='utf-8'
-        )
-
-        for k, v in data.items():
-            try:
-                # comments should be taken as is because if user enters a
-                # json comment it is parsed by loads which should not happen
-                if k in ('comment',):
-                    data[k] = v
-                else:
-                    data[k] = json.loads(v, encoding='utf-8')
-            except (ValueError, TypeError, KeyError):
-                data[k] = v
-
-        for arg in required_args:
-            if arg not in data:
-                return make_json_response(
-                    status=400,
-                    success=0,
-                    errormsg=_(
-                        "Could not find required parameter (%s)." % str(arg)
-                    )
-                )
-            elif isinstance(data[arg], list) and len(data[arg]) < 1:
-                return make_json_response(
-                    status=400,
-                    success=0,
-                    errormsg=_(
-                        "Could not find required parameter (%s)." % str(arg)
-                    )
-                )
+        data = json.loads(request.data, encoding='utf-8')
+        data = self.parse_input_data(data)
+        arg_missing = self.check_required_args(data, required_args)
+        if arg_missing is not None:
+            return make_json_response(
+                status=400,
+                success=0,
+                errormsg=_(
+                    "Could not find required parameter ({})."
+                ).format(arg_missing)
+            )
 
         data['schema'] = self.schema
         data['table'] = self.table
         try:
-            if 'name' not in data or data['name'] == "":
+            if data.get('name', '') == "":
                 SQL = render_template(
                     "/".join([self.template_path, 'begin.sql']))
                 # Start transaction.
@@ -581,7 +541,7 @@ class ExclusionConstraintView(PGChildNodeView):
 
             # The below SQL will execute CREATE DDL only
             SQL = render_template(
-                "/".join([self.template_path, 'create.sql']),
+                "/".join([self.template_path, self._CREATE_SQL]),
                 data=data, conn=self.conn
             )
             status, res = self.conn.execute_scalar(SQL)
@@ -589,7 +549,7 @@ class ExclusionConstraintView(PGChildNodeView):
                 self.end_transaction()
                 return internal_server_error(errormsg=res)
 
-            if 'name' not in data or data['name'] == "":
+            if data.get('name', '') == "":
                 sql = render_template(
                     "/".join([self.template_path,
                               'get_oid_with_transaction.sql']),
@@ -606,7 +566,7 @@ class ExclusionConstraintView(PGChildNodeView):
 
             else:
                 sql = render_template(
-                    "/".join([self.template_path, 'get_oid.sql']),
+                    "/".join([self.template_path, self._OID_SQL]),
                     name=data['name']
                 )
                 status, res = self.conn.execute_dict(sql)
@@ -656,8 +616,9 @@ class ExclusionConstraintView(PGChildNodeView):
         try:
             data['schema'] = self.schema
             data['table'] = self.table
-            sql, name = self.get_sql(data, did, tid, exid)
-            if not isinstance(sql, (str, unicode)):
+            sql, name = \
+                exclusion_utils.get_sql(self.conn, data, did, tid, exid)
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(sql)
@@ -665,7 +626,7 @@ class ExclusionConstraintView(PGChildNodeView):
                 return internal_server_error(errormsg=res)
 
             sql = render_template(
-                "/".join([self.template_path, 'get_oid.sql']),
+                "/".join([self.template_path, self._OID_SQL]),
                 name=data['name']
             )
             status, res = self.conn.execute_dict(sql)
@@ -708,11 +669,7 @@ class ExclusionConstraintView(PGChildNodeView):
             data = {'ids': [exid]}
 
         # Below code will decide if it's simple drop or drop with cascade call
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation()
         try:
             for exid in data['ids']:
                 sql = render_template(
@@ -740,7 +697,7 @@ class ExclusionConstraintView(PGChildNodeView):
                 data['table'] = self.table
 
                 sql = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       data=data,
                                       cascade=cascade)
                 status, res = self.conn.execute_scalar(sql)
@@ -787,8 +744,9 @@ class ExclusionConstraintView(PGChildNodeView):
         data['schema'] = self.schema
         data['table'] = self.table
         try:
-            sql, name = self.get_sql(data, did, tid, exid)
-            if not isinstance(sql, (str, unicode)):
+            sql, name = \
+                exclusion_utils.get_sql(self.conn, data, did, tid, exid)
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             if sql == '':
@@ -800,53 +758,6 @@ class ExclusionConstraintView(PGChildNodeView):
 
         except Exception as e:
             return internal_server_error(errormsg=str(e))
-
-    def get_sql(self, data, did, tid, exid=None):
-        """
-        This function will generate sql from model data.
-
-        Args:
-          data: Contains the data of the selected Exclusion constraint.
-          tid: Table ID.
-          exid: Exclusion constraint ID
-
-        Returns:
-
-        """
-        if exid is not None:
-            sql = render_template(
-                "/".join([self.template_path, 'properties.sql']),
-                did=did,
-                tid=tid,
-                cid=exid
-            )
-            status, res = self.conn.execute_dict(sql)
-            if not status:
-                return internal_server_error(errormsg=res)
-            if len(res['rows']) == 0:
-                return gone(_("Could not find the exclusion constraint."))
-
-            old_data = res['rows'][0]
-            required_args = ['name']
-            for arg in required_args:
-                if arg not in data:
-                    data[arg] = old_data[arg]
-
-            sql = render_template("/".join([self.template_path, 'update.sql']),
-                                  data=data, o_data=old_data)
-        else:
-            required_args = ['columns']
-
-            for arg in required_args:
-                if arg not in data:
-                    return _('-- definition incomplete')
-                elif isinstance(data[arg], list) and len(data[arg]) < 1:
-                    return _('-- definition incomplete')
-
-            sql = render_template("/".join([self.template_path, 'create.sql']),
-                                  data=data, conn=self.conn)
-
-        return sql, data['name']
 
     @check_precondition
     def sql(self, gid, sid, did, scid, tid, exid=None):
@@ -867,7 +778,7 @@ class ExclusionConstraintView(PGChildNodeView):
         """
         try:
             SQL = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 did=did, tid=tid, conn=self.conn, cid=exid)
             status, result = self.conn.execute_dict(SQL)
             if not status:
@@ -890,13 +801,8 @@ class ExclusionConstraintView(PGChildNodeView):
 
             columns = []
             for row in res['rows']:
-                if row['options'] & 1:
-                    order = False
-                    nulls_order = True if (row['options'] & 2) else False
-                else:
-                    order = True
-                    nulls_order = True if (row['options'] & 2) else False
-
+                nulls_order = True if (row['options'] & 2) else False
+                order = False if row['options'] & 1 else True
                 columns.append({"column": row['coldef'].strip('"'),
                                 "oper_class": row['opcname'],
                                 "order": order,
@@ -920,16 +826,16 @@ class ExclusionConstraintView(PGChildNodeView):
 
                 data['include'] = [col['colname'] for col in res['rows']]
 
-            if not data['amname'] or data['amname'] == '':
+            if data.get('amname', '') == "":
                 data['amname'] = 'btree'
 
             SQL = render_template(
-                "/".join([self.template_path, 'create.sql']), data=data)
+                "/".join([self.template_path, self._CREATE_SQL]), data=data)
 
             sql_header = u"-- Constraint: {0}\n\n-- ".format(data['name'])
 
             sql_header += render_template(
-                "/".join([self.template_path, 'delete.sql']),
+                "/".join([self.template_path, self._DELETE_SQL]),
                 data=data)
             sql_header += "\n"
 
@@ -969,7 +875,7 @@ class ExclusionConstraintView(PGChildNodeView):
         if is_pgstattuple:
             # Fetch index details only if extended stats available
             SQL = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 did=did, tid=tid, conn=self.conn, cid=exid)
             status, result = self.conn.execute_dict(SQL)
             if not status:

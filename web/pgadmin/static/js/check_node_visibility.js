@@ -2,13 +2,13 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
 
-define(['jquery', 'underscore', 'underscore.string'],
-  function ($, _, S) {
+define(['jquery', 'underscore'],
+  function ($, _) {
 
     var check_node_visibility = function (pgBrowser, node_type) {
       if(_.isUndefined(node_type) || _.isNull(node_type)) {
@@ -18,7 +18,7 @@ define(['jquery', 'underscore', 'underscore.string'],
       // Target actual node instead of collection.
       // If node is disabled then there is no meaning of
       // adding collection node menu
-      if(S.startsWith(node_type, 'coll-')) {
+      if(node_type.startsWith('coll-')) {
         node_type = node_type.replace('coll-', '');
       }
 

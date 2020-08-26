@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -20,12 +20,10 @@ from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
 from pgadmin.browser.utils import PGChildNodeView
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
+from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
+    constraints.index_constraint import utils as idxcons_utils
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class IndexConstraintModule(ConstraintTypeModule):
@@ -52,8 +50,8 @@ class IndexConstraintModule(ConstraintTypeModule):
         initialized.
     """
 
-    NODE_TYPE = 'Index constraint'
-    COLLECTION_LABEL = _('index_constraint')
+    _NODE_TYPE = 'index_constraint'
+    _COLLECTION_LABEL = _('Index constraint')
 
     def __init__(self, *args, **kwargs):
         """
@@ -94,7 +92,7 @@ class IndexConstraintModule(ConstraintTypeModule):
 
         Returns: node type of the server module.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
     @property
     def module_use_template_javascript(self):
@@ -113,8 +111,8 @@ class PrimaryKeyConstraintModule(IndexConstraintModule):
         IndexConstraintModule.
     """
 
-    NODE_TYPE = 'primary_key'
-    COLLECTION_LABEL = _("Primary Key")
+    _NODE_TYPE = 'primary_key'
+    _COLLECTION_LABEL = _("Primary Key")
 
 
 primary_key_blueprint = PrimaryKeyConstraintModule(__name__)
@@ -128,8 +126,8 @@ class UniqueConstraintModule(IndexConstraintModule):
         IndexConstraintModule.
     """
 
-    NODE_TYPE = 'unique_constraint'
-    COLLECTION_LABEL = _("Unique Constraint")
+    _NODE_TYPE = 'unique_constraint'
+    _COLLECTION_LABEL = _("Unique Constraint")
 
 
 unique_constraint_blueprint = UniqueConstraintModule(__name__)
@@ -243,20 +241,18 @@ class IndexConstraintView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
             self.template_path = 'index_constraint/sql/#{0}#'\
                 .format(self.manager.version)
 
             # We need parent's name eg table name and schema name
-            SQL = render_template("/".join([self.template_path,
-                                            'get_parent.sql']),
-                                  tid=kwargs['tid'])
-            status, rset = self.conn.execute_2darray(SQL)
-            if not status:
-                return internal_server_error(errormsg=rset)
+            schema, table = idxcons_utils.get_parent(self.conn, kwargs['tid'])
+            self.schema = schema
+            self.table = table
 
-            for row in rset['rows']:
-                self.schema = row['schema']
-                self.table = row['table']
             return f(*args, **kwargs)
 
         return wrap
@@ -284,49 +280,23 @@ class IndexConstraintView(PGChildNodeView):
         Returns:
 
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
-                              did=did,
-                              tid=tid,
-                              cid=cid,
-                              constraint_type=self.constraint_type)
-        status, res = self.conn.execute_dict(sql)
-
+        status, res = idxcons_utils.get_index_constraints(self.conn, did, tid,
+                                                          self.constraint_type,
+                                                          cid)
         if not status:
-            return internal_server_error(errormsg=res)
+            return res
 
-        if len(res['rows']) == 0:
-            return gone(_("""Could not find the {} in the table.""".format(
-                "primary key" if self.constraint_type == "p" else "unique key"
-            )))
+        if len(res) == 0:
+            return gone(_("""Could not find the {} in the table.""").format(
+                _("primary key") if self.constraint_type == "p"
+                else _("unique key")
+            ))
 
-        result = res['rows'][0]
-
-        sql = render_template(
-            "/".join([self.template_path, 'get_constraint_cols.sql']),
-            cid=cid,
-            colcnt=result['col_count'])
-        status, res = self.conn.execute_dict(sql)
-
-        if not status:
-            return internal_server_error(errormsg=res)
-
-        columns = []
-        for row in res['rows']:
-            columns.append({"column": row['column'].strip('"')})
-
-        result['columns'] = columns
-
-        # Add Include details of the index supported for PG-11+
-        if self.manager.version >= 110000:
-            sql = render_template(
-                "/".join([self.template_path, 'get_constraint_include.sql']),
-                cid=cid)
-            status, res = self.conn.execute_dict(sql)
-
-            if not status:
-                return internal_server_error(errormsg=res)
-
-            result['include'] = [col['colname'] for col in res['rows']]
+        result = res
+        if cid:
+            result = res[0]
+        result['is_sys_obj'] = (
+            result['oid'] <= self.datlastsysoid)
 
         return ajax_response(
             response=result,
@@ -381,22 +351,18 @@ class IndexConstraintView(PGChildNodeView):
             .format(self.manager.version)
 
         # We need parent's name eg table name and schema name
+        schema, table = idxcons_utils.get_parent(self.conn, tid)
+        self.schema = schema
+        self.table = table
+
         SQL = render_template("/".join([self.template_path,
-                                        'get_parent.sql']),
-                              tid=tid)
-        status, rset = self.conn.execute_2darray(SQL)
-        if not status:
-            return internal_server_error(errormsg=rset)
-
-        for row in rset['rows']:
-            self.schema = row['schema']
-            self.table = row['table']
-
-        SQL = render_template("/".join([self.template_path, 'properties.sql']),
-                              did=did,
+                                        self._PROPERTIES_SQL]), did=did,
                               tid=tid,
                               constraint_type=self.constraint_type)
         status, res = self.conn.execute_dict(SQL)
+
+        for row in res['rows']:
+            row['_type'] = self.node_type
 
         return res['rows']
 
@@ -416,7 +382,7 @@ class IndexConstraintView(PGChildNodeView):
         Returns:
 
         """
-        SQL = render_template("/".join([self.template_path, 'nodes.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODES_SQL]),
                               cid=cid,
                               tid=tid,
                               constraint_type=self.constraint_type)
@@ -426,9 +392,10 @@ class IndexConstraintView(PGChildNodeView):
             return internal_server_error(errormsg=rset)
 
         if len(rset['rows']) == 0:
-            return gone(_("""Could not find the {} in the table.""".format(
-                "primary key" if self.constraint_type == "p" else "unique key"
-            )))
+            return gone(_("""Could not find the {} in the table.""").format(
+                _("primary key") if self.constraint_type == "p"
+                else _("unique key")
+            ))
 
         res = self.blueprint.generate_browser_node(
             rset['rows'][0]['oid'],
@@ -458,7 +425,7 @@ class IndexConstraintView(PGChildNodeView):
         Returns:
 
         """
-        SQL = render_template("/".join([self.template_path, 'nodes.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODES_SQL]),
                               tid=tid,
                               constraint_type=self.constraint_type)
         status, rset = self.conn.execute_2darray(SQL)
@@ -503,19 +470,12 @@ class IndexConstraintView(PGChildNodeView):
             .format(self.manager.version)
 
         # We need parent's name eg table name and schema name
-        SQL = render_template("/".join([self.template_path,
-                                        'get_parent.sql']),
-                              tid=tid)
-        status, rset = self.conn.execute_2darray(SQL)
-        if not status:
-            return internal_server_error(errormsg=rset)
-
-        for row in rset['rows']:
-            self.schema = row['schema']
-            self.table = row['table']
+        schema, table = idxcons_utils.get_parent(self.conn, tid)
+        self.schema = schema
+        self.table = table
 
         res = []
-        SQL = render_template("/".join([self.template_path, 'nodes.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODES_SQL]),
                               tid=tid,
                               constraint_type=self.constraint_type)
         status, rset = self.conn.execute_2darray(SQL)
@@ -529,6 +489,64 @@ class IndexConstraintView(PGChildNodeView):
                     icon="icon-%s" % self.node_type
                 ))
         return res
+
+    @staticmethod
+    def _get_req_data():
+        """
+        Get data from request.
+        return: data.
+        """
+        data = request.form if request.form else json.loads(
+            request.data, encoding='utf-8'
+        )
+
+        for k, v in data.items():
+            try:
+                # comments should be taken as is because if user enters a
+                # json comment it is parsed by loads which should not happen
+                if k in ('comment',):
+                    data[k] = v
+                else:
+                    data[k] = json.loads(v, encoding='utf-8')
+            except (ValueError, TypeError, KeyError):
+                data[k] = v
+
+        return data
+
+    @staticmethod
+    def _check_required_args(data):
+        required_args = [
+            [u'columns', u'index']  # Either of one should be there.
+        ]
+
+        def is_key_list(key, data):
+            return isinstance(data[key], list) and len(data[param]) > 0
+
+        for arg in required_args:
+            if isinstance(arg, list):
+                for param in arg:
+                    if param in data and (param != 'columns' or
+                                          is_key_list(param, data)):
+                        break
+                else:
+                    return True, make_json_response(
+                        status=400,
+                        success=0,
+                        errormsg=_(
+                            "Could not find at least one required "
+                            "parameter ({}).".format(str(param)))
+                    )
+
+            elif arg not in data:
+                return True, make_json_response(
+                    status=400,
+                    success=0,
+                    errormsg=_(
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
+                )
+
+        return False, ''
 
     @check_precondition
     def create(self, gid, sid, did, scid, tid, cid=None):
@@ -546,76 +564,36 @@ class IndexConstraintView(PGChildNodeView):
         Returns:
 
         """
-        required_args = [
-            [u'columns', u'index']  # Either of one should be there.
-        ]
+        data = IndexConstraintView._get_req_data()
 
-        data = request.form if request.form else json.loads(
-            request.data, encoding='utf-8'
-        )
+        is_error, errmsg = IndexConstraintView._check_required_args(data)
 
-        for k, v in data.items():
-            try:
-                # comments should be taken as is because if user enters a
-                # json comment it is parsed by loads which should not happen
-                if k in ('comment',):
-                    data[k] = v
-                else:
-                    data[k] = json.loads(v, encoding='utf-8')
-            except (ValueError, TypeError, KeyError):
-                data[k] = v
-
-        def is_key_list(key, data):
-            return isinstance(data[key], list) and len(data[param]) > 0
-
-        for arg in required_args:
-            if isinstance(arg, list):
-                for param in arg:
-                    if param in data and is_key_list(param, data):
-                        break
-                else:
-                    return make_json_response(
-                        status=400,
-                        success=0,
-                        errormsg=_(
-                            "Could not find at least one required "
-                            "parameter (%s)." % str(param)
-                        )
-                    )
-
-            elif arg not in data:
-                return make_json_response(
-                    status=400,
-                    success=0,
-                    errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
-                )
+        if is_error:
+            return errmsg
 
         data['schema'] = self.schema
         data['table'] = self.table
         try:
             if 'name' not in data or data['name'] == "":
-                SQL = render_template(
+                sql = render_template(
                     "/".join([self.template_path, 'begin.sql']))
                 # Start transaction.
-                status, res = self.conn.execute_scalar(SQL)
+                status, res = self.conn.execute_scalar(sql)
                 if not status:
                     self.end_transaction()
                     return internal_server_error(errormsg=res)
 
             # The below SQL will execute CREATE DDL only
-            SQL = render_template(
-                "/".join([self.template_path, 'create.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._CREATE_SQL]),
                 data=data, conn=self.conn,
                 constraint_name=self.constraint_name
             )
-            status, msg = self.conn.execute_scalar(SQL)
+            status, msg = self.conn.execute_scalar(sql)
             if not status:
                 self.end_transaction()
                 return internal_server_error(errormsg=msg)
-
-            if 'name' not in data or data['name'] == "":
+            elif 'name' not in data or data['name'] == "":
                 sql = render_template(
                     "/".join([self.template_path,
                               'get_oid_with_transaction.sql'],
@@ -634,7 +612,7 @@ class IndexConstraintView(PGChildNodeView):
 
             else:
                 sql = render_template(
-                    "/".join([self.template_path, 'get_oid.sql']),
+                    "/".join([self.template_path, self._OID_SQL]),
                     tid=tid,
                     constraint_type=self.constraint_type,
                     name=data['name']
@@ -685,8 +663,9 @@ class IndexConstraintView(PGChildNodeView):
         try:
             data['schema'] = self.schema
             data['table'] = self.table
-            sql, name = self.get_sql(data, did, tid, cid)
-            if not isinstance(sql, (str, unicode)):
+            sql, name = idxcons_utils.get_sql(self.conn, data, did, tid,
+                                              self.constraint_type, cid)
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
 
@@ -695,7 +674,7 @@ class IndexConstraintView(PGChildNodeView):
                 return internal_server_error(errormsg=res)
 
             sql = render_template(
-                "/".join([self.template_path, 'get_oid.sql']),
+                "/".join([self.template_path, self._OID_SQL]),
                 tid=tid,
                 constraint_type=self.constraint_type,
                 name=data['name']
@@ -739,11 +718,7 @@ class IndexConstraintView(PGChildNodeView):
             data = {'ids': [cid]}
 
         # Below code will decide if it's simple drop or drop with cascade call
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation()
         try:
             for cid in data['ids']:
                 sql = render_template(
@@ -772,7 +747,7 @@ class IndexConstraintView(PGChildNodeView):
                 data['table'] = self.table
 
                 sql = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       data=data,
                                       cascade=cascade)
                 status, res = self.conn.execute_scalar(sql)
@@ -781,7 +756,7 @@ class IndexConstraintView(PGChildNodeView):
 
             return make_json_response(
                 success=1,
-                info=_("{0} dropped.".format(self.node_label)),
+                info=_("{0} dropped.").format(self.node_label),
                 data={
                     'id': cid,
                     'sid': sid,
@@ -825,8 +800,9 @@ class IndexConstraintView(PGChildNodeView):
         data['schema'] = self.schema
         data['table'] = self.table
         try:
-            sql, name = self.get_sql(data, did, tid, cid)
-            if not isinstance(sql, (str, unicode)):
+            sql, name = idxcons_utils.get_sql(self.conn, data, did, tid,
+                                              self.constraint_type, cid)
+            if not isinstance(sql, str):
                 return sql
             sql = sql.strip('\n').strip(' ')
             if sql == '':
@@ -838,77 +814,6 @@ class IndexConstraintView(PGChildNodeView):
 
         except Exception as e:
             return internal_server_error(errormsg=str(e))
-
-    def get_sql(self, data, did, tid, cid=None):
-        """
-        This function will generate sql from model data.
-
-        Args:
-          data: Contains the data of the selected primary key constraint.
-          tid: Table ID.
-          cid: Primary key constraint ID
-
-        Returns:
-
-        """
-        if cid is not None:
-            sql = render_template(
-                "/".join([self.template_path, 'properties.sql']),
-                did=did,
-                tid=tid,
-                cid=cid,
-                constraint_type=self.constraint_type
-            )
-            status, res = self.conn.execute_dict(sql)
-            if not status:
-                return internal_server_error(errormsg=res)
-            if len(res['rows']) == 0:
-                return gone(
-                    _("""Could not find the {} in the table.""".format(
-                        "primary key" if self.constraint_type == "p"
-                        else "unique key"
-                    ))
-                )
-
-            old_data = res['rows'][0]
-            required_args = [u'name']
-            for arg in required_args:
-                if arg not in data:
-                    data[arg] = old_data[arg]
-
-            sql = render_template("/".join([self.template_path, 'update.sql']),
-                                  data=data,
-                                  o_data=old_data)
-        else:
-            required_args = [
-                [u'columns', u'index']  # Either of one should be there.
-            ]
-
-            def is_key_str(key, data):
-                return isinstance(data[key], str) and data[key] != ""
-
-            def is_key_list(key, data):
-                return isinstance(data[key], list) and len(data[param]) > 0
-
-            for arg in required_args:
-                if isinstance(arg, list):
-                    for param in arg:
-                        if param in data:
-                            if is_key_str(param, data) \
-                                    or is_key_list(param, data):
-                                break
-                    else:
-                        return _('-- definition incomplete')
-
-                elif arg not in data:
-                    return _('-- definition incomplete')
-
-            sql = render_template("/".join([self.template_path, 'create.sql']),
-                                  data=data,
-                                  conn=self.conn,
-                                  constraint_name=self.constraint_name)
-
-        return sql, data['name'] if 'name' in data else old_data['name']
 
     @check_precondition
     def sql(self, gid, sid, did, scid, tid, cid=None):
@@ -929,7 +834,7 @@ class IndexConstraintView(PGChildNodeView):
         """
 
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             did=did,
             tid=tid,
             conn=self.conn,
@@ -939,9 +844,10 @@ class IndexConstraintView(PGChildNodeView):
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(_("""Could not find the {} in the table.""".format(
-                "primary key" if self.constraint_type == "p" else "unique key"
-            )))
+            return gone(_("""Could not find the {} in the table.""").format(
+                _("primary key") if self.constraint_type == "p"
+                else _("unique key")
+            ))
 
         data = res['rows'][0]
         data['schema'] = self.schema
@@ -975,14 +881,14 @@ class IndexConstraintView(PGChildNodeView):
             data['include'] = [col['colname'] for col in res['rows']]
 
         SQL = render_template(
-            "/".join([self.template_path, 'create.sql']),
+            "/".join([self.template_path, self._CREATE_SQL]),
             data=data,
             constraint_name=self.constraint_name)
 
         sql_header = u"-- Constraint: {0}\n\n-- ".format(data['name'])
 
         sql_header += render_template(
-            "/".join([self.template_path, 'delete.sql']),
+            "/".join([self.template_path, self._DELETE_SQL]),
             data=data)
         sql_header += "\n"
 
@@ -1019,7 +925,7 @@ class IndexConstraintView(PGChildNodeView):
         if is_pgstattuple:
             # Fetch index details only if extended stats available
             sql = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 did=did,
                 tid=tid,
                 cid=cid,
@@ -1031,10 +937,10 @@ class IndexConstraintView(PGChildNodeView):
                 return internal_server_error(errormsg=res)
             if len(res['rows']) == 0:
                 return gone(
-                    _("""Could not find the {} in the table.""".format(
-                        "primary key" if self.constraint_type == "p"
-                        else "unique key"
-                    ))
+                    _("""Could not find the {} in the table.""").format(
+                        _("primary key") if self.constraint_type == "p"
+                        else _("unique key")
+                    )
                 )
 
             result = res['rows'][0]

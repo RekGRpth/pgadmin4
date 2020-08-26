@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('misc.bgprocess', [
   'sources/pgadmin', 'sources/gettext', 'sources/url_for', 'underscore',
-  'underscore.string', 'jquery', 'pgadmin.browser', 'alertify',
+  'jquery', 'pgadmin.browser', 'alertify',
 ], function(
-  pgAdmin, gettext, url_for, _, S, $, pgBrowser, Alertify
+  pgAdmin, gettext, url_for, _, $, pgBrowser, Alertify
 ) {
 
   pgBrowser.BackgroundProcessObsorver = pgBrowser.BackgroundProcessObsorver || {};
@@ -36,23 +36,23 @@ define('misc.bgprocess', [
       success_status_tpl: _.template(`
       <div class="d-flex px-2 py-1 bg-success-light border border-success rounded">
         <div class="pr-2">
-          <i class="fa fa-check fa-lg text-success pg-bg-status-icon" aria-hidden="true"></i>
+          <i class="fa fa-check text-success pg-bg-status-icon" aria-hidden="true" role="img"></i>
         </div>
-        <div class="text-body mx-auto pg-bg-status-text"><%-status_text%></div>
+        <div class="mx-auto pg-bg-status-text alert-text-body"><%-status_text%></div>
       </div>`),
       failed_status_tpl: _.template(`
       <div class="d-flex px-2 py-1 bg-danger-lighter border border-danger rounded">
         <div class="pr-2">
-          <i class="fa fa-close fa-lg text-danger pg-bg-status-icon" aria-hidden="true"></i>
+          <i class="fa fa-times fa-lg text-danger pg-bg-status-icon" aria-hidden="true" role="img"></i>
         </div>
-        <div class="text-body mx-auto pg-bg-status-text"><%-status_text%></div>
+        <div class="mx-auto pg-bg-status-text alert-text-body"><%-status_text%></div>
       </div>`),
       other_status_tpl: _.template(`
       <div class="d-flex px-2 py-1 bg-primary-light border border-primary rounded">
         <div class="pr-2">
-          <i class="fa fa-info fa-lg text-primary pg-bg-status-icon" aria-hidden="true"></i>
+          <i class="fa fa-info fa-lg text-primary pg-bg-status-icon" aria-hidden="true" role="img"></i>
         </div>
-        <div class="text-body mx-auto pg-bg-status-text"><%-status_text%></div>
+        <div class="mx-auto pg-bg-status-text alert-text-body"><%-status_text%></div>
       </div>`),
       initialize: function(info, notify) {
         _.extend(this, {
@@ -193,7 +193,13 @@ define('misc.bgprocess', [
           if (pgAdmin.natural_sort(out[io][0], err[ie][0]) <= 0) {
             res.push('<li class="pg-bg-res-out">' + escapeHTML(out[io++][1]) + '</li>');
           } else {
-            res.push('<li class="pg-bg-res-err">' + escapeHTML(err[ie++][1]) + '</li>');
+            let log_msg = escapeHTML(err[ie++][1]);
+            let regex_obj = new RegExp(': (' + gettext('error') + '|' + gettext('fatal') + '):', 'i');
+            if (regex_obj.test(log_msg)) {
+              res.push('<li class="pg-bg-res-err">' + log_msg + '</li>');
+            } else {
+              res.push('<li class="pg-bg-res-out">' + log_msg + '</li>');
+            }
           }
         }
 
@@ -202,7 +208,13 @@ define('misc.bgprocess', [
         }
 
         while (ie < err.length) {
-          res.push('<li class="pg-bg-res-err">' + escapeHTML(err[ie++][1]) + '</li>');
+          let log_msg = escapeHTML(err[ie++][1]);
+          let regex_obj = new RegExp(': (' + gettext('error') + '|' + gettext('fatal') + '):', 'i');
+          if (regex_obj.test(log_msg)) {
+            res.push('<li class="pg-bg-res-err">' + log_msg + '</li>');
+          } else {
+            res.push('<li class="pg-bg-res-out">' + log_msg + '</li>');
+          }
         }
 
         if (res.length) {
@@ -210,6 +222,11 @@ define('misc.bgprocess', [
           setTimeout(function() {
             self.logs[0].scrollTop = self.logs[0].scrollHeight;
           });
+        }
+
+        if(self.logs_loading) {
+          self.logs_loading.remove();
+          self.logs_loading = null;
         }
 
         if (self.stime) {
@@ -226,9 +243,11 @@ define('misc.bgprocess', [
               self.curr_status = self.success_status_tpl({status_text:gettext('Successfully completed.')});
             } else {
               self.curr_status = self.failed_status_tpl(
-                {status_text:S(gettext('Failed (exit code: %s).')).sprintf(String(self.exit_code)).value()}
+                {status_text:gettext('Failed (exit code: %s).', String(self.exit_code))}
               );
             }
+          } else if (_.isNull(self.exit_code) && self.state === 3) {
+            self.curr_status = self.other_status_tpl({status_text:gettext('Terminating the process...')});
           }
 
           if (self.state == 0 && self.stime) {
@@ -294,7 +313,7 @@ define('misc.bgprocess', [
               <div class="card-header bg-primary d-flex">
                 <div>${self.type_desc}</div>
                 <div class="ml-auto">
-                  <button class="btn btn-sm-sq btn-primary pg-bg-close"><i class="fa fa-lg fa-close"></i></button>
+                  <button class="btn btn-sm-sq btn-primary pg-bg-close"><i class="fa fa-lg fa-times" role="img"></i></button>
                 </div>
               </div>
               <div class="card-body px-2">
@@ -302,12 +321,12 @@ define('misc.bgprocess', [
                 <div class="py-1">${self.stime.toString()}</div>
                 <div class="d-flex py-1">
                   <div class="my-auto mr-2">
-                    <span class="fa fa-clock-o fa-2x"></span>
+                    <span class="fa fa-clock fa-lg" role="img"></span>
                   </div>
                   <div class="pg-bg-etime my-auto mr-2"></div>
                   <div class="ml-auto">
-                    <button class="btn btn-secondary pg-bg-more-details"><span class="fa fa-info-circle"></span>&nbsp;${gettext('More details...')}</button>
-                    <button class="btn btn-danger bg-process-stop"><span class="fa fa-times-circle"></span>&nbsp;${gettext('Stop Process')}</button>
+                    <button class="btn btn-secondary pg-bg-more-details"><span class="fa fa-info-circle" role="img"></span>&nbsp;` + gettext('More details...') + `</button>
+                    <button class="btn btn-danger bg-process-stop" disabled><span class="fa fa-times-circle" role="img"></span>&nbsp;` + gettext('Stop Process') + `</button>
                   </div>
                 </div>
                 <div class="pg-bg-status py-1">
@@ -367,9 +386,9 @@ define('misc.bgprocess', [
 
           var $status_bar = $(self.container.find('.pg-bg-status'));
           $status_bar.html(self.curr_status);
-          // Enable/Disable stop process button
           var $btn_stop_process = $(self.container.find('.bg-process-stop'));
-          if (isNaN(parseInt(self.exit_code))) {
+          // Enable Stop Process button only when process is running
+          if (parseInt(self.state) === 1) {
             $btn_stop_process.attr('disabled', false);
           } else {
             $btn_stop_process.attr('disabled', true);
@@ -388,7 +407,7 @@ define('misc.bgprocess', [
           is_new = true;
           panel = this.panel =
             pgBrowser.BackgroundProcessObsorver.create_panel();
-          panel.title('Process Watcher - ' + self.type_desc);
+          panel.title(gettext('Process Watcher - %s', self.type_desc));
           panel.focus();
         }
 
@@ -398,8 +417,8 @@ define('misc.bgprocess', [
           $footer = container.find('.bg-process-footer'),
           $btn_stop_process = container.find('.bg-process-stop');
 
-        // Enable/Disable stop process button
-        if (isNaN(parseInt(self.exit_code))) {
+        // Enable Stop Process button only when process is running
+        if (parseInt(self.state) === 1) {
           $btn_stop_process.attr('disabled', false);
         } else {
           $btn_stop_process.attr('disabled', true);
@@ -414,6 +433,8 @@ define('misc.bgprocess', [
           setTimeout(function() {
             self.logs[0].scrollTop = self.logs[0].scrollHeight;
           });
+          self.logs_loading = $('<li class="pg-bg-res-out loading-logs">' + gettext('Loading process logs...') + '</li>');
+          self.logs.append(self.logs_loading);
           // set bgprocess detailed description
           $header.find('.bg-detailed-desc').html(self.detailed_desc);
         }
@@ -445,9 +466,9 @@ define('misc.bgprocess', [
             }, 1000
           );
 
-          var resize_log_container = function($logs, $header, $footer) {
-            var h = $header.outerHeight() + $footer.outerHeight();
-            $logs.css('padding-bottom', h);
+          var resize_log_container = function(logs, header, footer) {
+            var h = header.outerHeight() + footer.outerHeight();
+            logs.css('padding-bottom', h);
           }.bind(panel, $logs, $header, $footer);
 
           panel.on(wcDocker.EVENT.RESIZED, resize_log_container);
@@ -602,18 +623,19 @@ define('misc.bgprocess', [
           showTitle: true,
           isCloseable: true,
           isPrivate: true,
+          isLayoutMember: false,
           content: '<div class="bg-process-details">' +
               '<div class="bg-detailed-desc"></div>' +
               '<div class="bg-process-stats d-flex py-1">' +
                 '<div class="my-auto mr-2">' +
-                  '<span class="fa fa-clock-o fa-2x"></span>' +
+                  '<span class="fa fa-clock fa-lg" role="img"></span>' +
                 '</div>' +
                 '<div class="pg-bg-etime my-auto mr-2">'+
                   '<span>' + gettext('Start time') + ': <span class="bgprocess-start-time"></span>' +
                   '</span>'+
                 '</div>' +
                 '<div class="ml-auto">' +
-                  '<button type="button" class="btn btn-danger bg-process-stop"><span class="fa fa-times-circle"></span>&nbsp;' + gettext('Stop Process') + '</button>' +
+                  '<button type="button" class="btn btn-danger bg-process-stop" disabled><span class="fa fa-times-circle" role="img"></span>&nbsp;' + gettext('Stop Process') + '</button>' +
                 '</div>' +
               '</div>' +
             '</div>' +

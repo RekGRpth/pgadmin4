@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -839,13 +839,13 @@ describe('ExecuteQuery', () => {
           errormsg: 'Some error in JSON',
         };
         let errorMessageText = 'Some plain text error';
-        let response;
+        let res;
 
         describe('when the connection to the server was lost', () => {
           describe('when JSON response is available', () => {
             beforeEach(() => {
-              response = {responseJSON: errorMessageJson};
-              networkMock.onGet('/sqleditor/query_tool/poll/123').reply(401, response);
+              res = {responseJSON: errorMessageJson};
+              networkMock.onGet('/sqleditor/query_tool/poll/123').reply(401, res);
 
               executeQuery.poll();
             });
@@ -906,8 +906,8 @@ describe('ExecuteQuery', () => {
           });
           describe('when no JSON response is available', () => {
             beforeEach(() => {
-              response = {errormsg: errorMessageText};
-              networkMock.onGet('/sqleditor/query_tool/poll/123').reply(401, response);
+              res = {errormsg: errorMessageText};
+              networkMock.onGet('/sqleditor/query_tool/poll/123').reply(401, res);
 
               executeQuery.poll();
             });
@@ -1388,15 +1388,17 @@ describe('ExecuteQuery', () => {
               }, 0);
           });
 
-          it('should not save the state', () => {
+          it('should not save the state', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.saveState).not.toHaveBeenCalled();
+              done();
             }, 0);
           });
 
-          it('should not display pga login', () => {
+          it('should not display pga login', (done) => {
             setTimeout(() => {
               expect(userManagementMock.pgaLogin).not.toHaveBeenCalled();
+              done();
             }, 0);
           });
         });
@@ -1446,18 +1448,20 @@ describe('ExecuteQuery', () => {
               }, 0);
           });
 
-          it('should save the state', () => {
+          it('should save the state', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.saveState).toHaveBeenCalledWith(
-                'execute',
+                'check_data_changes_to_execute_query',
                 ['']
               );
+              done();
             }, 0);
           });
 
-          it('should display pga login', () => {
+          it('should display pga login', (done) => {
             setTimeout(() => {
               expect(userManagementMock.pgaLogin).toHaveBeenCalled();
+              done();
             }, 0);
           });
         });
@@ -1507,21 +1511,24 @@ describe('ExecuteQuery', () => {
               }, 0);
           });
 
-          it('should not save the state', () => {
+          it('should not save the state', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.saveState).not.toHaveBeenCalled();
+              done();
             }, 0);
           });
 
-          it('should not display pga login', () => {
+          it('should not display pga login', (done) => {
             setTimeout(() => {
               expect(userManagementMock.pgaLogin).not.toHaveBeenCalled();
+              done();
             }, 0);
           });
 
-          it('should not initialize a new transaction', () => {
+          it('should not initialize a new transaction', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.initTransaction).not.toHaveBeenCalled();
+              done();
             }, 0);
           });
         });
@@ -1571,24 +1578,27 @@ describe('ExecuteQuery', () => {
               }, 0);
           });
 
-          it('should save the state', () => {
+          it('should save the state', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.saveState).toHaveBeenCalledWith(
-                'execute',
+                'check_data_changes_to_execute_query',
                 ['']
               );
+              done();
             }, 0);
           });
 
-          it('should not display pga login', () => {
+          it('should not display pga login', (done) => {
             setTimeout(() => {
               expect(userManagementMock.pgaLogin).not.toHaveBeenCalled();
+              done();
             }, 0);
           });
 
-          it('should initialize a new transaction', () => {
+          it('should initialize a new transaction', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.initTransaction).toHaveBeenCalled();
+              done();
             }, 0);
           });
         });
@@ -1601,18 +1611,20 @@ describe('ExecuteQuery', () => {
             executeQuery.execute('some sql query', '');
           });
 
-          it('saves state', () => {
+          it('saves state', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.saveState).toHaveBeenCalledWith(
-                'execute',
+                'check_data_changes_to_execute_query',
                 ['']
               );
+              done();
             }, 0);
           });
 
-          it('calls handle_connection_lost', () => {
+          it('calls handle_connection_lost', (done) => {
             setTimeout(() => {
               expect(sqlEditorMock.handle_connection_lost).toHaveBeenCalled();
+              done();
             }, 0);
           });
         });

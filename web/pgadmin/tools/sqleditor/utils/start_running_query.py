@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -45,8 +45,9 @@ class StartRunningQuery:
         if type(session_obj) is Response:
             return session_obj
 
-        # Remove any existing primary keys in session_obj
+        # Remove any existing primary keys or has_oids in session_obj
         session_obj.pop('primary_keys', None)
+        session_obj.pop('oids', None)
 
         transaction_object = pickle.loads(session_obj['command_obj'])
         can_edit = False
@@ -136,10 +137,7 @@ class StartRunningQuery:
 
         # Execute sql asynchronously with params is None
         # and formatted_error is True.
-        try:
-            status, result = conn.execute_async(sql)
-        except (ConnectionLost, SSHTunnelConnectionLost, CryptKeyMissing):
-            raise
+        status, result = conn.execute_async(sql)
 
         # If the transaction aborted for some reason and
         # Auto RollBack is True then issue a rollback to cleanup.

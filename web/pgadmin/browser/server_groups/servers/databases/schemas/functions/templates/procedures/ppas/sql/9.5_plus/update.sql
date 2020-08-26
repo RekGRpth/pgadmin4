@@ -2,6 +2,7 @@
 {% import 'macros/functions/privilege.macros' as PRIVILEGE %}
 {% import 'macros/functions/variable.macros' as VARIABLE %}{% if data %}
 {% set name = o_data.name %}
+{% set exclude_quoting = ['search_path'] %}
 {% if data.name %}
 {% if data.name != o_data.name %}
 ALTER PROCEDURE {{ conn|qtIdent(o_data.pronamespace, o_data.name) }}
@@ -15,7 +16,7 @@ CREATE OR REPLACE PROCEDURE {{ conn|qtIdent(o_data.pronamespace, name) }}{% if d
 {% endfor %}
 )
 {% endif %}
-    {% if ('proleakproof' in data and data.proleakproof) or ('proleakproof' not in data and o_data.proleakproof) %}LEAKPROOF{% else %}NOT LEAKPROOF{% endif %}
+    {{ data.provolatile }} {% if ('proleakproof' in data and data.proleakproof) or ('proleakproof' not in data and o_data.proleakproof) %}LEAKPROOF{% else %}NOT LEAKPROOF{% endif %}
 {% if ('proisstrict' in data and data.proisstrict) or ('proisstrict' not in data and o_data.proisstrict) %} STRICT{% endif %}
 {% if ('prosecdef' in data and data.prosecdef) or ('prosecdef' not in data and o_data.prosecdef) %} SECURITY DEFINER{% endif %}
 
@@ -23,16 +24,15 @@ CREATE OR REPLACE PROCEDURE {{ conn|qtIdent(o_data.pronamespace, name) }}{% if d
 
     ROWS {{data.prorows}}{% elif data.prorows is not defined and o_data.prorows and o_data.prorows != '0' %}    ROWS {{o_data.prorows}}{% endif -%}{% if data.merged_variables %}{% for v in data.merged_variables %}
 
-    SET {{ conn|qtIdent(v.name) }}={{ v.value|qtLiteral }}{% endfor -%}
+    SET {{ conn|qtIdent(v.name) }}={% if v.name in exclude_quoting %}{{ v.value }}{% else %}{{ v.value|qtLiteral }}{% endif %}{% endfor -%}
 {% endif %}
 
-AS
-{% if data.prosrc %}{{ data.prosrc }}{% else %}{{ o_data.prosrc }}{% endif -%};
+AS {% if data.prosrc %}{{ data.prosrc }}{% else %}{{ o_data.prosrc }}{% endif -%};
 {% endif -%}
 {% if data.funcowner %}
 
 ALTER PROCEDURE {{ conn|qtIdent(o_data.pronamespace, name) }}{% if o_data.proargtypenames %}({{ o_data.proargtypenames }}){% endif %}
-    OWNER TO {{ data.funcowner }};
+    OWNER TO {{ conn|qtIdent(data.funcowner) }};
 {% endif -%}
 {# The SQL generated below will change priviledges #}
 {% if data.acl %}

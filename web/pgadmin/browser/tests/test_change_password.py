@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -95,6 +95,7 @@ class ChangePasswordTestCase(BaseTestGenerator):
             response = self.tester.post(
                 '/user_management/user/',
                 data=json.dumps(dict(
+                    username=self.username,
                     email=self.username,
                     newPassword=self.password,
                     confirmPassword=self.password,

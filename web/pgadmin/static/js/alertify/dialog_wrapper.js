@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -58,16 +58,12 @@ export class DialogWrapper {
     let backform_tab = $(alertifyDialog.elements.body).find('.backform-tab');
     backform_tab.attr('tabindex', -1);
     this.pgBrowser.keyboardNavigation.getDialogTabNavigator($(alertifyDialog.elements.dialog));
-    const container = backform_tab.find('.tab-content:first > .tab-pane.active:first');
-    commonUtils.findAndSetFocus(container);
+    let container = backform_tab.find('.tab-content:first > .tab-pane.active:first');
 
-    $(alertifyDialog.elements.footer).on('keydown', 'button', function(event) {
-      if (event.keyCode == 9 && $(this).nextAll('button:not([disabled])').length == 0) {
-        // set focus back to first editable input element of current active tab once we cycle through all enabled buttons.
-        commonUtils.findAndSetFocus($(alertifyDialog.elements.body).find('.tab-content div.active'));
-        return false;
-      }
-    });
+    if(container.length === 0 && alertifyDialog.elements.content.innerHTML) {
+      container = $(alertifyDialog.elements.content);
+    }
+    commonUtils.findAndSetFocus(container);
   }
 
   isNodeSelected(selectedTreeNode) {

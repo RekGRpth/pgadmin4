@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -11,9 +11,9 @@ define([
   'jquery',
   'underscore',
   'sources/selection/range_selection_helper',
-
+  'sources/window',
   'slickgrid',
-], function ($, _, RangeSelectionHelper) {
+], function ($, _, RangeSelectionHelper, pgWindow) {
   var XCellSelectionModel = function (options) {
 
     var KEY_ARROW_RIGHT = 39;
@@ -50,7 +50,7 @@ define([
       grid.registerPlugin(_selector);
       _selector.onCellRangeSelected.subscribe(handleCellRangeSelected);
       _selector.onBeforeCellRangeSelected.subscribe(handleBeforeCellRangeSelected);
-      $(window.parent).on('mouseup',handleWindowMouseUp);
+      $(pgWindow.default).on('mouseup',handleWindowMouseUp);
     }
 
     function destroy() {
@@ -59,7 +59,7 @@ define([
       _selector.onCellRangeSelected.unsubscribe(handleCellRangeSelected);
       _selector.onBeforeCellRangeSelected.unsubscribe(handleBeforeCellRangeSelected);
       _grid.unregisterPlugin(_selector);
-      $(window.parent).off('mouseup', handleWindowMouseUp);
+      $(pgWindow.default).off('mouseup', handleWindowMouseUp);
     }
 
     function removeInvalidRanges(ranges) {
@@ -142,12 +142,12 @@ define([
       function shouldScrollToRightmostColumn() { return anchorActiveCell.cell === newSelectedRange.fromCell; }
 
       function getMobileCellFromRange(range, activeCell) {
-        var mobileCell = {};
+        var localMobileCell = {};
 
-        mobileCell.row = range.fromRow === activeCell.row ? range.toRow : range.fromRow;
-        mobileCell.cell = range.fromCell === activeCell.cell ? range.toCell : range.fromCell;
+        localMobileCell.row = range.fromRow === activeCell.row ? range.toRow : range.fromRow;
+        localMobileCell.cell = range.fromCell === activeCell.cell ? range.toCell : range.fromCell;
 
-        return mobileCell;
+        return localMobileCell;
       }
 
       function getNewRange(rangeCorner, oppositeCorner) {

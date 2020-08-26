@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -31,9 +31,7 @@ class _Preference(object):
     """
 
     def __init__(
-        self, cid, name, label, _type, default, help_str=None,
-        min_val=None, max_val=None, options=None, select2=None, fields=None,
-        allow_blanks=None
+        self, cid, name, label, _type, default, **kwargs
     ):
         """
         __init__
@@ -67,13 +65,13 @@ class _Preference(object):
         self.default = default
         self.label = label
         self._type = _type
-        self.help_str = help_str
-        self.min_val = min_val
-        self.max_val = max_val
-        self.options = options
-        self.select2 = select2
-        self.fields = fields
-        self.allow_blanks = allow_blanks
+        self.help_str = kwargs.get('help_str', None)
+        self.min_val = kwargs.get('min_val', None)
+        self.max_val = kwargs.get('max_val', None)
+        self.options = kwargs.get('options', None)
+        self.select2 = kwargs.get('select2', None)
+        self.fields = kwargs.get('fields', None)
+        self.allow_blanks = kwargs.get('allow_blanks', None)
 
         # Look into the configuration table to find out the id of the specific
         # preference.
@@ -113,27 +111,8 @@ class _Preference(object):
 
         # The data stored in the configuration will be in string format, we
         # need to convert them in proper format.
-        if self._type == 'boolean' or self._type == 'switch' or \
-                self._type == 'node':
+        if self._type in ('boolean', 'switch', 'node'):
             return res.value == 'True'
-        if self._type == 'integer':
-            try:
-                return int(res.value)
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return self.default
-        if self._type == 'numeric':
-            try:
-                return decimal.Decimal(res.value)
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return self.default
-        if self._type == 'date' or self._type == 'datetime':
-            try:
-                return dateutil_parser.parse(res.value)
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return self.default
         if self._type == 'options':
             for opt in self.options:
                 if 'value' in opt and opt['value'] == res.value:
@@ -141,17 +120,21 @@ class _Preference(object):
             if self.select2 and self.select2['tags']:
                 return res.value
             return self.default
-        if self._type == 'text':
-            if res.value == '' and (self.allow_blanks is None or
-                                    not self.allow_blanks):
-                return self.default
-        if self._type == 'keyboardshortcut':
-            try:
-                return json.loads(res.value)
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return self.default
+        if self._type == 'text' and res.value == '' and not self.allow_blanks:
+            return self.default
 
+        parser_map = {
+            'integer': int,
+            'numeric': decimal.Decimal,
+            'date': dateutil_parser.parse,
+            'datetime': dateutil_parser.parse,
+            'keyboardshortcut': json.loads
+        }
+        try:
+            return parser_map.get(self._type, lambda v: v)(res.value)
+        except Exception as e:
+            current_app.logger.exception(e)
+            return self.default
         return res.value
 
     def set(self, value):
@@ -165,59 +148,43 @@ class _Preference(object):
         """
         # We can't store the values in the given format, we need to convert
         # them in string first. We also need to validate the value type.
-        if self._type == 'boolean' or self._type == 'switch' or \
-                self._type == 'node':
-            if type(value) != bool:
-                return False, gettext("Invalid value for a boolean option.")
-        elif self._type == 'integer':
-            value = int(value)
 
-            if self.min_val is not None and value < self.min_val:
-                value = self.min_val
-            if self.max_val is not None and value > self.max_val:
-                value = self.max_val
+        parser_map = {
+            'integer': int,
+            'numeric': float,
+            'date': dateutil_parser.parse,
+            'datetime': dateutil_parser.parse,
+            'keyboardshortcut': json.dumps
+        }
 
-            if type(value) != int:
-                return False, gettext("Invalid value for an integer option.")
-        elif self._type == 'numeric':
-            value = float(value)
+        error_map = {
+            'keyboardshortcut': 'keyboard shortcut'
+        }
 
-            if self.min_val is not None and value < self.min_val:
-                value = self.min_val
-            if self.max_val is not None and value > self.max_val:
-                value = self.max_val
-
-            t = type(value)
-            if t != float and t != int and t != decimal.Decimal:
-                return False, gettext("Invalid value for a numeric option.")
-        elif self._type == 'date':
-            try:
-                value = dateutil_parser.parse(value).date()
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return False, gettext("Invalid value for a date option.")
-        elif self._type == 'datetime':
-            try:
-                value = dateutil_parser.parse(value)
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return False, gettext("Invalid value for a datetime option.")
-        elif self._type == 'options':
-            has_value = False
-            for opt in self.options:
-                if 'value' in opt and opt['value'] == value:
-                    has_value = True
-
-            if not has_value and self.select2 and not self.select2['tags']:
-                return False, gettext("Invalid value for an options option.")
-        elif self._type == 'keyboardshortcut':
-            try:
-                value = json.dumps(value)
-            except Exception as e:
-                current_app.logger.exeception(e)
-                return False, gettext(
-                    "Invalid value for a keyboard shortcut option."
-                )
+        try:
+            if self._type in ('boolean', 'switch', 'node'):
+                assert type(value) == bool
+            elif self._type == 'options':
+                has_value = next((True for opt in self.options
+                                  if 'value' in opt and opt['value'] == value),
+                                 False)
+                assert (has_value or (self.select2 and self.select2['tags']))
+            elif self._type == 'date':
+                value = parser_map[self._type](value).date()
+            else:
+                value = parser_map.get(self._type, lambda v: v)(value)
+                if self._type == 'integer':
+                    value = self.normalize_range(value)
+                    assert type(value) == int
+                if self._type == 'numeric':
+                    value = self.normalize_range(value)
+                    assert (type(value) == int or type(value) == float or
+                            type(value) == decimal.Decimal)
+        except Exception as e:
+            current_app.logger.exception(e)
+            return False, gettext(
+                "Invalid value for {0} option.".format(
+                    error_map.get(self._type, self._type)))
 
         pref = UserPrefTable.query.filter_by(
             pid=self.pid
@@ -234,6 +201,15 @@ class _Preference(object):
         db.session.commit()
 
         return True, None
+
+    def normalize_range(self, value):
+        ret_val = value
+        if self.min_val is not None and value < self.min_val:
+            ret_val = self.min_val
+        if self.max_val is not None and value > self.max_val:
+            ret_val = self.max_val
+
+        return ret_val
 
     def to_json(self):
         """
@@ -392,9 +368,7 @@ class Preferences(object):
         return res
 
     def register(
-            self, category, name, label, _type, default, min_val=None,
-            max_val=None, options=None, help_str=None, category_label=None,
-            select2=None, fields=None, allow_blanks=None
+            self, category, name, label, _type, default, **kwargs
     ):
         """
         register
@@ -420,6 +394,15 @@ class Preferences(object):
                         take input from user e.g. keyboardshortcut preference)
         :param allow_blanks: Flag specify whether to allow blank value.
         """
+        min_val = kwargs.get('min_val', None)
+        max_val = kwargs.get('max_val', None)
+        options = kwargs.get('options', None)
+        help_str = kwargs.get('help_str', None)
+        category_label = kwargs.get('category_label', None)
+        select2 = kwargs.get('select2', None)
+        fields = kwargs.get('fields', None)
+        allow_blanks = kwargs.get('allow_blanks', None)
+
         cat = self.__category(category, category_label)
         if name in cat['preferences']:
             return (cat['preferences'])[name]
@@ -433,8 +416,9 @@ class Preferences(object):
         ), "Type cannot be found in the defined list!"
 
         (cat['preferences'])[name] = res = _Preference(
-            cat['id'], name, label, _type, default, help_str, min_val,
-            max_val, options, select2, fields, allow_blanks
+            cat['id'], name, label, _type, default, help_str=help_str,
+            min_val=min_val, max_val=max_val, options=options,
+            select2=select2, fields=fields, allow_blanks=allow_blanks
         )
 
         return res
@@ -470,9 +454,7 @@ class Preferences(object):
 
     @classmethod
     def register_preference(
-            cls, module, category, name, label, _type, default, min_val=None,
-            max_val=None, options=None, help_str=None, module_label=None,
-            category_label=None
+            cls, module, category, name, label, _type, default, **kwargs
     ):
         """
         register
@@ -494,6 +476,13 @@ class Preferences(object):
         :param module_label: Label for the module
         :param category_label: Label for the category
         """
+        min_val = kwargs.get('min_val', None)
+        max_val = kwargs.get('max_val', None)
+        options = kwargs.get('options', None)
+        help_str = kwargs.get('help_str', None)
+        module_label = kwargs.get('module_label', None)
+        category_label = kwargs.get('category_label', None)
+
         m = None
         if module in Preferences.modules:
             m = Preferences.modules[module]
@@ -503,8 +492,9 @@ class Preferences(object):
             m = Preferences(module, module_label)
 
         return m.register(
-            category, name, label, _type, default, min_val, max_val,
-            options, help_str, category_label
+            category, name, label, _type, default, min_val=min_val,
+            max_val=max_val, options=options, help_str=help_str,
+            category_label=category_label
         )
 
     @staticmethod

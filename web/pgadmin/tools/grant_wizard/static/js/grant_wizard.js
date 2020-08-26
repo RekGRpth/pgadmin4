@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -13,13 +13,14 @@ define([
   'pgadmin.alertifyjs', 'pgadmin.backgrid', 'pgadmin.backform',
   'pgadmin.browser', 'pgadmin.browser.node',
   'tools/grant_wizard/static/js/menu_utils',
+  'sources/utils',
   'sources/nodes/supported_database_node',
   'backgrid.select.all',
   'backgrid.filter', 'pgadmin.browser.server.privilege',
   'pgadmin.browser.wizard',
 ], function(
   gettext, url_for, $, _, Backbone, Alertify, Backgrid, Backform, pgBrowser,
-  pgNode, menuUtils, supportedNodes
+  pgNode, menuUtils, commonUtils, supportedNodes
 ) {
 
   // if module is already initialized, refer to that.
@@ -78,7 +79,7 @@ define([
         node = this.get('objects').toJSON();
       if (_.isEmpty(node)) {
         err['selected'] = gettext('Please select any database object.');
-        errmsg = errmsg || err['selected'];
+        errmsg = err['selected'];
         this.errorModel.set('selected', errmsg);
         return errmsg;
       } else {
@@ -103,10 +104,19 @@ define([
 
         // Do not use parent's render function. It set's tabindex to -1 on
         // checkboxes.
-        this.$el.empty().append('<input type="checkbox" />');
-        this.delegateEvents();
 
         var col = this.column.get('name');
+        let id = `row-${_.uniqueId(col)}`;
+        this.$el.empty().append(`
+          <div class="custom-control custom-checkbox custom-checkbox-no-label">
+            <input tabindex="-1" type="checkbox" class="custom-control-input" id="${id}" />
+            <label class="custom-control-label" for="${id}">
+              <span class="sr-only">Select All<span>
+            </label>
+          </div>
+        `);
+        this.delegateEvents();
+
         if (this.model && this.model.has(col)) {
           if (this.model.get(col)) {
             this.$el.parent().toggleClass('selected', true);
@@ -163,7 +173,7 @@ define([
         callback: 'start_grant_wizard',
         priority: 14,
         label: gettext('Grant Wizard...'),
-        icon: 'fa fa-unlock-alt',
+        icon: 'fa fa-unlock',
         enable: supportedNodes.enabled.bind(
           null, pgBrowser.treeMenu, menuUtils.supportedNodes
         ),
@@ -179,7 +189,7 @@ define([
           callback: 'start_grant_wizard',
           priority: 14,
           label: gettext('Grant Wizard...'),
-          icon: 'fa fa-unlock-alt',
+          icon: 'fa fa-unlock',
           enable: supportedNodes.enabled.bind(
             null, pgBrowser.treeMenu, menuUtils.supportedNodes
           ),
@@ -241,7 +251,7 @@ define([
             DbObjectFilter: function(coll) {
               var clientSideFilter = this.clientSideFilter = new Backgrid.Extension.ClientSideFilter({
                 collection: coll,
-                placeholder: _('Search by object type or name'),
+                placeholder: gettext('Search by object type or name'),
 
                 // The model fields to search for matches
                 fields: ['object_type', 'name'],
@@ -418,6 +428,7 @@ define([
               });
 
             },
+
             prepare: function() {
               var that = this;
               $container.empty().append('<div class=\'grant_wizard_container\'></div>');
@@ -431,6 +442,8 @@ define([
                 d = this.d = i && i.length == 1 ? t.itemData(i) : undefined,
                 info = this.info = pgBrowser.Node.getTreeNodeHierarchy(i);
 
+              if(_.isUndefined(d))
+                return;
               /**
                 Generate a URL using:
                 gid, did, sid(server id), node_id(node id),
@@ -489,6 +502,7 @@ define([
 
               coll.sort();
               this.dbObjectFilter = this.DbObjectFilter(coll);
+              coll.fullCollection = this.dbObjectFilter.shadowCollection;
 
               /**
                 privArray holds objects selected which further helps
@@ -502,7 +516,6 @@ define([
               */
               coll.on('backgrid:selected', function(model, selected) {
                 model.set('selected', selected);
-
                 var object_type = model.get('object_type');
                 switch (object_type) {
                 case 'Function':
@@ -658,11 +671,11 @@ define([
               */
               var dbObjectTypePage = self.dbObjectTypePage = new pgBrowser.WizardPage({
                 id: 1,
-                page_title: _('Object Selection (step 1 of 3)'),
+                page_title: gettext('Object Selection (step 1 of 3)'),
                 disable_prev: true,
                 disable_next: true,
                 show_description: '',
-                show_progress_bar: _('Please wait while fetching records...'),
+                show_progress_bar: gettext('Please wait while fetching records...'),
                 model: newModel,
                 view: new(function() {
 
@@ -696,13 +709,13 @@ define([
                         $(`
                         <div class="db_objects_container pg-el-xs-12">
                           <div class="db_objects_header d-flex py-1">
-                            <div>${_('Please select the objects to grant privileges to from the list below.')}</div>
+                            <div>` + gettext('Please select the objects to grant privileges to from the list below.') + `</div>
                             <div class="db_objects_filter ml-auto">
                               <div class="input-group">
                                 <div class="input-group-prepend">
                                   <span class="input-group-text fa fa-search" id="labelSearch"></span>
                                 </div>
-                                <input type="search" class="form-control" id="txtGridSearch" placeholder="Search" aria-label="Search" aria-describedby="labelSearch">
+                                <input type="search" class="form-control" id="txtGridSearch" placeholder="` + gettext('Search') + '" aria-label="' + gettext('Search') + `" aria-describedby="labelSearch">
                               </div>
                             </div>
                           </div>
@@ -750,7 +763,7 @@ define([
                 }),
 
                 beforeNext: function(obj) {
-                  var self = this;
+                  var ctx = this;
                   obj.options.disable_next = true;
 
                   /**
@@ -764,10 +777,10 @@ define([
                   }
 
                   // Clean the view
-                  if (self.view) {
-                    self.view.cleanup();
-                    delete self.view;
-                    self.view = null;
+                  if (ctx.view) {
+                    ctx.view.cleanup();
+                    delete ctx.view;
+                    ctx.view = null;
                   }
                   return true;
                 },
@@ -783,8 +796,8 @@ define([
               // Wizard for Privelege control
               var privilegePage = self.privilegePage = new pgBrowser.WizardPage({
                 id: 2,
-                page_title: _('Privilege Selection (step 2 of 3)'),
-                show_description: _('Please add the required privileges for the selected objects.'),
+                page_title: gettext('Privilege Selection (step 2 of 3)'),
+                show_description: gettext('Please add the required privileges for the selected objects.'),
                 disable_next: true,
                 model: newModel,
 
@@ -807,7 +820,6 @@ define([
                         Privileges array is generated based on
                         the type of nodes selected.
                        */
-                      var privModel = self.privModel;
                       var PrivModel = pgNode.Model.extend({
                         defaults: {
                           acl: undefined,
@@ -836,8 +848,8 @@ define([
                         present in object privileges array(object_priv)
                        */
                       var data = {};
-                      if (privModel) {
-                        data = privModel.toJSON();
+                      if (self.privModel) {
+                        data = self.privModel.toJSON();
                         var rolePrivs = data['acl'];
                         if (!_.isUndefined(rolePrivs) && rolePrivs.length > 0) {
                           for (var idx in rolePrivs) {
@@ -862,7 +874,7 @@ define([
                       }
 
                       // Instantiate privModel
-                      privModel = self.privModel = new PrivModel(data, {
+                      self.privModel = new PrivModel(data, {
                         node_info: self.info,
                       });
 
@@ -982,7 +994,7 @@ define([
               //Create SqlField Object
               var sqlField = new Backform.Field({
                   id: 'sqltab',
-                  label: _('Sql Tab'),
+                  label: gettext('Sql Tab'),
 
                   /**
                     Extend 'SqlTabControl' to define new
@@ -1007,24 +1019,24 @@ define([
                     // This method fetches the modified SQL for the wizard
                     onWizardNextPageChange: function() {
 
-                      var self = this;
+                      var ctx = this;
 
                       // Fetches modified SQL
                       $.ajax({
                         url: this.msql_url,
-                        type: 'GET',
+                        type: 'POST',
                         cache: false,
-                        data: self.model.toJSON(true, 'GET'),
+                        data: JSON.stringify(ctx.model.toJSON(true)),
                         dataType: 'json',
                         contentType: 'application/json',
                       }).done(function(res) {
-                        self.sqlCtrl.clearHistory();
-                        self.sqlCtrl.setValue(res.data);
-                        self.sqlCtrl.refresh();
+                        ctx.sqlCtrl.clearHistory();
+                        ctx.sqlCtrl.setValue(res.data);
+                        ctx.sqlCtrl.refresh();
                       }).fail(function() {
-                        self.model.trigger('pgadmin-view:msql:error');
+                        ctx.model.trigger('pgadmin-view:msql:error');
                       }).always(function() {
-                        self.model.trigger('pgadmin-view:msql:fetched');
+                        ctx.model.trigger('pgadmin-view:msql:fetched');
                       });
                     },
 
@@ -1052,10 +1064,10 @@ define([
               // Wizard for SQL tab control
               var reviewSQLPage = self.reviewSQLPage = new pgBrowser.WizardPage({
                 id: 3,
-                page_title: _('Final (Review Selection) (step 3 of 3)'),
-                show_description: _('The SQL below will be executed on the ' +
+                page_title: gettext('Final (Review Selection) (step 3 of 3)'),
+                show_description: gettext('The SQL below will be executed on the ' +
                   'database server to grant the selected privileges. ' +
-                  'Please click on <b>Finish</b> to complete the process.'),
+                  'Please click on <strong>Finish</strong> to complete the process.'),
                 model: newModel,
                 view: new(function() {
 
@@ -1112,7 +1124,7 @@ define([
                 */
               self.wizard = new(pgBrowser.Wizard.extend({
                 options: {
-                  title: _('Grant Wizard'),
+                  title: gettext('Grant Wizard'),
                   /* Main Wizard Title */
                   width: '',
                   height: '',
@@ -1132,12 +1144,12 @@ define([
                 // Callback for finish button
                 onFinish: function() {
                   var m = newModel,
-                    d = m.toJSON('GET');
+                    grant_data = m.toJSON('GET');
 
                   // Save model
-                  if (d && !_.isEmpty(d) && !_.isUndefined(d.objects)) {
+                  if (grant_data && !_.isEmpty(grant_data) && !_.isUndefined(grant_data.objects)) {
                     m.save({}, {
-                      attrs: d,
+                      attrs: grant_data,
                       validate: false,
                       cache: false,
                       success: function() {
@@ -1146,7 +1158,7 @@ define([
                         self.releaseObjects();
                         self.close();
                       },
-                      error: function(m, jqxhr) {
+                      error: function(model, jqxhr) {
                         Alertify.pgNotifier(
                           'error', jqxhr,
                           gettext('Error saving properties')
@@ -1179,7 +1191,6 @@ define([
           };
         });
       }
-
       // Call Grant Wizard Dialog and set dimensions for wizard
       Alertify.wizardDialog(true).resizeTo(pgBrowser.stdW.lg,pgBrowser.stdH.lg);
     },

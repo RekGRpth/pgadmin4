@@ -2,13 +2,15 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
 
 import _ from 'underscore';
 import { getTreeNodeHierarchyFromIdentifier } from 'sources/tree/pgadmin_tree_node';
+import $ from 'jquery';
+
 
 export function parseShortcutValue(obj) {
   var shortcut = '';
@@ -17,6 +19,64 @@ export function parseShortcutValue(obj) {
   if (obj.control) { shortcut += 'ctrl+'; }
   shortcut += obj.key.char.toLowerCase();
   return shortcut;
+}
+
+export function handleKeyNavigation(event) {
+  let wizardHeader = $(event.currentTarget).find('.wizard-header');
+  let wizardFooter = $(event.currentTarget).find('.wizard-footer');
+  let gridElement = $(event.currentTarget).find('.select-row-cell:first');
+  let gridElementLast = $(event.currentTarget).find('.select-row-cell:last');
+
+  let firstWizardHeaderButton = $(wizardHeader).find('button:enabled:first');
+  let lastWizardHeaderButton = $(wizardHeader).find('button:enabled:last');
+  let lastWizardFooterBtn = $(wizardFooter).find('button:enabled:last');
+  let firstWizardFooterBtn = $(wizardFooter).find('button:enabled:first');
+
+
+  if (event.shiftKey && event.keyCode === 9) {
+    // Move backwards
+    if(firstWizardHeaderButton && $(firstWizardHeaderButton).is($(event.target))) {
+      if (lastWizardFooterBtn) {
+        $(lastWizardFooterBtn).focus();
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    else if ($(firstWizardFooterBtn).is($(event.target))){
+      if ($(gridElement).find('.custom-control-input').is(':visible')){
+        $(gridElementLast).find('.custom-control-input').focus();
+        event.preventDefault();
+        event.stopPropagation();
+      }else if ($(event.currentTarget).find('.wizard-content').find('.CodeMirror-scroll').is(':visible')){
+        $(lastWizardHeaderButton).focus();
+      }
+    }
+  } else if (event.keyCode === 9) {
+    // Move forwards
+    // If taget is last button then goto first element
+    if(lastWizardFooterBtn && $(lastWizardFooterBtn).is($(event.target))) {
+      $(firstWizardHeaderButton).focus();
+      event.preventDefault();
+      event.stopPropagation();
+    }else if (event.target.innerText == 'Name'){
+      if ($(gridElement).find('.custom-control-input').is(':visible')){
+        $(gridElement).find('.custom-control-input').focus();
+      }else {
+        $(firstWizardFooterBtn).focus();
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    } else if(event.target.tagName == 'DIV') {
+      $(event.currentTarget).find('.custom-control-input:first').trigger('focus');
+      event.preventDefault();
+      event.stopPropagation();
+    } else if(event.target.tagName == 'TEXTAREA'){
+      $(firstWizardFooterBtn).focus();
+    }
+  } else if (event.keyCode === 27){
+    //close the wizard when esc key is pressed
+    $(wizardHeader).find('button.ajs-close').click();
+  }
 }
 
 export function findAndSetFocus(container) {
@@ -32,15 +92,17 @@ export function findAndSetFocus(container) {
      * browser. For eg, in safari focus() works only when element has
      * tabindex="0", whereas in Chrome it works in any case
      */
+
     if (first_el.length == 0) {
       first_el = container
         .find(`
-          .pgadmin-controls:first input:enabled,
           .pgadmin-controls:first .btn:not(.toggle),
-          .CodeMirror-scroll`)
-        .find('*[tabindex]:not([tabindex="-1"])');
+          .pgadmin-controls:first,
+          .ajs-commands:first,
+          .CodeMirror-scroll,
+          .pgadmin-wizard`)
+        .find('*[tabindex]:not([tabindex="-1"]),input:enabled');
     }
-
     if(first_el.length > 0) {
       first_el[0].focus();
     } else {
@@ -119,7 +181,7 @@ export function parseFuncParams(label) {
       paramName = '',
       paramModes = ['IN', 'OUT', 'INOUT', 'VARIADIC'];
 
-    paramStart = i = 0;
+    i = 0;
     while(i < paramStr.length) {
       if(paramStr[i] == '"') {
         /* If quotes, skip all the chars till next quote */
@@ -198,4 +260,103 @@ export function fully_qualify(pgBrowser, data, item) {
   } else {
     return quote_ident(data._label);
   }
+}
+
+export function getRandomInt(min, max) {
+  min = Math.ceil(min);
+  max = Math.floor(max);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+export function titleize(i_str) {
+  if(i_str === '' || i_str === null) return i_str;
+  return i_str.split(' ')
+    .map(w => w[0].toUpperCase() + w.substr(1).toLowerCase())
+    .join(' ');
+}
+
+export function sprintf(i_str) {
+  try {
+    let replaceArgs = arguments;
+    return i_str.split('%s')
+      .map(function(w, i) {
+        if(i > 0) {
+          if(i < replaceArgs.length) {
+            return [replaceArgs[i], w].join('');
+          } else {
+            return ['%s', w].join('');
+          }
+        } else {
+          return w;
+        }
+      })
+      .join('');
+  } catch(e) {
+    console.error(e);
+    return i_str;
+  }
+}
+
+// Modified ref: http://stackoverflow.com/a/1293163/2343 to suite pgAdmin.
+// This will parse a delimited string into an array of arrays.
+export function CSVToArray( strData, strDelimiter, quoteChar){
+  strDelimiter = strDelimiter || ',';
+  quoteChar = quoteChar || '"';
+
+  // Create a regular expression to parse the CSV values.
+  var objPattern = new RegExp(
+    (
+    // Delimiters.
+      '(\\' + strDelimiter + '|\\r?\\n|\\r|^)' +
+            // Quoted fields.
+            (quoteChar == '"' ? '(?:"([^"]*(?:""[^"]*)*)"|' : '(?:\'([^\']*(?:\'\'[^\']*)*)\'|') +
+            // Standard fields.
+            (quoteChar == '"' ? '([^"\\' + strDelimiter + '\\r\\n]*))': '([^\'\\' + strDelimiter + '\\r\\n]*))')
+    ),
+    'gi'
+  );
+
+  // Create an array to hold our data. Give the array
+  // a default empty first row.
+  var arrData = [[]];
+
+  // Create an array to hold our individual pattern
+  // matching groups.
+  var arrMatches = null;
+
+  // Keep looping over the regular expression matches
+  // until we can no longer find a match.
+  while ((arrMatches = objPattern.exec( strData ))){
+    // Get the delimiter that was found.
+    var strMatchedDelimiter = arrMatches[ 1 ];
+
+    // Check to see if the given delimiter has a length
+    // (is not the start of string) and if it matches
+    // field delimiter. If id does not, then we know
+    // that this delimiter is a row delimiter.
+    if (strMatchedDelimiter.length && strMatchedDelimiter !== strDelimiter){
+      // Since we have reached a new row of data,
+      // add an empty row to our data array.
+      arrData.push( [] );
+    }
+
+    var strMatchedValue;
+
+    // Now that we have our delimiter out of the way,
+    // let's check to see which kind of value we
+    // captured (quoted or unquoted).
+    if (arrMatches[ 2 ]){
+      // We found a quoted value. When we capture
+      // this value, unescape any quotes.
+      strMatchedValue = arrMatches[ 2 ].replace(new RegExp( quoteChar+quoteChar, 'g' ), quoteChar);
+    } else {
+      // We found a non-quoted value.
+      strMatchedValue = arrMatches[ 3 ];
+    }
+    // Now that we have our value string, let's add
+    // it to the data array.
+    arrData[ arrData.length - 1 ].push( strMatchedValue );
+  }
+  // Return the parsed data.
+  return arrData;
 }

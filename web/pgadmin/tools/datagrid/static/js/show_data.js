@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -20,6 +20,7 @@ export function showDataGrid(
   alertify,
   connectionData,
   aciTreeIdentifier,
+  transId,
   filter=false,
   preferences=null
 ) {
@@ -42,43 +43,25 @@ export function showDataGrid(
     return;
   }
 
-  const baseUrl = generateUrl(connectionData, node.getData(), parentData);
-  const grid_title = generateDatagridTitle(pgBrowser, aciTreeIdentifier);
-
+  const gridUrl = generateUrl(transId, connectionData, node.getData(), parentData);
+  const queryToolTitle = generateDatagridTitle(pgBrowser, aciTreeIdentifier);
   if(filter) {
-    initFilterDialog(alertify, pgBrowser, preferences);
+    initFilterDialog(alertify, pgBrowser);
 
     const validateUrl = generateFilterValidateUrl(node.getData(), parentData);
 
     let okCallback = function(sql) {
-      datagrid.create_transaction(
-        baseUrl,
-        null,
-        'false',
-        parentData.server.server_type,
-        '',
-        grid_title,
-        sql,
-        false
-      );
+      datagrid.launch_grid(transId, gridUrl, false, queryToolTitle, null, sql);
     };
 
     $.get(url_for('datagrid.filter'),
       function(data) {
-        alertify.filterDialog(`Data Filter - ${grid_title}`, data, validateUrl, preferences, okCallback)
+        alertify.filterDialog(gettext('Data Filter - %s', queryToolTitle), data, validateUrl, preferences, okCallback)
           .resizeTo(pgBrowser.stdW.sm,pgBrowser.stdH.sm);
       }
     );
   } else {
-    datagrid.create_transaction(
-      baseUrl,
-      null,
-      'false',
-      parentData.server.server_type,
-      '',
-      grid_title,
-      ''
-    );
+    datagrid.launch_grid(transId, gridUrl, false, queryToolTitle);
   }
 }
 
@@ -96,17 +79,21 @@ export function retrieveNameSpaceName(parentData) {
   return '';
 }
 
-function generateUrl(connectionData, nodeData, parentData) {
-  const url_params = {
-    'cmd_type': connectionData.mnuid,
-    'obj_type': nodeData._type,
-    'sgid': parentData.server_group._id,
-    'sid': parentData.server._id,
-    'did': parentData.database._id,
-    'obj_id': nodeData._id,
-  };
+function generateUrl(trans_id, connectionData, nodeData, parentData) {
+  let url_endpoint = url_for('datagrid.panel', {
+    'trans_id': trans_id,
+  });
 
-  return url_for('datagrid.initialize_datagrid', url_params);
+  url_endpoint += `?is_query_tool=${false}`
+    +`&cmd_type=${connectionData.mnuid}`
+    +`&obj_type=${nodeData._type}`
+    +`&obj_id=${nodeData._id}`
+    +`&sgid=${parentData.server_group._id}`
+    +`&sid=${parentData.server._id}`
+    +`&did=${parentData.database._id}`
+    +`&server_type=${parentData.server.server_type}`;
+
+  return url_endpoint;
 }
 
 function generateFilterValidateUrl(nodeData, parentData) {
@@ -136,12 +123,25 @@ function initFilterDialog(alertify, pgBrowser) {
         setup:function() {
           return {
             buttons:[{
+              text: '',
+              key: 112,
+              className: 'btn btn-primary-icon pull-left fa fa-question pg-alertify-icon-button',
+              attrs: {
+                name: 'dialog_help',
+                type: 'button',
+                label: gettext('Data Filter'),
+                'aria-label': gettext('Help'),
+                url: url_for('help.static', {
+                  'filename': 'viewdata_filter.html',
+                }),
+              },
+            },{
               text: gettext('Cancel'),
               key: 27,
               className: 'btn btn-secondary fa fa-times pg-alertify-button',
             },{
               text: gettext('OK'),
-              key: 13,
+              key: null,
               className: 'btn btn-primary fa fa-check pg-alertify-button',
             }],
             options: {
@@ -154,7 +154,19 @@ function initFilterDialog(alertify, pgBrowser) {
           };
         },
         build: function() {
-          alertify.pgDialogBuild.apply(this);
+          var that = this;
+          alertify.pgDialogBuild.apply(that);
+
+          // Set the tooltip of OK
+          $(that.__internal.buttons[2].element).attr('title', gettext('Use SHIFT + ENTER to apply filter...'));
+
+          // For sort/filter dialog we capture the keypress event
+          // and on "shift + enter" we clicked on "OK" button.
+          $(that.elements.body).on('keypress', function(evt) {
+            if (evt.shiftKey && evt.keyCode == 13) {
+              that.__internal.buttons[2].element.click();
+            }
+          });
         },
         prepare:function() {
           var that = this,
@@ -168,7 +180,7 @@ function initFilterDialog(alertify, pgBrowser) {
 
           this.setContent($content.get(0));
           // Disable OK button
-          that.__internal.buttons[1].element.disabled = true;
+          that.__internal.buttons[2].element.disabled = true;
 
           // Apply CodeMirror to filter text area.
           this.filter_obj = CodeMirror.fromTextArea($sql_filter.get(0), {
@@ -181,6 +193,7 @@ function initFilterDialog(alertify, pgBrowser) {
             lineWrapping: that.preferences.wrap_code,
             autoCloseBrackets: that.preferences.insert_pair_brackets,
             matchBrackets: that.preferences.brace_matching,
+            screenReaderLabel: gettext('Filter SQL'),
           });
 
           let sql_font_size = SqlEditorUtils.calcFontSize(that.preferences.sql_font_size);
@@ -194,9 +207,9 @@ function initFilterDialog(alertify, pgBrowser) {
 
           that.filter_obj.on('change', function() {
             if (that.filter_obj.getValue() !== '') {
-              that.__internal.buttons[1].element.disabled = false;
+              that.__internal.buttons[2].element.disabled = false;
             } else {
-              that.__internal.buttons[1].element.disabled = true;
+              that.__internal.buttons[2].element.disabled = true;
             }
           });
         },
@@ -229,11 +242,26 @@ function initFilterDialog(alertify, pgBrowser) {
                 }
               })
               .fail(function(e) {
-                alertify.alert(
-                  gettext('Validation Error'),
-                  e
-                );
+                if (e.status === 410){
+                  pgBrowser.report_error(gettext('Error filtering rows - %s.', e.statusText), e.responseJSON.errormsg);
+
+                } else {
+                  alertify.alert(
+                    gettext('Validation Error'),
+                    e
+                  );
+                }
+
               });
+          } else if(closeEvent.index == 0) {
+            /* help Button */
+            closeEvent.cancel = true;
+            pgBrowser.showHelp(
+              closeEvent.button.element.name,
+              closeEvent.button.element.getAttribute('url'),
+              null, null
+            );
+            return;
           }
         },
       };

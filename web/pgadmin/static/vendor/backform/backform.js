@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -19,10 +19,10 @@
 
   // Set up Backform appropriately for the environment. Start with AMD.
   if (typeof define === 'function' && define.amd) {
-    define(['underscore', 'jquery', 'backbone'], function(_, $, Backbone) {
+    define(['underscore', 'jquery', 'backbone'], function(underscore, $, Backbone) {
       // Export global even in AMD case in case this script is loaded with
       // others that may still expect a global Backform.
-      return factory(root, _, $, Backbone);
+      return factory(root, underscore, $, Backbone);
     });
 
   // Next for Node.js or CommonJS. jQuery may not be needed as a module.
@@ -71,7 +71,7 @@
 
   // Backform Form view
   // A collection of field models.
-  var Form = Backform.Form = Backbone.View.extend({
+  Backform.Form = Backbone.View.extend({
     fields: undefined,
     errorModel: undefined,
     tagName: "form",
@@ -100,8 +100,7 @@
       this.cleanup();
       this.$el.empty();
 
-      var form = this,
-          $form = this.$el,
+      var $form = this.$el,
           model = this.model,
           controls = this.controls;
 
@@ -193,6 +192,11 @@
       // (Optional - true/false/function returning boolean)
       // (Default Value: false)
       disabled: false,
+      // Make the input control readonly
+      // readonly control can receive focus whereas disabled cannot
+      // (Optional - true/false/function returning boolean)
+      // (Default Value: false)
+      readonly: false,
       // Visible
       // (Optional - true/false/function returning boolean)
       // (Default Value: true)
@@ -260,7 +264,6 @@
     },
     onChange: function(e) {
       var model = this.model,
-          $el = $(e.target),
           attrArr = this.field.get("name").split('.'),
           name = attrArr.shift(),
           path = attrArr.join('.'),
@@ -306,6 +309,7 @@
       // Evaluate the disabled, visible, and required option
       _.extend(data, {
         disabled: evalF(data.disabled, this.model),
+        readonly: evalF(data.readonly, this.model),
         visible:  evalF(data.visible, this.model),
         required: evalF(data.required, this.model)
       });
@@ -342,10 +346,7 @@
       this.clearInvalid();
 
       this.$el.find(':input').not('button').each(function(ix, el) {
-        var attrArr = $(el).attr('name').split('.'),
-          name = attrArr.shift(),
-          path = attrArr.join('.'),
-          error = self.keyPathAccessor(errorModel.toJSON(), $(el).attr('name'));
+        var error = self.keyPathAccessor(errorModel.toJSON(), $(el).attr('name'));
 
         if (_.isEmpty(error)) return;
 
@@ -400,9 +401,9 @@
 
   // Built-in controls
 
-  var UneditableInputControl = Backform.UneditableInputControl = Control;
+  Backform.UneditableInputControl = Control;
 
-  var HelpControl = Backform.HelpControl = Control.extend({
+  Backform.HelpControl = Control.extend({
     template: _.template([
       '<label class="<%=Backform.controlLabelClassName%>">&nbsp;</label>',
       '<div class="<%=Backform.controlsClassName%>">',
@@ -411,13 +412,13 @@
     ].join("\n"))
   });
 
-  var SpacerControl = Backform.SpacerControl = Control.extend({
+  Backform.SpacerControl = Control.extend({
     template: _.template([
       '<div class="<%=Backform.controlsClassName%>"></div>'
     ].join("\n"))
   });
 
-  var TextareaControl = Backform.TextareaControl = Control.extend({
+  Backform.TextareaControl = Control.extend({
     defaults: {
       label: "",
       maxlength: 4000,
@@ -427,7 +428,7 @@
     template: _.template([
       '<label class="<%=Backform.controlLabelClassName%>"><%=label%></label>',
       '<div class="<%=Backform.controlContainerClassName%>">',
-      '  <textarea class="<%=Backform.controlClassName%> <%=extraClasses.join(\' \')%>" name="<%=name%>" maxlength="<%=maxlength%>" placeholder="<%-placeholder%>" <%=disabled ? "disabled" : ""%> <%=required ? "required" : ""%>><%-value%></textarea>',
+      '  <textarea class="<%=Backform.controlClassName%> <%=extraClasses.join(\' \')%>" name="<%=name%>" maxlength="<%=maxlength%>" placeholder="<%-placeholder%>" <%=disabled ? "disabled" : ""%> <%=readonly ? "readonly" : ""%> <%=required ? "required" : ""%>><%-value%></textarea>',
       '  <% if (helpMessage && helpMessage.length) { %>',
       '    <span class="<%=Backform.helpMessageClassName%>"><%=helpMessage%></span>',
       '  <% } %>',
@@ -470,7 +471,7 @@
   });
 
   // Note: Value here is null or an array. Since jQuery val() returns either.
-  var MultiSelectControl = Backform.MultiSelectControl = SelectControl.extend({
+  Backform.MultiSelectControl = SelectControl.extend({
     defaults: {
       label: "",
       options: [], // List of options as [{label:<label>, value:<value>}, ...]
@@ -517,7 +518,7 @@
     template: _.template([
       '<label class="<%=Backform.controlLabelClassName%>"><%=label%></label>',
       '<div class="<%=Backform.controlContainerClassName%>">',
-      '  <input type="<%=type%>" class="<%=Backform.controlClassName%> <%=extraClasses.join(\' \')%>" name="<%=name%>" maxlength="<%=maxlength%>" value="<%-value%>" placeholder="<%-placeholder%>" <%=disabled ? "disabled" : ""%> <%=required ? "required" : ""%> />',
+      '  <input type="<%=type%>" class="<%=Backform.controlClassName%> <%=extraClasses.join(\' \')%>" name="<%=name%>" maxlength="<%=maxlength%>" value="<%-value%>" placeholder="<%-placeholder%>" <%=disabled ? "disabled" : ""%> <%=readonly ? "readonly aria-readonly=true" : ""%> <%=required ? "required" : ""%> />',
       '  <% if (helpMessage && helpMessage.length) { %>',
       '    <span class="<%=Backform.helpMessageClassName%>"><%=helpMessage%></span>',
       '  <% } %>',
@@ -541,11 +542,15 @@
       id: _.uniqueId('bf_')
     },
     template: _.template([
-      '<label class="<%=Backform.controlLabelClassName%>"><%=controlLabel%></label>',
+      '<div class="<%=Backform.controlLabelClassName%>"><%=controlLabel%></div>',
       '<div class="<%=Backform.controlContainerClassName%>">',
-      '  <div class="form-check">',
-      '    <input type="<%=type%>" class="form-check-input <%=extraClasses.join(\' \')%>" id="<%=id%>" name="<%=name%>" <%=value ? "checked=\'checked\'" : ""%> <%=disabled ? "disabled" : ""%> <%=required ? "required" : ""%> />',
-      '    <label class="form-check-label" for="<%=id%>"><%=label%></label>',
+      '  <div class="custom-control custom-checkbox <%= (label && label.length)?"":"custom-checkbox-no-label" %>">',
+      '    <input type="<%=type%>" id="<%=cId%>" class="custom-control-input <%=extraClasses.join(\' \')%>" name="<%=name%>" <%=value ? "checked=\'checked\'" : ""%> <%=disabled ? "disabled" : ""%> <%=readonly ? "readonly" : ""%> <%=required ? "required" : ""%> />',
+      '    <% if (label && label.length) { %>',
+      '       <label class="custom-control-label" for="<%=cId%>"><%=label%></label>',
+      '    <% } else { %>',
+      '       <label class="custom-control-label" for="<%=cId%>"><span class="sr-only"><%=controlLabel%></span></label>',
+      '    <% } %>',
       '  </div>',
       '</div>'
     ].join("\n")),
@@ -554,9 +559,9 @@
     }
   });
 
-  var CheckboxControl = Backform.CheckboxControl = BooleanControl;
+  Backform.CheckboxControl = BooleanControl;
 
-  var RadioControl = Backform.RadioControl = InputControl.extend({
+  Backform.RadioControl = InputControl.extend({
     defaults: {
       type: "radio",
       label: "",
@@ -570,9 +575,9 @@
       '  <% for (var i=0; i < options.length; i++) { %>',
       '    <% var option = options[i]; %>',
       '    <% var id = _.uniqueId("bf_"); %>',
-      '  <div class="form-check">',
-      '    <input type="<%=type%>" class="<%=extraClasses.join(\' \')%>" id="<%=id%>" name="<%=name%>" value="<%-formatter.fromRaw(option.value)%>" <%=rawValue == option.value ? "checked=\'checked\'" : ""%> <%=disabled ? "disabled" : ""%> <%=required ? "required" : ""%> />',
-      '    <label class="form-check-label" for="<%=id%>"><%-option.label%></label>',
+      '  <div class="custom-control custom-radio">',
+      '    <input type="<%=type%>" class="custom-control-input <%=extraClasses.join(\' \')%>" id="<%=cId%><%=i%>" name="<%=name%>" value="<%-formatter.fromRaw(option.value)%>" <%=rawValue == option.value ? "checked=\'checked\'" : ""%> <%=disabled ? "disabled" : ""%> <%=readonly ? "disabled" : ""%> <%=required ? "required" : ""%> />',
+      '    <label class="custom-control-label" for="<%=cId%><%=i%>"><%-option.label%></label>',
       '  </div>',
       '  <% } %>',
       '  <% if (helpMessage && helpMessage.length) { %>',
@@ -595,7 +600,7 @@
   });
 
   // Requires the Bootstrap Datepicker to work.
-  var DatepickerControl = Backform.DatepickerControl = InputControl.extend({
+  Backform.DatepickerControl = InputControl.extend({
     defaults: {
       type: "text",
       label: "",
@@ -617,7 +622,7 @@
     }
   });
 
-  var ButtonControl = Backform.ButtonControl = Control.extend({
+  Backform.ButtonControl = Control.extend({
     defaults: {
       type: "submit",
       label: "Submit",

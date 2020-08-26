@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -44,7 +44,7 @@ function(gettext, _, $, Backbone, Backform, Backgrid, Alertify, pgAdmin, pgNode)
     case 'enum':
       model.set({'value': value}, {silent:true});
       var options = [],
-        enumVals = variable.enumvals;
+        enumVals = variable && variable.enumvals;
 
       _.each(enumVals, function(enumVal) {
         options.push([enumVal, enumVal]);
@@ -87,7 +87,8 @@ function(gettext, _, $, Backbone, Backform, Backgrid, Alertify, pgAdmin, pgNode)
         setTimeout(function() {
           self.columns.each(function(col) {
             if (col.get('name') == 'value') {
-
+              // Reset old value
+              self.model.set({'value': undefined}, {silent:true});
               var idx = self.columns.indexOf(col),
                 cf = col.get('cellFunction'),
                 cell = new (cf.apply(col, [self.model]))({
@@ -202,7 +203,7 @@ function(gettext, _, $, Backbone, Backform, Backgrid, Alertify, pgAdmin, pgNode)
       } else if (_.isUndefined(this.get('value')) ||
               _.isNull(this.get('value')) ||
                 String(this.get('value')).replace(/^\s+|\s+$/g, '') == '') {
-        msg = ('Please enter a value for the parameter.');
+        msg = gettext('Please enter a value for the parameter.');
         this.errorModel.set('value', msg);
         this.errorModel.unset('name');
       } else {
@@ -336,8 +337,8 @@ function(gettext, _, $, Backbone, Backform, Backgrid, Alertify, pgAdmin, pgNode)
           var self = this,
             titleTmpl = _.template([
               '<div class=\'subnode-header\'>',
-              '<label class=\'control-label\'><%-label%></label>',
-              '<button class=\'btn btn-sm-sq btn-secondary add fa fa-plus\' title=\'' + _('Add new row') + '\' <%=canAdd ? \'\' : \'disabled="disabled"\'%>></button>',
+              '<span class=\'control-label\'><%-label%></span>',
+              '<button class=\'btn btn-sm-sq btn-primary-icon add fa fa-plus\' title=\'' + gettext('Add new row') + '\' <%=canAdd ? \'\' : \'disabled="disabled"\'%>><span class="sr-only">' + gettext('Add new row') + '</span></button>',
               '</div>'].join('\n')),
             $gridBody =
             $('<div class=\'pgadmin-control-group backgrid form-group col-12 object subnode\'></div>').append(

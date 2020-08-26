@@ -2,22 +2,17 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-import sys
-
-from pgadmin.misc.bgprocess.processes import BatchProcess, IProcessDesc
+from pgadmin.misc.bgprocess.processes import BatchProcess, IProcessDesc, \
+    current_app
 from pgadmin.tools.maintenance import Message
 from pgadmin.utils.route import BaseTestGenerator
 from pickle import dumps, loads
-
-if sys.version_info < (3, 3):
-    from mock import patch, MagicMock
-else:
-    from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class BatchProcessTest(BaseTestGenerator):
@@ -52,62 +47,62 @@ class BatchProcessTest(BaseTestGenerator):
                  cmd="VACUUM VERBOSE;\n"
              ),
              expected_msg="Maintenance (Vacuum)",
-             expetced_details_cmd='VACUUM VERBOSE;'
+             expected_details_cmd='VACUUM VERBOSE;'
          ))
     ]
 
     @patch('pgadmin.misc.bgprocess.processes.Popen')
-    @patch('pgadmin.misc.bgprocess.processes.current_app')
     @patch('pgadmin.misc.bgprocess.processes.db')
     @patch('pgadmin.tools.maintenance.Server')
     @patch('pgadmin.misc.bgprocess.processes.current_user')
     def runTest(self, current_user_mock, server_mock, db_mock,
-                current_app_mock, popen_mock):
-        current_user_mock.id = 1
-        current_app_mock.PGADMIN_RUNTIME = False
+                popen_mock):
+        with self.app.app_context():
+            current_user_mock.id = 1
+            current_app.PGADMIN_RUNTIME = False
 
-        class TestMockServer():
-            def __init__(self, name, host, port):
-                self.name = name
-                self.host = host
-                self.port = port
+            class TestMockServer():
+                def __init__(self, name, host, port):
+                    self.name = name
+                    self.host = host
+                    self.port = port
 
-        def db_session_add_mock(j):
-            cmd_obj = loads(j.desc)
-            self.assertTrue(isinstance(cmd_obj, IProcessDesc))
-            self.assertEqual(cmd_obj.query, self.class_params['cmd'])
-            self.assertEqual(cmd_obj.message, self.expected_msg)
-            self.assertEqual(cmd_obj.data, self.class_params['data'])
+            def db_session_add_mock(j):
+                cmd_obj = loads(j.desc)
+                self.assertTrue(isinstance(cmd_obj, IProcessDesc))
+                self.assertEqual(cmd_obj.query, self.class_params['cmd'])
+                self.assertEqual(cmd_obj.message, self.expected_msg)
+                self.assertEqual(cmd_obj.data, self.class_params['data'])
 
-        mock_obj = TestMockServer(self.class_params['username'],
-                                  self.class_params['host'],
-                                  self.class_params['port'])
-        mock_result = server_mock.query.filter_by.return_value
-        mock_result.first.return_value = mock_obj
+            mock_obj = TestMockServer(self.class_params['username'],
+                                      self.class_params['host'],
+                                      self.class_params['port'])
+            mock_result = server_mock.query.filter_by.return_value
+            mock_result.first.return_value = mock_obj
 
-        db_mock.session.add.side_effect = db_session_add_mock
-        db_mock.session.commit = MagicMock(return_value=True)
+            db_mock.session.add.side_effect = db_session_add_mock
+            db_mock.session.commit = MagicMock(return_value=True)
 
-        maintenance_obj = Message(
-            self.class_params['sid'],
-            self.class_params['data'],
-            self.class_params['cmd']
-        )
+            maintenance_obj = Message(
+                self.class_params['sid'],
+                self.class_params['data'],
+                self.class_params['cmd']
+            )
 
-        p = BatchProcess(
-            desc=maintenance_obj,
-            cmd=self.class_params['cmd'],
-            args=self.class_params['args']
-        )
+            p = BatchProcess(
+                desc=maintenance_obj,
+                cmd=self.class_params['cmd'],
+                args=self.class_params['args']
+            )
 
-        # Check that _create_process has been called
-        self.assertTrue(db_mock.session.add.called)
+            # Check that _create_process has been called
+            self.assertTrue(db_mock.session.add.called)
 
-        # Check start method
-        self._check_start(popen_mock, p, maintenance_obj)
+            # Check start method
+            self._check_start(popen_mock, p, maintenance_obj)
 
-        # Check list method
-        self._check_list(p, maintenance_obj)
+            # Check list method
+            self._check_list(p, maintenance_obj)
 
     @patch('pgadmin.misc.bgprocess.processes.Process')
     def _check_start(self, popen_mock, p, maintenance_obj, process_mock):

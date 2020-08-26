@@ -2,13 +2,13 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
-define(['sources/selection/range_selection_helper'],
-  function (RangeSelectionHelper) {
+define(['sources/selection/range_selection_helper', 'json-bignumber'],
+  function (RangeSelectionHelper, JSONBigNumber) {
     return {
       getUnion: function (allRanges) {
         if (_.isEmpty(allRanges)) {
@@ -66,7 +66,21 @@ define(['sources/selection/range_selection_helper'],
         }.bind(this));
       },
 
-      rangesToCsv: function (data, columnDefinitions, selectedRanges, CSVOptions) {
+      getHeaderData: function (columnDefinitions, CSVOptions) {
+        var headerData = [],
+          field_separator = CSVOptions.field_separator || '\t',
+          quote_char = CSVOptions.quote_char || '"';
+
+        _.each(columnDefinitions, function(col) {
+          if(col.display_name && col.selected) {
+            headerData.push(quote_char + col.display_name + quote_char);
+          }
+        });
+
+        return headerData.join(field_separator);
+      },
+
+      rangesToCsv: function (data, columnDefinitions, selectedRanges, CSVOptions, copyWithHeader) {
 
         var rowRangeBounds = selectedRanges.map(function (range) {
           return [range.fromRow, range.toRow];
@@ -83,6 +97,13 @@ define(['sources/selection/range_selection_helper'],
           var field_separator = CSVOptions.field_separator || '\t';
           return rowData.join(field_separator);
         });
+
+        if (copyWithHeader) {
+          var headerData = '';
+          headerData = this.getHeaderData(columnDefinitions, CSVOptions);
+
+          return headerData + '\n' + csvRows.join('\n');
+        }
 
         return csvRows.join('\n');
       },
@@ -114,23 +135,29 @@ define(['sources/selection/range_selection_helper'],
 
       csvCell: function (data, columnDefinitions, CSVOptions, rowId, colId) {
         var val = data[rowId][columnDefinitions[colId].field],
+          cell_type = columnDefinitions[colId].cell || '',
           quoting = CSVOptions.quoting || 'strings',
           quote_char = CSVOptions.quote_char || '"';
 
+        const escape = (iStr) => {
+          return (quote_char == '"') ?
+            iStr.replace(/\"/g, '""') : iStr.replace(/\'/g, '\'\'');
+        };
+
         if (quoting == 'all') {
           if (val && _.isObject(val)) {
-            val = quote_char + JSON.stringify(val) + quote_char;
+            val = quote_char + JSONBigNumber.stringify(val) + quote_char;
           } else if (val) {
-            val = quote_char + val.toString() + quote_char;
+            val = quote_char + escape(val.toString()) + quote_char;
           } else if (_.isNull(val) || _.isUndefined(val)) {
             val = '';
           }
         }
         else if(quoting == 'strings') {
           if (val && _.isObject(val)) {
-            val = quote_char + JSON.stringify(val) + quote_char;
-          } else if (val && typeof val != 'number' && typeof val != 'boolean') {
-            val = quote_char + val.toString() + quote_char;
+            val = quote_char + JSONBigNumber.stringify(val) + quote_char;
+          } else if (val && cell_type != 'number' && cell_type != 'boolean') {
+            val = quote_char + escape(val.toString()) + quote_char;
           } else if (_.isNull(val) || _.isUndefined(val)) {
             val = '';
           }

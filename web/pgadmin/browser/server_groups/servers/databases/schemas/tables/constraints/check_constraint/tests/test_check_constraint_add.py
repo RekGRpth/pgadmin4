@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-import json
 import uuid
 
 from pgadmin.browser.server_groups.servers.databases.schemas.tables.tests \
@@ -19,18 +18,25 @@ from pgadmin.browser.server_groups.servers.databases.tests import utils as \
 from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
 from regression.python_test_utils import test_utils as utils
+from unittest.mock import patch
+from . import utils as check_constraint_utils
 
 
 class CheckConstraintAddTestCase(BaseTestGenerator):
     """This class will add check constraint to existing table"""
     skip_on_database = ['gpdb']
-    scenarios = [
-        ('Add check constraint to table',
-         dict(url='/browser/check_constraint/obj/'))
-    ]
+    url = '/browser/check_constraint/obj/'
+
+    # Generates scenarios
+    scenarios = utils.generate_scenarios("check_constraint_create",
+                                         check_constraint_utils.test_cases)
 
     def setUp(self):
         super(CheckConstraintAddTestCase, self).setUp()
+        # Load test data
+        self.data = self.test_data
+
+        # Create db connection
         self.db_name = parent_node_dict["database"][-1]["db_name"]
         schema_info = parent_node_dict["schema"][-1]
         self.server_id = schema_info["server_id"]
@@ -40,6 +46,7 @@ class CheckConstraintAddTestCase(BaseTestGenerator):
         if not db_con['data']["connected"]:
             raise Exception("Could not connect to database to add a check "
                             "constraint.")
+        # Create schema
         self.schema_id = schema_info["schema_id"]
         self.schema_name = schema_info["schema_name"]
         schema_response = schema_utils.verify_schemas(self.server,
@@ -48,6 +55,8 @@ class CheckConstraintAddTestCase(BaseTestGenerator):
         if not schema_response:
             raise Exception("Could not find the schema to add a check "
                             "constraint.")
+
+        # Create table
         self.table_name = "table_checkconstraint_add_%s" % \
                           (str(uuid.uuid4())[1:8])
         self.table_id = tables_utils.create_table(self.server,
@@ -57,19 +66,37 @@ class CheckConstraintAddTestCase(BaseTestGenerator):
 
     def runTest(self):
         """This function will add check constraint to table."""
-        check_constraint_name = "test_checkconstraint_add_%s" % \
-                                (str(uuid.uuid4())[1:8])
-        data = {"name": check_constraint_name,
-                "consrc": " (id > 0)",
-                "convalidated": True,
-                "comment": "this is test comment"}
-        response = self.tester.post(
-            self.url + str(utils.SERVER_GROUP) + '/' +
-            str(self.server_id) + '/' + str(self.db_id) +
-            '/' + str(self.schema_id) + '/' + str(self.table_id) + '/',
-            data=json.dumps(data),
-            content_type='html/json')
-        self.assertEquals(response.status_code, 200)
+        if "name" in self.data:
+            check_constraint_name = \
+                self.data["name"] + (str(uuid.uuid4())[1:8])
+            self.data["name"] = check_constraint_name
+
+        if self.is_positive_test:
+            response = check_constraint_utils.api_create(self)
+
+            # Assert response
+            utils.assert_status_code(self, response)
+
+            # Verify in backend
+            cross_check_res = check_constraint_utils. \
+                verify_check_constraint(self.server, self.db_name,
+                                        self.data["name"])
+            self.assertIsNotNone(cross_check_res, "Could not find the newly"
+                                                  " created check constraint.")
+        else:
+            if self.mocking_required:
+                with patch(self.mock_data["function_name"],
+                           side_effect=eval(self.mock_data["return_value"])):
+                    response = check_constraint_utils.api_create(self)
+                    # Assert response
+                    utils.assert_status_code(self, response)
+                    utils.assert_error_message(self, response)
+            else:
+                if 'table_id' in self.data:
+                    self.table_id = self.data['table_id']
+                response = check_constraint_utils.api_create(self)
+                # Assert response
+                utils.assert_status_code(self, response)
 
     def tearDown(self):
         # Disconnect the database

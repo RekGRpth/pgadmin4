@@ -20,6 +20,9 @@ SELECT setval({{ seqname|qtLiteral }}, {{ data.current_value }}, true);
 {% if data.increment is defined %}
 {% set defquery = defquery+'\n    INCREMENT '+data.increment|string %}
 {% endif %}
+{% if data.start is defined %}
+{% set defquery = defquery+'\n    START '+data.start|string %}
+{% endif %}
 {% if data.minimum is defined %}
 {% set defquery = defquery+'\n    MINVALUE '+data.minimum|string %}
 {% endif %}
@@ -35,7 +38,7 @@ SELECT setval({{ seqname|qtLiteral }}, {{ data.current_value }}, true);
 {% set defquery = defquery+'\n    NO CYCLE' %}
 {% endif %}
 {% if defquery and defquery != '' %}
-ALTER SEQUENCE {{ conn|qtIdent(o_data.schema, data.name) }} {{ defquery }};
+ALTER SEQUENCE {{ conn|qtIdent(o_data.schema, data.name) }}{{ defquery }};
 
 {% endif %}
 {% if data.schema and data.schema != o_data.schema %}

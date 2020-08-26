@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -12,15 +12,12 @@ import re
 
 from flask import Flask, render_template
 from jinja2 import FileSystemLoader
+from collections import OrderedDict
 
 from pgadmin import VersionedTemplateLoader
 from pgadmin.utils.route import BaseTestGenerator
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
 
 
 class TestViewDataTemplates(BaseTestGenerator):
@@ -45,7 +42,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names='id',
-                    has_oids=False
+                    has_oids=False,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'
@@ -56,6 +54,7 @@ class TestViewDataTemplates(BaseTestGenerator):
                 select_template_path='sqleditor/sql/default/select.sql',
                 select_parameters=dict(
                     object_name='test_table',
+                    pgadmin_alias=pgadmin_alias,
                     nsp_name='test_schema',
                     primary_keys=OrderedDict([('id', 'int4')]),
                     has_oids=False
@@ -76,7 +75,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names='id, text',
-                    has_oids=False
+                    has_oids=False,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'
@@ -88,6 +88,7 @@ class TestViewDataTemplates(BaseTestGenerator):
                 select_parameters=dict(
                     object_name='test_table',
                     nsp_name='test_schema',
+                    pgadmin_alias=pgadmin_alias,
                     primary_keys=OrderedDict([('id', 'int4'),
                                               ('text', 'text')]),
                     has_oids=False
@@ -109,7 +110,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names='id',
-                    has_oids=True
+                    has_oids=True,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'
@@ -140,7 +142,8 @@ class TestViewDataTemplates(BaseTestGenerator):
                     nsp_name='test_schema',
                     data_type={'text': 'text', 'id': 'integer'},
                     pk_names=None,
-                    has_oids=True
+                    has_oids=True,
+                    type_cast_required={'text': 'True', 'id': 'True'}
                 ),
                 insert_expected_return_value='INSERT INTO'
                                              ' test_schema.test_table'

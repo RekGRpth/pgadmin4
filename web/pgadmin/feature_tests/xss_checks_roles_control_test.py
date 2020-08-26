@@ -2,14 +2,20 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
+
 import random
 
 from regression.python_test_utils import test_utils
 from regression.feature_utils.base_feature_test import BaseFeatureTest
+from regression.feature_utils.locators import NavMenuLocators
+from regression.feature_utils.tree_area_locators import TreeAreaLocators
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 
 class CheckRoleMembershipControlFeatureTest(BaseFeatureTest):
@@ -36,6 +42,7 @@ class CheckRoleMembershipControlFeatureTest(BaseFeatureTest):
                                self.role)
         test_utils.create_role(self.server, "postgres",
                                "<h1>test</h1>")
+        self.wait = WebDriverWait(self.page.driver, 20)
 
     def runTest(self):
         self.page.wait_for_spinner_to_disappear()
@@ -51,14 +58,21 @@ class CheckRoleMembershipControlFeatureTest(BaseFeatureTest):
                              "<h1>test</h1>")
 
     def _role_node_expandable(self, role):
-        self.page.toggle_open_server(self.server['name'])
+        self.page.expand_server_node(
+            self.server['name'], self.server['db_password'])
         self.page.toggle_open_tree_item('Login/Group Roles')
-        self.page.select_tree_item(role)
+        self.page.click_a_tree_node(
+            role, TreeAreaLocators.sub_nodes_of_login_group_node)
 
     def _check_role_membership_control(self):
-        self.page.driver.find_element_by_link_text("Object").click()
-        self.page.driver.find_element_by_link_text("Properties...").click()
-        # self.page.find_by_partial_link_text("Membership").click()
+        self.page.driver.find_element_by_link_text(
+            NavMenuLocators.object_menu_link_text).click()
+        property_object = self.wait.until(EC.visibility_of_element_located(
+            (By.CSS_SELECTOR, NavMenuLocators.properties_obj_css)))
+        property_object.click()
+        WebDriverWait(self.page.driver, 4).until(
+            EC.presence_of_element_located((
+                By.XPATH, "//a[normalize-space(text())='Membership']")))
         self.click_membership_tab()
         # Fetch the source code for our custom control
         source_code = self.page.find_by_xpath(
@@ -82,16 +96,8 @@ class CheckRoleMembershipControlFeatureTest(BaseFeatureTest):
 
     def click_membership_tab(self):
         """This will click and open membership tab of role"""
-        success = False
-        attempts = 3
-        while not success and attempts > 0:
-            membership_tab_link = self.page.find_by_xpath(
-                "//a[normalize-space(text())='Membership']")
-            membership_tab_link.click()
-            try:
-                self.page.find_by_xpath("//input[@placeholder="
-                                        "'Select members']")
-                break
-            except Exception as e:
-                attempts -= 1
-                pass
+
+        self.page.retry_click(
+            (By.LINK_TEXT,
+             "Membership"),
+            (By.XPATH, "//input[@placeholder='Select members']"))

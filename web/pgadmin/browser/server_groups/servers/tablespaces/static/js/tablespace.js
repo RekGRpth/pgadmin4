@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -73,7 +73,7 @@ define('pgadmin.node.tablespace', [
           applies: ['object', 'context'], callback: 'move_objects',
           category: 'move_tablespace', priority: 5,
           label: gettext('Move objects to...'),
-          icon: 'fa fa-exchange', data: {action: 'create'},
+          icon: 'fa fa-exchange-alt', data: {action: 'create'},
           enable: 'can_move_objects',
         },
         ]);
@@ -142,20 +142,20 @@ define('pgadmin.node.tablespace', [
                   // Initialize parent class
                   Backform.SqlTabControl.prototype.initialize.apply(this, arguments);
                 },
-                onTabChange: function(obj) {
+                onTabChange: function(sql_tab_obj) {
                   // Fetch the information only if the SQL tab is visible at the moment.
-                  if (this.dialog && obj.shown == this.tabIndex) {
+                  if (this.dialog && sql_tab_obj.shown == this.tabIndex) {
                     var self = this,
-                      args = self.model.toJSON();
+                      sql_tab_args = self.model.toJSON();
                     // Add existing tablespace
-                    args.old_tblspc = d.label;
+                    sql_tab_args.old_tblspc = d.label;
 
                     // Fetches modified SQL
                     $.ajax({
                       url: msql_url,
                       type: 'GET',
                       cache: false,
-                      data: args,
+                      data: sql_tab_args,
                       dataType: 'json',
                       contentType: 'application/json',
                     }).done(function(res) {
@@ -190,7 +190,7 @@ define('pgadmin.node.tablespace', [
                   return {
                     buttons: [{
                       text: '', key: 112,
-                      className: 'btn btn-secondary pull-left fa fa-question pg-alertify-icon-button',
+                      className: 'btn btn-primary-icon pull-left fa fa-question pg-alertify-icon-button',
                       attrs:{name:'dialog_help', type:'button', label: gettext('Users'),
                         url: url_for('help.static', {'filename': 'move_objects.html'})},
                     },{
@@ -226,15 +226,15 @@ define('pgadmin.node.tablespace', [
                   //Disbale Okay button
                   this.__internal.buttons[2].element.disabled = true;
                   // Find current/selected node
-                  var t = pgBrowser.tree,
-                    i = t.selected(),
-                    d = i && i.length == 1 ? t.itemData(i) : undefined,
-                    node = d && pgBrowser.Nodes[d._type];
+                  var tree = pgBrowser.tree,
+                    _i = tree.selected(),
+                    _d = _i && _i.length == 1 ? tree.itemData(_i) : undefined,
+                    node = _d && pgBrowser.Nodes[_d._type];
 
-                  if (!d)
+                  if (!_d)
                     return;
                   // Create treeInfo
-                  var treeInfo = node.getTreeNodeHierarchy.apply(node, [i]);
+                  var treeInfo = node.getTreeNodeHierarchy.apply(node, [_i]);
                   // Instance of backbone model
                   var newModel = new objModel({}, {node_info: treeInfo}),
                     fields = Backform.generateViewSchema(
@@ -261,7 +261,7 @@ define('pgadmin.node.tablespace', [
                       self.__internal.buttons[2].element.disabled = false;
                     } else {
                       self.__internal.buttons[2].element.disabled = true;
-                      this.errorModel.set('tblspc', gettext('Please select tablespace'));
+                      this.errorModel.set('tblspc', gettext('Please select tablespace.'));
                     }
                   });
                 },
@@ -275,20 +275,20 @@ define('pgadmin.node.tablespace', [
                   }
                   if (e.button.text === gettext('OK')) {
                     var self = this,
-                      args =  this.view.model.toJSON();
-                    args.old_tblspc = d.label;
+                      btn_args =  this.view.model.toJSON();
+                    btn_args.old_tblspc = d.label;
                     e.cancel = true;
                     Alertify.confirm(
                       gettext('Move objects...'),
                       gettext(
-                        'Are you sure you wish to move the objects from %(old_tablespace)s to %(new_tablespace)s?',
-                        {old_tablespace: args.old_tblspc, new_tablespace: args.tblspc}
+                        'Are you sure you wish to move the objects from %s to %s?',
+                        btn_args.old_tblspc, btn_args.tblspc
                       ),
                       function() {
                         $.ajax({
                           url: url,
                           method:'PUT',
-                          data:{'data': JSON.stringify(args) },
+                          data:{'data': JSON.stringify(btn_args) },
                         })
                           .done(function(res) {
                             if (res.success) {
@@ -319,6 +319,7 @@ define('pgadmin.node.tablespace', [
         defaults: {
           name: undefined,
           owner: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           spclocation: undefined,
           spcoptions: [],
@@ -342,11 +343,11 @@ define('pgadmin.node.tablespace', [
           type: 'text',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },{
           id: 'spclocation', label: gettext('Location'), cell: 'string',
           group: gettext('Definition'), type: 'text', mode: ['properties', 'edit','create'],
-          disabled: function(m) {
+          readonly: function(m) {
             // To disabled it in edit mode,
             // We'll check if model is new if yes then disabled it
             return !m.isNew();
@@ -357,7 +358,10 @@ define('pgadmin.node.tablespace', [
           select2: {allowClear: false},
         },{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System tablespace?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline',

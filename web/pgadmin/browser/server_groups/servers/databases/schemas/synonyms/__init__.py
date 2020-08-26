@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -23,11 +23,8 @@ from pgadmin.utils.ajax import make_json_response, \
 from pgadmin.utils.ajax import precondition_required
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 class SynonymModule(SchemaChildModule):
@@ -52,8 +49,8 @@ class SynonymModule(SchemaChildModule):
         initialized.
     """
 
-    NODE_TYPE = 'synonym'
-    COLLECTION_LABEL = gettext("Synonyms")
+    _NODE_TYPE = 'synonym'
+    _COLLECTION_LABEL = gettext("Synonyms")
 
     def __init__(self, *args, **kwargs):
         """
@@ -81,7 +78,7 @@ class SynonymModule(SchemaChildModule):
         Load the module script for database, when any of the database node is
         initialized.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
     @property
     def node_inode(self):
@@ -91,7 +88,7 @@ class SynonymModule(SchemaChildModule):
 blueprint = SynonymModule(__name__)
 
 
-class SynonymView(PGChildNodeView):
+class SynonymView(PGChildNodeView, SchemaDiffObjectCompare):
     """
     This class is responsible for generating routes for Synonym node
 
@@ -143,9 +140,14 @@ class SynonymView(PGChildNodeView):
     * dependent(gid, sid, did, scid):
       - This function will generate dependent list to show it in dependent
         pane for the selected Synonym node.
+
+    * compare(**kwargs):
+      - This function will compare the synonyms nodes from two
+        different schemas.
     """
 
     node_type = blueprint.node_type
+    node_label = "Synonym"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -202,6 +204,11 @@ class SynonymView(PGChildNodeView):
                     )
                 )
 
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
+
             # we will set template path for sql scripts
             self.template_path = 'synonyms/sql/#{0}#'.format(
                 self.manager.version)
@@ -227,7 +234,7 @@ class SynonymView(PGChildNodeView):
         """
 
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']), scid=scid)
+                                        self._PROPERTIES_SQL]), scid=scid)
         status, res = self.conn.execute_dict(SQL)
 
         if not status:
@@ -256,7 +263,7 @@ class SynonymView(PGChildNodeView):
 
         res = []
         SQL = render_template("/".join([self.template_path,
-                                        'nodes.sql']), scid=scid)
+                                        self._NODES_SQL]), scid=scid)
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=rset)
@@ -264,7 +271,7 @@ class SynonymView(PGChildNodeView):
         for row in rset['rows']:
             res.append(
                 self.blueprint.generate_browser_node(
-                    row['name'],
+                    row['oid'],
                     scid,
                     row['name'],
                     icon="icon-synonym"
@@ -289,7 +296,7 @@ class SynonymView(PGChildNodeView):
         """
 
         sql = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             syid=syid, scid=scid
         )
         status, rset = self.conn.execute_2darray(sql)
@@ -298,14 +305,12 @@ class SynonymView(PGChildNodeView):
             return internal_server_error(errormsg=rset)
 
         if len(rset['rows']) == 0:
-            return gone(
-                gettext("""Could not find the Synonym node.""")
-            )
+            return gone(self.not_found_error_msg())
 
         for row in rset['rows']:
             return make_json_response(
                 data=self.blueprint.generate_browser_node(
-                    row['name'],
+                    row['oid'],
                     scid,
                     row['name'],
                     icon="icon-%s" % self.node_type
@@ -385,26 +390,36 @@ class SynonymView(PGChildNodeView):
         Returns:
             JSON of selected synonym node
         """
+        status, res = self._fetch_properties(scid, syid)
+        if not status:
+            return res
 
+        return ajax_response(
+            response=res,
+            status=200
+        )
+
+    def _fetch_properties(self, scid, syid):
+        """
+        This function is used to fetch the properties of the specified object
+        :param scid:
+        :param syid:
+        :return:
+        """
         try:
             SQL = render_template("/".join([self.template_path,
-                                            'properties.sql']),
+                                            self._PROPERTIES_SQL]),
                                   scid=scid, syid=syid)
             status, res = self.conn.execute_dict(SQL)
-
             if not status:
-                return internal_server_error(errormsg=res)
+                return False, internal_server_error(errormsg=res)
 
-            if len(res['rows']) > 0:
-                return ajax_response(
-                    response=res['rows'][0],
-                    status=200
-                )
-            else:
-                return gone(
-                    gettext('The specified synonym could not be found.')
-                )
+            if len(res['rows']) == 0:
+                return False, gone(self.not_found_error_msg())
 
+            res['rows'][0]['is_sys_obj'] = (
+                res['rows'][0]['oid'] <= self.datlastsysoid)
+            return True, res['rows'][0]
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
@@ -434,13 +449,13 @@ class SynonymView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         try:
             SQL = render_template("/".join([self.template_path,
-                                            'create.sql']),
+                                            self._CREATE_SQL]),
                                   data=data, conn=self.conn, comment=False)
 
             status, res = self.conn.execute_scalar(SQL)
@@ -451,13 +466,16 @@ class SynonymView(PGChildNodeView):
             SQL = render_template("/".join([self.template_path,
                                             'get_parent_oid.sql']),
                                   data=data, conn=self.conn)
-            status, parent_id = self.conn.execute_scalar(SQL)
+            status, res = self.conn.execute_dict(SQL)
             if not status:
                 return internal_server_error(errormsg=res)
 
+            parent_id = res['rows'][0]['scid']
+            syid = res['rows'][0]['syid']
+
             return jsonify(
                 node=self.blueprint.generate_browser_node(
-                    data['name'],
+                    syid,
                     int(parent_id),
                     data['name'],
                     icon="icon-synonym"
@@ -467,7 +485,7 @@ class SynonymView(PGChildNodeView):
             return internal_server_error(errormsg=str(e))
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, syid=None):
+    def delete(self, gid, sid, did, scid, syid=None, only_sql=False):
         """
         This function will delete existing the synonym object
 
@@ -477,6 +495,7 @@ class SynonymView(PGChildNodeView):
            did: Database ID
            scid: Schema ID
            syid: Synonym ID
+           only_sql: Return SQL only if True
         """
         if syid is None:
             data = request.form if request.form else json.loads(
@@ -490,7 +509,7 @@ class SynonymView(PGChildNodeView):
         try:
             for syid in data['ids']:
                 SQL = render_template("/".join([self.template_path,
-                                                'properties.sql']),
+                                                self._PROPERTIES_SQL]),
                                       scid=scid, syid=syid)
 
                 status, res = self.conn.execute_dict(SQL)
@@ -501,14 +520,15 @@ class SynonymView(PGChildNodeView):
                 if len(res['rows']) > 0:
                     data = res['rows'][0]
                 else:
-                    return gone(
-                        gettext('The specified synonym could not be found.')
-                    )
+                    return gone(self.not_found_error_msg())
 
                 SQL = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       data=data,
                                       conn=self.conn)
+                if only_sql:
+                    return SQL
+
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -536,9 +556,9 @@ class SynonymView(PGChildNodeView):
         data = request.form if request.form else json.loads(
             request.data, encoding='utf-8'
         )
-        SQL = self.get_sql(gid, sid, data, scid, syid)
+        SQL, name = self.get_sql(gid, sid, data, scid, syid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
         try:
             if SQL and SQL.strip('\n') and SQL.strip(' '):
@@ -550,7 +570,7 @@ class SynonymView(PGChildNodeView):
                 node=self.blueprint.generate_browser_node(
                     syid,
                     scid,
-                    syid,
+                    name,
                     icon="icon-synonym"
                 )
             )
@@ -578,9 +598,9 @@ class SynonymView(PGChildNodeView):
                 data[k] = v
 
         try:
-            SQL = self.get_sql(gid, sid, data, scid, syid)
+            SQL, name = self.get_sql(gid, sid, data, scid, syid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             if SQL and SQL.strip('\n') and SQL.strip(' '):
                 return make_json_response(
@@ -594,18 +614,18 @@ class SynonymView(PGChildNodeView):
         """
         This function will genrate sql from model data
         """
+        name = None
         if syid is not None:
             SQL = render_template("/".join([self.template_path,
-                                            'properties.sql']),
+                                            self._PROPERTIES_SQL]),
                                   scid=scid, syid=syid)
             status, res = self.conn.execute_dict(SQL)
             if not status:
                 return internal_server_error(errormsg=res)
             if len(res['rows']) == 0:
-                return gone(
-                    gettext("Could not find the synonym on the server.")
-                )
+                return gone(self.not_found_error_msg())
             old_data = res['rows'][0]
+            name = old_data['name']
             # If target schema/object is not present then take it from
             # old data, it means it does not changed
             if 'synobjschema' not in data:
@@ -614,7 +634,7 @@ class SynonymView(PGChildNodeView):
                 data['synobjname'] = old_data['synobjname']
 
             SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=data, o_data=old_data, conn=self.conn
             )
         else:
@@ -626,13 +646,14 @@ class SynonymView(PGChildNodeView):
                 if arg not in data:
                     return "-- missing definition"
 
+            name = data['name']
             SQL = render_template("/".join([self.template_path,
-                                            'create.sql']), comment=False,
+                                            self._CREATE_SQL]), comment=False,
                                   data=data, conn=self.conn)
-        return SQL.strip('\n')
+        return SQL.strip('\n'), name
 
     @check_precondition
-    def sql(self, gid, sid, did, scid, syid):
+    def sql(self, gid, sid, did, scid, syid, **kwargs):
         """
         This function will generates reverse engineered sql for synonym object
 
@@ -642,9 +663,12 @@ class SynonymView(PGChildNodeView):
            did: Database ID
            scid: Schema ID
            syid: Synonym ID
+           json_resp:
         """
+        json_resp = kwargs.get('json_resp', True)
+
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               scid=scid, syid=syid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
@@ -653,13 +677,13 @@ class SynonymView(PGChildNodeView):
         if len(res['rows']) > 0:
             data = res['rows'][0]
         else:
-            return gone(
-                gettext('The specified synonym could not be found.')
-            )
+            return gone(self.not_found_error_msg())
 
         SQL = render_template("/".join([self.template_path,
-                                        'create.sql']),
+                                        self._CREATE_SQL]),
                               data=data, conn=self.conn, comment=True)
+        if not json_resp:
+            return SQL
 
         return ajax_response(response=SQL)
 
@@ -676,9 +700,7 @@ class SynonymView(PGChildNodeView):
             scid: Schema ID
             syid: Synonym ID
         """
-        dependents_result = self.get_dependents(
-            self.conn, syid, where="WHERE dep.objid=0::oid"
-        )
+        dependents_result = self.get_dependents(self.conn, syid)
 
         return ajax_response(
             response=dependents_result,
@@ -698,14 +720,66 @@ class SynonymView(PGChildNodeView):
             scid: Schema ID
             syid: Synonym ID
         """
-        dependencies_result = self.get_dependencies(
-            self.conn, syid, where="WHERE dep.objid=0::oid"
-        )
+        dependencies_result = self.get_dependencies(self.conn, syid)
 
         return ajax_response(
             response=dependencies_result,
             status=200
         )
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid):
+        """
+        This function will fetch the list of all the synonyms for
+        specified schema id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :return:
+        """
+        res = dict()
+        if self.manager.server_type != 'ppas':
+            return res
+
+        SQL = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]), scid=scid)
+        status, rset = self.conn.execute_2darray(SQL)
+        if not status:
+            return internal_server_error(errormsg=res)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(scid, row['oid'])
+            if status:
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_sql(gid, sid, data, scid, oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, syid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, syid=oid,
+                               json_resp=False)
+        return sql
+
+
+SchemaDiffRegistry(blueprint.node_type, SynonymView)
 SynonymView.register_node_view(blueprint)

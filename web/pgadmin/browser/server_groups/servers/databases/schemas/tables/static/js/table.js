@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -10,7 +10,7 @@
 define('pgadmin.node.table', [
   'pgadmin.tables.js/enable_disable_triggers',
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.alertifyjs', 'pgadmin.backform', 'pgadmin.backgrid',
   'pgadmin.tables.js/show_advanced_tab',
   'pgadmin.node.schema.dir/child','pgadmin.node.schema.dir/schema_child_tree_node',
@@ -18,7 +18,7 @@ define('pgadmin.node.table', [
   'pgadmin.node.constraints', 'pgadmin.browser.table.partition.utils',
 ], function(
   tableFunctions,
-  gettext, url_for, $, _, S, pgAdmin, pgBrowser, Alertify, Backform, Backgrid,
+  gettext, url_for, $, _, pgAdmin, pgBrowser, Alertify, Backform, Backgrid,
   ShowAdvancedTab, SchemaChild, SchemaChildTreeNode
 ) {
 
@@ -82,29 +82,29 @@ define('pgadmin.node.table', [
         },{
           name: 'truncate_table', node: 'table', module: this,
           applies: ['object', 'context'], callback: 'truncate_table',
-          category: 'Truncate', priority: 3, label: gettext('Truncate'),
+          category: gettext('Truncate'), priority: 3, label: gettext('Truncate'),
           icon: 'fa fa-eraser', enable : 'canCreate',
         },{
           name: 'truncate_table_cascade', node: 'table', module: this,
           applies: ['object', 'context'], callback: 'truncate_table_cascade',
-          category: 'Truncate', priority: 3, label: gettext('Truncate Cascade'),
+          category: gettext('Truncate'), priority: 3, label: gettext('Truncate Cascade'),
           icon: 'fa fa-eraser', enable : 'canCreate',
         },{
           // To enable/disable all triggers for the table
           name: 'enable_all_triggers', node: 'table', module: this,
           applies: ['object', 'context'], callback: 'enable_triggers_on_table',
-          category: 'Trigger(s)', priority: 4, label: gettext('Enable All'),
+          category: gettext('Trigger(s)'), priority: 4, label: gettext('Enable All'),
           icon: 'fa fa-check', enable : 'canCreate_with_trigger_enable',
         },{
           name: 'disable_all_triggers', node: 'table', module: this,
           applies: ['object', 'context'], callback: 'disable_triggers_on_table',
-          category: 'Trigger(s)', priority: 4, label: gettext('Disable All'),
+          category: gettext('Trigger(s)'), priority: 4, label: gettext('Disable All'),
           icon: 'fa fa-times', enable : 'canCreate_with_trigger_disable',
         },{
           name: 'reset_table_stats', node: 'table', module: this,
           applies: ['object', 'context'], callback: 'reset_table_stats',
           category: 'Reset', priority: 4, label: gettext('Reset Statistics'),
-          icon: 'fa fa-bar-chart', enable : 'canCreate',
+          icon: 'fa fa-chart-bar', enable : 'canCreate',
         },{
           name: 'count_table_rows', node: 'table', module: this,
           applies: ['object', 'context'], callback: 'count_table_rows',
@@ -165,7 +165,7 @@ define('pgadmin.node.table', [
 
           Alertify.confirm(
             gettext('Truncate Table'),
-            S(gettext('Are you sure you want to truncate table %s?')).sprintf(d.label).value(),
+            gettext('Are you sure you want to truncate table %s?', d.label),
             function (e) {
               if (e) {
                 var data = d;
@@ -210,7 +210,7 @@ define('pgadmin.node.table', [
 
           Alertify.confirm(
             gettext('Reset statistics'),
-            S(gettext('Are you sure you want to reset the statistics for table "%s"?')).sprintf(d._label).value(),
+            gettext('Are you sure you want to reset the statistics for table "%s"?', d._label),
             function (e) {
               if (e) {
                 var data = d;
@@ -291,6 +291,8 @@ define('pgadmin.node.table', [
           triggercount: undefined,
           relpersistence: undefined,
           fillfactor: undefined,
+          toast_tuple_target: undefined,
+          parallel_workers: undefined,
           reloftype: undefined,
           typname: undefined,
           labels: undefined,
@@ -298,8 +300,8 @@ define('pgadmin.node.table', [
           is_sys_table: undefined,
           coll_inherits: [],
           hastoasttable: true,
-          toast_autovacuum_enabled: false,
-          autovacuum_enabled: false,
+          toast_autovacuum_enabled: 'x',
+          autovacuum_enabled: 'x',
           primary_key: [],
           partitions: [],
           partition_type: 'range',
@@ -349,27 +351,9 @@ define('pgadmin.node.table', [
             return (!(d && d.label.match(/pg_global/)));
           },
           deps: ['is_partitioned'],
-          disabled: function(m) {
-            if(this.node_info &&  'catalog' in this.node_info) {
-              return true;
-            }
-
-            if(!_.isUndefined(m.node_info) && !_.isUndefined(m.node_info.server)
-              && !_.isUndefined(m.node_info.server.version) &&
-                m.node_info.server.version >= 120000 &&
-                m.get('is_partitioned')) {
-
-              setTimeout( function() {
-                m.set('spcname', undefined);
-              }, 10);
-
-              return true;
-            }
-
-            return false;
-          },
+          disabled: 'inSchema',
         },{
-          id: 'partition', type: 'group', label: gettext('Partition'),
+          id: 'partition', type: 'group', label: gettext('Partitions'),
           mode: ['edit', 'create'], min_version: 100000,
           visible: function(m) {
             // Always show in case of create mode
@@ -388,11 +372,15 @@ define('pgadmin.node.table', [
 
             return false;
           },
-          disabled: function(m) {
+          readonly: function(m) {
             if (!m.isNew())
               return true;
             return false;
           },
+        },{
+          id: 'is_sys_table', label: gettext('System table?'), cell: 'switch',
+          type: 'switch', mode: ['properties'],
+          disabled: 'inSchema',
         },{
           id: 'description', label: gettext('Comment'), type: 'multiline',
           mode: ['properties', 'create', 'edit'], disabled: 'inSchema',
@@ -400,8 +388,8 @@ define('pgadmin.node.table', [
           id: 'coll_inherits', label: gettext('Inherited from table(s)'),
           url: 'get_inherits', type: 'array', group: gettext('Columns'),
           disabled: 'checkInheritance', deps: ['typname', 'is_partitioned'],
-          mode: ['create', 'edit'],
-          select2: { multiple: true, allowClear: true,
+          mode: ['create', 'edit'], first_empty: false,
+          select2: { multiple: true, allowClear: true, first_empty: false,
             placeholder: gettext('Select to inherit from...')},
           transform: function(data, cell) {
             var control = cell || this,
@@ -480,7 +468,52 @@ define('pgadmin.node.table', [
               return tbl_oid;
             },
           }),
-        }, {
+        },
+        {
+          id: 'rlspolicy', label: gettext('RLS Policy?'), cell: 'switch',
+          type: 'switch', mode: ['properties','edit', 'create'],
+          group: gettext('advanced'),
+          visible: function(m) {
+            if(!_.isUndefined(m.node_info) && !_.isUndefined(m.node_info.server)
+              && !_.isUndefined(m.node_info.server.version) &&
+                m.node_info.server.version >= 90500)
+              return true;
+
+            return false;
+          },
+          disabled: function(m) {
+            if(!_.isUndefined(m.node_info) && !_.isUndefined(m.node_info.server)
+              && !_.isUndefined(m.node_info.server.version) &&
+                m.node_info.server.version < 90500)
+              return true;
+
+            return m.inSchema();
+          },
+        },
+        {
+          id: 'forcerlspolicy', label: gettext('Force RLS Policy?'), cell: 'switch',
+          type: 'switch', mode: ['properties','edit', 'create'], deps: ['rlspolicy'],
+          group: gettext('advanced'),
+          visible: function(m) {
+            if(!_.isUndefined(m.node_info) && !_.isUndefined(m.node_info.server)
+              && !_.isUndefined(m.node_info.server.version) &&
+                m.node_info.server.version >= 90500)
+              return true;
+
+            return false;
+          },
+          disabled: function(m) {
+            if (m.get('rlspolicy')){
+              return false;
+            }
+            setTimeout(function() {
+              m.set('forcerlspolicy', false);
+            }, 10);
+
+            return true;
+          },
+        },
+        {
           id: 'advanced', label: gettext('Advanced'), type: 'group',
           visible: ShowAdvancedTab.show_advanced_tab,
         }, {
@@ -583,8 +616,8 @@ define('pgadmin.node.table', [
                     var removedCols = primary_key_column_coll.where({column:column_name});
                     if (removedCols.length > 0) {
                       primary_key_column_coll.remove(removedCols);
-                      _.each(removedCols, function(m) {
-                        m.destroy();
+                      _.each(removedCols, function(local_model) {
+                        local_model.destroy();
                       });
                       if (primary_key_column_coll.length == 0) {
                         /* Ideally above line of code should be "primary_key_coll.reset()".
@@ -665,7 +698,7 @@ define('pgadmin.node.table', [
 
               return true;
             },
-            columns : ['name', 'columns'],
+            columns : ['name', 'columns','references_table_name'],
             canAddRow: function(m) {
               // User can only add if there is at least one column with name.
               var columns = m.get('columns');
@@ -789,8 +822,34 @@ define('pgadmin.node.table', [
         },{
           id: 'fillfactor', label: gettext('Fill factor'), type: 'int',
           mode: ['create', 'edit'], min: 10, max: 100,
-          disabled: 'inSchema', group: gettext('advanced'),
+          group: gettext('advanced'),
+          disabled: function(m) {
+            if(m.get('is_partitioned')) {
+              return true;
+            }
+            return m.inSchema();
+          },
         },{
+          id: 'toast_tuple_target', label: gettext('Toast tuple target'), type: 'int',
+          mode: ['create', 'edit'], min: 128, min_version: 110000,
+          group: gettext('advanced'),
+          disabled: function(m) {
+            if(m.get('is_partitioned')) {
+              return true;
+            }
+            return m.inSchema();
+          },
+        },{
+          id: 'parallel_workers', label: gettext('Parallel workers'), type: 'int',
+          mode: ['create', 'edit'], group: gettext('advanced'), min_version: 90600,
+          disabled: function(m) {
+            if(m.get('is_partitioned')) {
+              return true;
+            }
+            return m.inSchema();
+          },
+        },
+        {
           id: 'relhasoids', label: gettext('Has OIDs?'), cell: 'switch',
           type: 'switch', mode: ['properties', 'create', 'edit'],
           group: gettext('advanced'),
@@ -842,37 +901,33 @@ define('pgadmin.node.table', [
           type: 'switch', mode: ['properties'], group: gettext('advanced'),
           disabled: 'inSchema',
         },{
-          id: 'is_sys_table', label: gettext('System table?'), cell: 'switch',
-          type: 'switch', mode: ['properties'],
-          disabled: 'inSchema',
-        },{
           type: 'nested', control: 'fieldset', label: gettext('Like'),
           group: gettext('advanced'),
           schema:[{
             id: 'like_relation', label: gettext('Relation'),
-            type: 'text', mode: ['create', 'edit'], deps: ['typname'],
+            type: 'text', mode: ['create'], deps: ['typname', 'like_relation'],
             control: 'node-ajax-options', url: 'get_relations',
             disabled: 'isLikeDisable', group: gettext('Like'),
           },{
             id: 'like_default_value', label: gettext('With default values?'),
-            type: 'switch', mode: ['create', 'edit'], deps: ['typname'],
-            disabled: 'isLikeDisable', group: gettext('Like'),
+            type: 'switch', mode: ['create'], deps: ['like_relation'],
+            disabled: 'isRelationDisable', group: gettext('Like'),
           },{
             id: 'like_constraints', label: gettext('With constraints?'),
-            type: 'switch', mode: ['create', 'edit'], deps: ['typname'],
-            disabled: 'isLikeDisable', group: gettext('Like'),
+            type: 'switch', mode: ['create'], deps: ['like_relation'],
+            disabled: 'isRelationDisable', group: gettext('Like'),
           },{
             id: 'like_indexes', label: gettext('With indexes?'),
-            type: 'switch', mode: ['create', 'edit'], deps: ['typname'],
-            disabled: 'isLikeDisable', group: gettext('Like'),
+            type: 'switch', mode: ['create'], deps: ['like_relation'],
+            disabled: 'isRelationDisable', group: gettext('Like'),
           },{
             id: 'like_storage', label: gettext('With storage?'),
-            type: 'switch', mode: ['create', 'edit'], deps: ['typname'],
-            disabled: 'isLikeDisable', group: gettext('Like'),
+            type: 'switch', mode: ['create'], deps: ['like_relation'],
+            disabled: 'isRelationDisable', group: gettext('Like'),
           },{
             id: 'like_comments', label: gettext('With comments?'),
-            type: 'switch', mode: ['create', 'edit'], deps: ['typname'],
-            disabled: 'isLikeDisable', group: gettext('Like'),
+            type: 'switch', mode: ['create'], deps: ['like_relation'],
+            disabled: 'isRelationDisable', group: gettext('Like'),
           }],
         },{
           id: 'partition_type', label:gettext('Partition Type'),
@@ -904,10 +959,11 @@ define('pgadmin.node.table', [
             return false;
           },
           disabled: function(m) {
-            if (!m.isNew() || !m.get('is_partitioned'))
+            if (!m.get('is_partitioned'))
               return true;
             return false;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'partition_keys', label:gettext('Partition Keys'),
           model: Backform.PartitionKeyModel,
@@ -1016,7 +1072,7 @@ define('pgadmin.node.table', [
           editable: true, type: 'collection',
           group: 'partition', mode: ['edit', 'create'],
           deps: ['is_partitioned', 'partition_type', 'typname'],
-          canEdit: false, canDelete: true,
+          canEdit: true, canDelete: true,
           customDeleteTitle: gettext('Detach Partition'),
           customDeleteMsg: gettext('Are you sure you wish to detach this partition?'),
           columns:['is_attach', 'partition_name', 'is_default', 'values_from', 'values_to', 'values_in', 'values_modulus', 'values_remainder'],
@@ -1138,6 +1194,16 @@ define('pgadmin.node.table', [
           id: 'vacuum_settings_str', label: gettext('Storage settings'),
           type: 'multiline', group: 'advanced', mode: ['properties'],
         }],
+        sessChanged: function() {
+          /* If only custom autovacuum option is enabled the check if the options table is also changed. */
+          if(_.size(this.sessAttrs) == 2 && this.sessAttrs['autovacuum_custom'] && this.sessAttrs['toast_autovacuum']) {
+            return this.get('vacuum_table').sessChanged() || this.get('vacuum_toast').sessChanged();
+          }
+          if(_.size(this.sessAttrs) == 1 && (this.sessAttrs['autovacuum_custom'] || this.sessAttrs['toast_autovacuum'])) {
+            return this.get('vacuum_table').sessChanged() || this.get('vacuum_toast').sessChanged();
+          }
+          return pgBrowser.DataModel.prototype.sessChanged.apply(this);
+        },
         validate: function() {
           var msg,
             name = this.get('name'),
@@ -1182,6 +1248,12 @@ define('pgadmin.node.table', [
             return msg;
           }
           this.errorModel.unset('partition_keys');
+          if (this.get('rlspolicy') && this.changed.rlspolicy){
+            Alertify.alert(
+              gettext('Check Policy?'),
+              gettext('Please check if any policy exist. If no policy exists for the table, a default-deny policy is used, meaning that no rows are visible or can be modified by other users')
+            );
+          }
           return null;
         },
         // We will disable everything if we are under catalog node
@@ -1194,16 +1266,12 @@ define('pgadmin.node.table', [
         },
         isInheritedTable: function(m) {
           if(!m.inSchema.apply(this, [m])) {
-            if(
-              (!_.isUndefined(m.get('coll_inherits')) && m.get('coll_inherits').length != 0)
-                ||
-                (!_.isUndefined(m.get('typname')) && String(m.get('typname')).replace(/^\s+|\s+$/g, '') !== '')
-            ) {
-              // Either of_types or coll_inherits has value
-              return false;
-            } else {
-              return true;
-            }
+            // Either of_types or coll_inherits has value
+            return (
+              (_.isUndefined(m.get('coll_inherits')) || m.get('coll_inherits').length == 0)
+                &&
+                (_.isUndefined(m.get('typname')) || String(m.get('typname')).replace(/^\s+|\s+$/g, '') === '')
+            );
           }
           return false;
         },
@@ -1235,6 +1303,25 @@ define('pgadmin.node.table', [
             return false;
           }
           return true;
+        },
+
+        // We will disable other Like option if Relation is not defined
+        isRelationDisable: function(m) {
+          if ( _.isUndefined(m.get('like_relation')) ||
+          _.isNull(m.get('like_relation')) ||
+          String(m.get('like_relation')).replace(/^\s+|\s+$/g, '') == ''){
+            if (m.isNew()){
+              setTimeout(function() {
+                m.set('like_default_value', false);
+                m.set('like_constraints', false);
+                m.set('like_indexes', false);
+                m.set('like_storage', false);
+                m.set('like_comments', false);
+              }, 10);
+            }
+            return true;
+          }
+          return false;
         },
         // Check for column grid when to Add
         check_grid_add_condition: function(m) {
@@ -1275,11 +1362,7 @@ define('pgadmin.node.table', [
           if(this.node_info &&  'schema' in this.node_info)
           {
             // We will disbale control if it's in 'edit' mode
-            if (m.isNew()) {
-              return false;
-            } else {
-              return true;
-            }
+            return !m.isNew();
           }
           return true;
         },

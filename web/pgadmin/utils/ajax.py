@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -31,12 +31,12 @@ class DataTypeJSONEncoder(json.JSONEncoder):
 
 
 class ColParamsJSONDecoder(json.JSONDecoder):
-    def decode(self, obj):
+    def decode(self, obj, **kwargs):
         retval = obj
         try:
             retval = json.JSONDecoder.decode(self, obj)
             if type(retval) == str:
-                retVal = obj
+                retval = obj
         except (ValueError, TypeError, KeyError):
             retval = obj
 

@@ -2,38 +2,32 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-import sys
-
 from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
     partitions import PartitionsModule
 from pgadmin.utils.route import BaseTestGenerator
-
-if sys.version_info < (3, 3):
-    from mock import patch, Mock, call
-else:
-    from unittest.mock import patch, Mock, call
+from unittest.mock import patch, Mock, call
 
 
 class TestBackendSupport(BaseTestGenerator):
     scenarios = [
-        ('when tid is not present in arguments, should return None and no '
-         'query should be done',
+        ('when tid is not present in arguments, but server version'
+         'is supported then return True',
          dict(
              manager=dict(
-                 server_type="",
-                 version=""
+                 server_type="pg",
+                 version="100000"
              ),
              input_arguments=dict(did=432),
 
              collection_node_active=True,
              connection_execution_return_value=[],
 
-             expected_return_value=None,
+             expected_return_value=True,
              expect_error_response=False,
              expected_number_calls_on_render_template=0
          )),
@@ -117,10 +111,10 @@ class TestBackendSupport(BaseTestGenerator):
         connection_mock.execute_scalar.return_value = \
             self.connection_execution_return_value
         module.manager.connection.return_value = connection_mock
-        CollectionNodeModule_mock.BackendSupported.return_value = \
+        CollectionNodeModule_mock.backend_supported.return_value = \
             self.collection_node_active
 
-        result = module.BackendSupported(
+        result = module.backend_supported(
             module.manager, **self.input_arguments
         )
 

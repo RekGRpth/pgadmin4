@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define(
-  ['jquery', 'alertify', 'sources/pgadmin', 'underscore.string', 'sources/gettext',
-    'sources/url_for',
+  ['jquery', 'alertify', 'sources/pgadmin', 'sources/gettext',
+    'sources/url_for','sources/utils',
   ],
-  function($, alertify, pgAdmin, S, gettext, url_for) {
+  function($, alertify, pgAdmin, gettext, url_for, commonUtils) {
     pgAdmin = pgAdmin || window.pgAdmin || {};
 
     /* Return back, this has been called more than once */
@@ -43,8 +43,16 @@ define(
               build: function() {
                 alertify.pgDialogBuild.apply(this);
               },
+              hooks:{
+                onshow:function(){
+                  var container = $(this.elements.footer).find('button:not([disabled])');
+                  commonUtils.findAndSetFocus(container);
+                },
+              },
+
               prepare:function() {
                 this.setContent(this.message);
+
               },
             };
           });
@@ -53,7 +61,7 @@ define(
         $.get(url_for('about.index'),
           function(data) {
             alertify.aboutDialog(
-              S(gettext('About %s')).sprintf(pgAdmin.Browser.utils.app_name).value(), data
+              gettext('About %s', pgAdmin.Browser.utils.app_name), data
             ).resizeTo(pgAdmin.Browser.stdW.md, pgAdmin.Browser.stdH.md);
           });
       },

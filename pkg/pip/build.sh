@@ -4,7 +4,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 #########################################################################
@@ -83,7 +83,7 @@ do
 done
 
 cd ../
-for FILE in LICENSE README libraries.txt
+for FILE in LICENSE DEPENDENCIES README
 do
     echo Adding ${FILE}
     # We use tar here to preserve the path, as Mac (for example) doesn't support cp --parents
@@ -102,7 +102,7 @@ echo recursive-include pgadmin4 \* > pip-build/MANIFEST.in
 # Run the build
 echo Building wheel...
 cd pip-build
-python ../pkg/pip/setup_pip.py bdist_wheel --universal
+python ../pkg/pip/setup_pip.py bdist_wheel
 cd ../
 
 # Get the build

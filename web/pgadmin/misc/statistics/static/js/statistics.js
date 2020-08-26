@@ -2,17 +2,17 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('misc.statistics', [
-  'sources/gettext', 'underscore', 'underscore.string', 'jquery', 'backbone',
+  'sources/gettext', 'underscore', 'jquery', 'backbone',
   'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backgrid', 'alertify', 'sources/size_prettify',
   'sources/misc/statistics/statistics',
 ], function(
-  gettext, _, S, $, Backbone, pgAdmin, pgBrowser, Backgrid, Alertify, sizePrettify,
+  gettext, _, $, Backbone, pgAdmin, pgBrowser, Backgrid, Alertify, sizePrettify,
   statisticsHelper
 ) {
 
@@ -103,7 +103,7 @@ define('misc.statistics', [
       onText: gettext('True'),
       offText: gettext('False'),
       onColor: 'success',
-      offColor: 'primary',
+      offColor: 'ternary',
       size: 'mini',
     }
   );
@@ -282,7 +282,7 @@ define('misc.statistics', [
                   }
 
                   self.grid = new Backgrid.Grid({
-                    emptyText: 'No data found',
+                    emptyText: gettext('No data found'),
                     columns: self.columns,
                     collection: self.collection,
                     className: GRID_CLASSES,
@@ -315,10 +315,9 @@ define('misc.statistics', [
                 })) {
                   Alertify.pgNotifier(
                     error, xhr,
-                    S(gettext('Error retrieving the information - %s')).sprintf(
-                      message || _label
-                    ).value(), function(msg) {
-                      if(msg === 'CRYPTKEY_SET') {
+                    gettext('Error retrieving the information - %s', message || _label),
+                    function(alertMsg) {
+                      if(alertMsg === 'CRYPTKEY_SET') {
                         ajaxHook();
                       } else {
                         console.warn(arguments);
@@ -369,17 +368,15 @@ define('misc.statistics', [
        * We will wait for some time before fetching the statistics for the
        * selected node.
        **/
-      if (node) {
-        if (self.timeout) {
-          clearTimeout(self.timeout);
-        }
-        self.timeout = setTimeout(
-          function() {
-            self.__updateCollection.call(
-              self, node.generate_url(item, 'stats', data, true), node, item, data._type
-            );
-          }, 400);
+      if (self.timeout) {
+        clearTimeout(self.timeout);
       }
+      self.timeout = setTimeout(
+        function() {
+          self.__updateCollection.call(
+            self, node.generate_url(item, 'stats', data, true), node, item, data._type
+          );
+        }, 400);
     },
 
     __createMultiLineStatistics: function(data, prettifyFields) {

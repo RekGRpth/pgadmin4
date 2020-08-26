@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -13,7 +13,7 @@
  * @namespace Slick
  */
 
-import JSONBigNumber from 'json-bignumber';
+import JSONBigNumberLib from 'json-bignumber';
 import gettext from 'sources/gettext';
 
 (function($, JSONBigNumber) {
@@ -110,7 +110,7 @@ import gettext from 'sources/gettext';
         grid.copied_rows[row][cell] = 1;
       }
     } else {
-      if(column_type === 'jsonb') {
+      if(column_type === 'jsonb' && state != null) {
         item[args.column.field] = JSONBigNumber.stringify(JSONBigNumber.parse(state));
       } else {
         item[args.column.field] = state;
@@ -361,7 +361,7 @@ import gettext from 'sources/gettext';
     this.loadValue = function(item) {
       var data = defaultValue = item[args.column.field];
       /* If jsonb or array */
-      if(args.column.column_type_internal === 'jsonb' && !Array.isArray(data)) {
+      if(args.column.column_type_internal === 'jsonb' && !Array.isArray(data) && data != null) {
         data = JSONBigNumber.stringify(JSONBigNumber.parse(data), null, 4);
       } else if (Array.isArray(data)) {
         var temp = [];
@@ -406,11 +406,14 @@ import gettext from 'sources/gettext';
       if(args.column.column_type_internal === 'jsonb' ||
           args.column.column_type_internal === 'json') {
         try {
-          JSON.parse($input.val());
+          if($input.val() != ''){
+            JSON.parse($input.val());
+          }
         } catch(e) {
           $input.addClass('pg-text-invalid');
           return {
             valid: false,
+            msg: e.message,
           };
         }
       }
@@ -668,7 +671,7 @@ import gettext from 'sources/gettext';
       var value = item[args.column.field];
 
       // Check if value is null or undefined
-      if (value === undefined && typeof value === 'undefined') {
+      if (value === null || typeof value === 'undefined') {
         value = '';
       }
       defaultValue = value;
@@ -886,25 +889,33 @@ import gettext from 'sources/gettext';
   // Custom checkbox editor, We need it for runtime as it does not render
   // indeterminate checkbox state
   function pgCheckboxEditor(args) {
-    var $select, el;
+    var $select;
     var defaultValue, previousState;
 
     this.init = function() {
-      $select = $('<div class=\'multi-checkbox\'><span class=\'check\' hideFocus></span></div>');
+      $select = $('<div class=\'multi-checkbox\' tabindex="0"><span class=\'check\' hideFocus></span></div>');
       $select.appendTo(args.container);
       $select.trigger('focus');
 
-      // The following code is taken from https://css-tricks.com/indeterminate-checkboxes/
-      $select.on('click', function() {
-        el = $(this);
-        var states = ['unchecked', 'partial', 'checked'];
-        var curState = el.find('.check').data('state');
-        curState++;
-        el.find('.check')
-          .removeClass('unchecked partial checked')
-          .addClass(states[curState % states.length])
-          .data('state', curState % states.length);
+      $select.on('click', this.changeValue);
+
+      $select.on('keydown', (e) => {
+        if (e.which == $.ui.keyCode.SPACE) {
+          e.preventDefault();
+          this.changeValue(e);
+        }
       });
+    };
+
+    this.changeValue = function() {
+      // The following code is taken from https://css-tricks.com/indeterminate-checkboxes/
+      var states = ['unchecked', 'partial', 'checked'];
+      var curState = $select.find('.check').data('state') || 0;
+      curState++;
+      $select.find('.check')
+        .removeClass('unchecked partial checked')
+        .addClass(states[curState % states.length])
+        .data('state', curState % states.length);
     };
 
     this.destroy = function() {
@@ -964,4 +975,4 @@ import gettext from 'sources/gettext';
     this.init();
   }
 
-})(window.jQuery, JSONBigNumber);
+})(window.jQuery, JSONBigNumberLib);

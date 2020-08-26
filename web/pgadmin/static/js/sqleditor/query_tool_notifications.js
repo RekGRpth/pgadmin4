@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -97,14 +97,14 @@ let queryToolNotifications = {
 
     // Set up the grid
     let notifications_grid = new Backgrid.Grid({
-      emptyText: 'No data found',
+      emptyText: gettext('No data found'),
       columns: gridCols,
       collection: queryToolNotifications.collection,
       className: 'backgrid presentation table table-bordered table-hover table-noouter-border table-bottom-border',
     });
 
     // Render the grid
-    if (notifications_grid)
+    if (notifications_panel)
       notifications_panel.$container.find('.sql-editor-notifications').append(notifications_grid.render().el);
   },
 
@@ -115,18 +115,10 @@ let queryToolNotifications = {
       for (let i in notify_messages) {
         let notify_msg = '';
         if (notify_messages[i].payload != '') {
-          notify_msg = gettext('Asynchronous notification "')
-            + notify_messages[i].channel
-            + gettext('" with payload "')
-            + notify_messages[i].payload
-            + gettext('" received from server process with PID ')
-            + notify_messages[i].pid;
+          notify_msg = gettext('Asynchronous notification "%s" with payload "%s" received from server process with PID %s', notify_messages[i].channel, notify_messages[i].payload, notify_messages[i].pid);
         }
         else {
-          notify_msg = gettext('Asynchronous notification "')
-            + notify_messages[i].channel
-            + gettext('" received from server process with PID ')
-            + notify_messages[i].pid;
+          notify_msg = gettext('Asynchronous notification "%s" received from server process with PID %s', notify_messages[i].channel, notify_messages[i].pid);
         }
 
         Alertify.info(notify_msg);

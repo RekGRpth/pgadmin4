@@ -2,27 +2,25 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 // MenuActions.cpp - Common file for menu actions.
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "pgAdmin4.h"
 #include "MenuActions.h"
 
-// QT headers
+#include <QApplication>
 #include <QClipboard>
+#include <QDesktopServices>
+#include <QEventLoop>
 #include <QMessageBox>
+#include <QProcess>
+#include <QSettings>
 
 MenuActions::MenuActions()
-{
-    m_logWindow = Q_NULLPTR;
-    m_logFile = "";
-    m_appServerUrl = "";
-}
-
-MenuActions::~MenuActions()
 {
 }
 
@@ -31,13 +29,9 @@ void MenuActions::setAppServerUrl(QString appServerUrl)
     m_appServerUrl = appServerUrl;
 }
 
-void MenuActions::setLogFile(QString logFile)
-{
-    m_logFile = logFile;
-}
 
 // Create a new application browser window on user request
-void MenuActions::onNew()
+void MenuActions::onNew() const
 {
     QSettings settings;
     QString cmd = settings.value("BrowserCommand").toString();
@@ -61,7 +55,7 @@ void MenuActions::onNew()
 
 
 // Copy the application server URL to the clipboard
-void MenuActions::onCopyUrl()
+void MenuActions::onCopyUrl() const
 {
     QClipboard *clipboard = QApplication::clipboard();
     clipboard->setText(m_appServerUrl);
@@ -71,45 +65,24 @@ void MenuActions::onCopyUrl()
 // Show the config dialogue
 void MenuActions::onConfig()
 {
-    QSettings settings;
-    bool ok;
+    if (!m_configWindow)
+        m_configWindow = new ConfigWindow();
 
-    ConfigWindow *dlg = new ConfigWindow();
-    dlg->setWindowTitle(QString(tr("%1 Configuration")).arg(PGA_APP_NAME));
-    dlg->setBrowserCommand(settings.value("BrowserCommand").toString());
-    dlg->setFixedPort(settings.value("FixedPort").toBool());
-    dlg->setPortNumber(settings.value("PortNumber").toInt());
-    dlg->setPythonPath(settings.value("PythonPath").toString());
-    dlg->setApplicationPath(settings.value("ApplicationPath").toString());
-    dlg->setModal(true);
-    ok = dlg->exec();
+    m_configWindow->show();
+    m_configWindow->raise();
+    m_configWindow->activateWindow();
+    connect(m_configWindow, SIGNAL(accepted(bool)), this, SLOT(onConfigDone(bool)));
+}
 
-    QString browsercommand = dlg->getBrowserCommand();
-    bool fixedport = dlg->getFixedPort();
-    int portnumber = dlg->getPortNumber();
-    QString pythonpath = dlg->getPythonPath();
-    QString applicationpath = dlg->getApplicationPath();
 
-    if (ok)
+void MenuActions::onConfigDone(bool needRestart) const
+{
+    if (needRestart && QMessageBox::Yes == QMessageBox::question(Q_NULLPTR,
+                                                                 tr("Shut down server?"),
+                                                                 tr("The pgAdmin 4 server must be restarted for changes to take effect. Do you want to shut down the server now?"),
+                                                                 QMessageBox::Yes | QMessageBox::No))
     {
-        bool needRestart = (settings.value("FixedPort").toBool() != fixedport ||
-                            settings.value("PortNumber").toInt() != portnumber ||
-                            settings.value("PythonPath").toString() != pythonpath ||
-                            settings.value("ApplicationPath").toString() != applicationpath);
-
-        settings.setValue("BrowserCommand", browsercommand);
-        settings.setValue("FixedPort", fixedport);
-        settings.setValue("PortNumber", portnumber);
-        settings.setValue("PythonPath", pythonpath);
-        settings.setValue("ApplicationPath", applicationpath);
-
-        if (needRestart)
-        {
-            if (QMessageBox::Yes == QMessageBox::question(Q_NULLPTR, tr("Shut down server?"), QString(tr("The %1 server must be restarted for changes to take effect. Do you want to shut down the server now?")).arg(PGA_APP_NAME), QMessageBox::Yes | QMessageBox::No))
-            {
-                exit(0);
-            }
-        }
+        exit(0);
     }
 }
 
@@ -120,28 +93,25 @@ void MenuActions::onLog()
     QSettings settings;
 
     if (!m_logWindow)
-    {
-        m_logWindow = new LogWindow(Q_NULLPTR, m_logFile);
-        m_logWindow->setWindowTitle(QString(tr("%1 Log")).arg(PGA_APP_NAME));
-    }
+        m_logWindow = new LogWindow();
 
     m_logWindow->show();
     m_logWindow->raise();
     m_logWindow->activateWindow();
 
-    QCoreApplication::processEvents( QEventLoop::AllEvents, 100 );
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
 
-    m_logWindow->ReadLog();
+    m_logWindow->LoadLog();
 }
 
 
 // Exit
 void MenuActions::onQuit()
 {
-    if (QMessageBox::Yes == QMessageBox::question(Q_NULLPTR, tr("Shut down server?"), QString(tr("Are you sure you want to shut down the %1 server?")).arg(PGA_APP_NAME), QMessageBox::Yes | QMessageBox::No))
+    if (QMessageBox::Yes == QMessageBox::question(Q_NULLPTR, tr("Shut down server?"), tr("Are you sure you want to shut down the pgAdmin 4 server?"), QMessageBox::Yes | QMessageBox::No))
     {
         // Emit the signal to shut down the python server.
         emit shutdownSignal(m_appServerUrl);
-        exit(0);
+        QApplication::quit();
     }
 }

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -10,9 +10,9 @@
 define([
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore', 'backbone',
   'pgadmin.alertifyjs', 'sources/pgadmin', 'pgadmin.browser',
-  'pgadmin.backgrid', 'wcdocker',
+  'pgadmin.backgrid', 'sources/window', 'wcdocker',
 ], function(
-  gettext, url_for, $, _, Backbone, Alertify, pgAdmin, pgBrowser, Backgrid
+  gettext, url_for, $, _, Backbone, Alertify, pgAdmin, pgBrowser, Backgrid, pgWindow
 ) {
 
   var wcDocker = window.wcDocker;
@@ -69,7 +69,7 @@ define([
         // As we are getting this value as text from sqlite database so we need to type cast it.
         if (model.get('value') != undefined) {
           model.set({
-            'value': parseInt(model.get('value')),
+            'value': isNaN(parseInt(model.get('value'))) ? null : parseInt(model.get('value')),
           }, {
             silent: true,
           });
@@ -163,12 +163,12 @@ define([
     }
   };
 
-  var res = function(debug_info, restart_debug, is_edb_proc, trans_id) {
+  var res = function(debugInfo, restartDebug, isEdbProc, transId) {
     if (!Alertify.debuggerInputArgsDialog) {
       Alertify.dialog('debuggerInputArgsDialog', function factory() {
         return {
           main: function(title, debug_info, restart_debug, is_edb_proc, trans_id) {
-            this.preferences = window.top.pgAdmin.Browser.get_preferences_for_module('debugger');
+            this.preferences = pgWindow.default.pgAdmin.Browser.get_preferences_for_module('debugger');
             this.set('title', title);
 
             // setting value in alertify settings allows us to access it from
@@ -176,6 +176,7 @@ define([
             this.set('debug_info', debug_info);
             this.set('restart_debug', restart_debug);
             this.set('trans_id', trans_id);
+            this.set('is_edb_proc', is_edb_proc);
 
             // Variables to store the data sent from sqlite database
             var func_args_data = this.func_args_data = [];
@@ -241,16 +242,16 @@ define([
               method: 'GET',
               async: false,
             })
-              .done(function(res) {
-                if (res.data.args_count != 0) {
-                  for (i = 0; i < res.data.result.length; i++) {
+              .done(function(res_get) {
+                if (res_get.data.args_count != 0) {
+                  for (i = 0; i < res_get.data.result.length; i++) {
                   // Below will format the data to be stored in sqlite database
                     func_args_data.push({
-                      'arg_id': res.data.result[i]['arg_id'],
-                      'is_null': res.data.result[i]['is_null'],
-                      'is_expression': res.data.result[i]['is_expression'],
-                      'use_default': res.data.result[i]['use_default'],
-                      'value': res.data.result[i]['value'],
+                      'arg_id': res_get.data.result[i]['arg_id'],
+                      'is_null': res_get.data.result[i]['is_null'],
+                      'is_expression': res_get.data.result[i]['is_expression'],
+                      'use_default': res_get.data.result[i]['use_default'],
+                      'value': res_get.data.result[i]['value'],
                     });
                   }
                 }
@@ -289,6 +290,7 @@ define([
                 label: gettext('Null?'),
                 type: 'boolean',
                 cell: 'boolean',
+                align_center: true,
               },
               {
                 name: 'expr',
@@ -296,6 +298,7 @@ define([
                 type: 'boolean',
                 cellFunction: cellExprControlFunction,
                 editable: disableExpressionControl,
+                align_center: true,
               },
               {
                 name: 'value',
@@ -304,6 +307,7 @@ define([
                 editable: true,
                 cellFunction: cellFunction,
                 headerCell: value_header,
+                align_center: true,
               },
               {
                 name: 'use_default',
@@ -362,8 +366,8 @@ define([
               // It will assign default values to "Default value" column
               for (j = (argname.length - 1); j >= 0; j--) {
                 if (debug_info['proargmodes'] != null) {
-                  if (argmode[j] == 'i' || argmode[j] == 'b' ||
-                    (is_edb_proc && argmode[j] == 'o')) {
+                  if (argmode && (argmode[j] == 'i' || argmode[j] == 'b' ||
+                    (is_edb_proc && argmode[j] == 'o'))) {
                     if (arg_cnt) {
                       arg_cnt = arg_cnt - 1;
                       def_val_list[j] = default_args[arg_cnt];
@@ -382,8 +386,8 @@ define([
               if (argtype.length != 0) {
                 for (i = 0; i < argtype.length; i++) {
                   if (debug_info['proargmodes'] != null) {
-                    if (argmode[i] == 'i' || argmode[i] == 'b' ||
-                      (is_edb_proc && argmode[i] == 'o')) {
+                    if (argmode && (argmode[i] == 'i' || argmode[i] == 'b' ||
+                      (is_edb_proc && argmode[i] == 'o'))) {
                       use_def_value = false;
                       if (def_val_list[i] != '<no default>') {
                         use_def_value = true;
@@ -413,12 +417,12 @@ define([
               // Need to update the func_obj variable from sqlite database if available
               if (func_args_data.length != 0) {
                 for (i = 0; i < func_args_data.length; i++) {
+                  index = func_args_data[i]['arg_id'];
                   if (debug_info['proargmodes'] != null &&
-                    (argmode[i] == 'o' && !is_edb_proc)) {
+                    (argmode && argmode[index] == 'o' && !is_edb_proc)) {
                     continue;
                   }
 
-                  index = func_args_data[i]['arg_id'];
                   values = [];
                   if (argtype[index].indexOf('[]') != -1) {
                     vals = func_args_data[i]['value'].split(',');
@@ -468,20 +472,11 @@ define([
                 // If there is default arguments
                 //Below logic will assign default values to "Default value" column
                 for (j = (myargname.length - 1); j >= 0; j--) {
-                  if (debug_info['proargmodes'] == null) {
-                    if (arg_cnt) {
-                      arg_cnt = arg_cnt - 1;
-                      def_val_list[j] = default_args[arg_cnt];
-                    } else {
-                      def_val_list[j] = '<No default value>';
-                    }
+                  if (arg_cnt) {
+                    arg_cnt = arg_cnt - 1;
+                    def_val_list[j] = default_args[arg_cnt];
                   } else {
-                    if (arg_cnt) {
-                      arg_cnt = arg_cnt - 1;
-                      def_val_list[j] = default_args[arg_cnt];
-                    } else {
-                      def_val_list[j] = '<No default value>';
-                    }
+                    def_val_list[j] = '<No default value>';
                   }
                 }
 
@@ -498,8 +493,8 @@ define([
                       'default_value': def_val_list[i],
                     });
                   } else {
-                    if (argmode[i] == 'i' || argmode[i] == 'b' ||
-                      (is_edb_proc && argmode[i] == 'o')) {
+                    if (argmode && (argmode[i] == 'i' || argmode[i] == 'b' ||
+                      (is_edb_proc && argmode[i] == 'o'))) {
                       use_def_value = false;
                       if (def_val_list[i] != '<No default value>') {
                         use_def_value = true;
@@ -565,14 +560,17 @@ define([
             });
 
             grid.render();
-            $(this.elements.content).html(grid.el);
+            let wrap_div = document.createElement('div');
+            wrap_div.classList.add('debugger-args');
+            wrap_div.appendChild(grid.el);
+            $(this.elements.content).html(wrap_div);
 
             // For keyboard navigation in the grid
             // we'll set focus on checkbox from the first row if any
             var grid_checkbox = $(grid.el).find('input:checkbox').first();
             if (grid_checkbox.length) {
               setTimeout(function() {
-                grid_checkbox.trigger('click');
+                grid_checkbox.trigger('focus');
               }, 250);
             }
 
@@ -585,6 +583,9 @@ define([
           setup: function() {
             return {
               buttons: [{
+                text: gettext('Clear All'),
+                className: 'btn btn-secondary pull-left fa fa-eraser pg-alertify-button',
+              },{
                 text: gettext('Cancel'),
                 key: 27,
                 className: 'btn btn-secondary fa fa-times pg-alertify-button',
@@ -705,7 +706,7 @@ define([
 
               // If debugging is not started again then we should initialize the target otherwise not
               if (self.setting('restart_debug') == 0) {
-                if (d._type == 'function') {
+                if (d && d._type == 'function') {
                   baseUrl = url_for('debugger.initialize_target_for_function', {
                     'debug_type': 'direct',
                     'trans_id': self.setting('trans_id'),
@@ -714,7 +715,7 @@ define([
                     'scid': treeInfo.schema._id,
                     'func_id': treeInfo.function._id,
                   });
-                } else if (d._type == 'procedure') {
+                } else if (d && d._type == 'procedure') {
                   baseUrl = url_for('debugger.initialize_target_for_function', {
                     'debug_type': 'direct',
                     'trans_id': self.setting('trans_id'),
@@ -723,7 +724,7 @@ define([
                     'scid': treeInfo.schema._id,
                     'func_id': treeInfo.procedure._id,
                   });
-                } else if (d._type == 'edbfunc') {
+                } else if (d && d._type == 'edbfunc') {
                   baseUrl = url_for('debugger.initialize_target_for_function', {
                     'debug_type': 'direct',
                     'trans_id': self.setting('trans_id'),
@@ -732,7 +733,7 @@ define([
                     'scid': treeInfo.schema._id,
                     'func_id': treeInfo.edbfunc._id,
                   });
-                } else if (d._type == 'edbproc') {
+                } else if (d && d._type == 'edbproc') {
                   baseUrl = url_for('debugger.initialize_target_for_function', {
                     'debug_type': 'direct',
                     'trans_id': self.setting('trans_id'),
@@ -750,11 +751,11 @@ define([
                     'data': JSON.stringify(args_value_list),
                   },
                 })
-                  .done(function(res) {
+                  .done(function(res_post) {
 
                     var url = url_for(
                       'debugger.direct', {
-                        'trans_id': res.data.debuggerTransId,
+                        'trans_id': res_post.data.debuggerTransId,
                       }
                     );
 
@@ -778,7 +779,7 @@ define([
                       // Panel Closed event
                       panel.on(wcDocker.EVENT.CLOSED, function() {
                         var closeUrl = url_for('debugger.close', {
-                          'trans_id': res.data.debuggerTransId,
+                          'trans_id': res_post.data.debuggerTransId,
                         });
                         $.ajax({
                           url: closeUrl,
@@ -786,17 +787,17 @@ define([
                         });
                       });
                     }
-                    var _Url;
+                    var _url;
 
                     if (d._type == 'function') {
-                      _Url = url_for('debugger.set_arguments', {
+                      _url = url_for('debugger.set_arguments', {
                         'sid': treeInfo.server._id,
                         'did': treeInfo.database._id,
                         'scid': treeInfo.schema._id,
                         'func_id': treeInfo.function._id,
                       });
                     } else if (d._type == 'procedure') {
-                      _Url = url_for('debugger.set_arguments', {
+                      _url = url_for('debugger.set_arguments', {
                         'sid': treeInfo.server._id,
                         'did': treeInfo.database._id,
                         'scid': treeInfo.schema._id,
@@ -804,7 +805,7 @@ define([
                       });
                     } else if (d._type == 'edbfunc') {
                     // Get the existing function parameters available from sqlite database
-                      _Url = url_for('debugger.set_arguments', {
+                      _url = url_for('debugger.set_arguments', {
                         'sid': treeInfo.server._id,
                         'did': treeInfo.database._id,
                         'scid': treeInfo.schema._id,
@@ -812,7 +813,7 @@ define([
                       });
                     } else if (d._type == 'edbproc') {
                     // Get the existing function parameters available from sqlite database
-                      _Url = url_for('debugger.set_arguments', {
+                      _url = url_for('debugger.set_arguments', {
                         'sid': treeInfo.server._id,
                         'did': treeInfo.database._id,
                         'scid': treeInfo.schema._id,
@@ -821,7 +822,7 @@ define([
                     }
 
                     $.ajax({
-                      url: _Url,
+                      url: _url,
                       method: 'POST',
                       data: {
                         'data': JSON.stringify(sqlite_func_args_list),
@@ -835,10 +836,10 @@ define([
                         );
                       });
                   })
-                  .fail(function(e) {
+                  .fail(function(er) {
                     Alertify.alert(
                       gettext('Debugger Target Initialization Error'),
-                      e.responseJSON.errormsg
+                      er.responseJSON.errormsg
                     );
                   });
               } else {
@@ -856,10 +857,10 @@ define([
                   },
                 })
                   .done(function() {})
-                  .fail(function(e) {
+                  .fail(function(er) {
                     Alertify.alert(
                       gettext('Debugger Listener Startup Error'),
-                      e.responseJSON.errormsg
+                      er.responseJSON.errormsg
                     );
                   });
 
@@ -899,6 +900,58 @@ define([
 
               return false;
             }
+
+            if (e.button.text === gettext('Clear All')) {
+              let _self = this;
+              let base_url = null;
+
+              if (_self.setting('restart_debug') == 0) {
+                let selected_item = pgBrowser.tree.selected();
+                let item_data = pgBrowser.tree.itemData(selected_item);
+                if (!item_data)
+                  return;
+
+                let node_ele = pgBrowser.Nodes[item_data._type];
+                let tree_info = node_ele.getTreeNodeHierarchy.call(node_ele, selected_item);
+
+                base_url = url_for('debugger.clear_arguments', {
+                  'sid': tree_info.server._id,
+                  'did': tree_info.database._id,
+                  'scid': tree_info.schema._id,
+                  'func_id': item_data._id,
+                });
+              } else {
+                base_url = url_for('debugger.clear_arguments', {
+                  'sid': _self.setting('debug_info').server_id,
+                  'did': _self.setting('debug_info').database_id,
+                  'scid': _self.setting('debug_info').schema_id,
+                  'func_id': _self.setting('debug_info').function_id,
+                });
+              }
+              $.ajax({
+                url: base_url,
+                method: 'POST',
+                data: {
+                  'data': JSON.stringify(args_value_list),
+                },
+              }).done(function() {
+                /* Disable debug button */
+                _self.__internal.buttons[2].element.disabled = true;
+                _self.main(_self.setting('title'), _self.setting('debug_info'),
+                  _self.setting('restart_debug'), _self.setting('is_edb_proc'),
+                  _self.setting('trans_id')
+                );
+                _self.prepare();
+              }).fail(function(er) {
+                Alertify.alert(
+                  gettext('Clear failed'),
+                  er.responseJSON.errormsg
+                );
+              });
+
+              e.cancel = true;
+              return true;
+            }
           },
           build: function() {
             Alertify.pgDialogBuild.apply(this);
@@ -914,9 +967,9 @@ define([
              enable the debug button otherwise disable the debug button.
             */
             if (this.func_args_data.length == 0) {
-              this.__internal.buttons[1].element.disabled = true;
+              this.__internal.buttons[2].element.disabled = true;
             } else {
-              this.__internal.buttons[1].element.disabled = false;
+              this.__internal.buttons[2].element.disabled = false;
             }
 
             /*
@@ -933,7 +986,7 @@ define([
                   for (var i = 0; i < this.collection.length; i++) {
 
                     if (this.collection.models[i].get('is_null')) {
-                      obj.__internal.buttons[1].element.disabled = false;
+                      obj.__internal.buttons[2].element.disabled = false;
                       enable_btn = true;
                       continue;
                     }
@@ -944,15 +997,15 @@ define([
                       enable_btn = true;
 
                       if (this.collection.models[i].get('use_default')) {
-                        obj.__internal.buttons[1].element.disabled = false;
+                        obj.__internal.buttons[2].element.disabled = false;
                       } else {
-                        obj.__internal.buttons[1].element.disabled = true;
+                        obj.__internal.buttons[2].element.disabled = true;
                         break;
                       }
                     }
                   }
                   if (!enable_btn)
-                    obj.__internal.buttons[1].element.disabled = false;
+                    obj.__internal.buttons[2].element.disabled = false;
                 };
               })(this)
             );
@@ -960,7 +1013,7 @@ define([
             this.grid.listenTo(this.debuggerInputArgsColl, 'backgrid:error',
               (function(obj) {
                 return function() {
-                  obj.__internal.buttons[1].element.disabled = true;
+                  obj.__internal.buttons[2].element.disabled = true;
                 };
               })(this)
             );
@@ -970,7 +1023,7 @@ define([
     }
 
     Alertify.debuggerInputArgsDialog(
-      gettext('Debugger'), debug_info, restart_debug, is_edb_proc, trans_id
+      gettext('Debugger'), debugInfo, restartDebug, isEdbProc, transId
     ).resizeTo(pgBrowser.stdW.md,pgBrowser.stdH.md);
 
   };

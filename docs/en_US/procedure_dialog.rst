@@ -36,6 +36,21 @@ Use the fields in the *Definition* tab to define the procedure:
 
 * Use the drop-down listbox next to *Language* to select a language. The default
   is *edbspl*.
+* Use the fields in the *Arguments* section to define an argument. Click *Add* to set
+  parameters and values for the argument:
+* Use the drop-down listbox next to *Data type* to select a data type.
+* Use the drop-down listbox next to *Mode* to select a mode. Select *IN* for an
+  input parameter; select *OUT* for an output parameter; select *INOUT* for both
+  an input and an output parameter; or, select *VARIADIC* to specify a VARIADIC
+  parameter.
+* Write a name for the argument in the *Argument Name* field.
+* Specify a default value for the argument in the *Default Value* field.
+
+Click *Add* to define another argument; to discard an argument, click the trash
+icon to the left of the row and confirm deletion in the *Delete Row* popup.
+
+Click the *Code* tab to continue.
+
 * Use the *Code* field to specify the code that will execute when the procedure
   is called.
 
@@ -73,26 +88,6 @@ procedure:
   effects — it reveals no information about its arguments other than by its
   return value. The default is *No*.
 
-Click the *Arguments* tab to continue.
-
-.. image:: images/procedure_arguments.png
-    :alt: Procedure dialog arguments tab
-    :align: center
-
-Use the fields in the *Arguments* tab to define an argument. Click *Add* to set
-parameters and values for the argument:
-
-* Use the drop-down listbox next to *Data type* to select a data type.
-* Use the drop-down listbox next to *Mode* to select a mode. Select *IN* for an
-  input parameter; select *OUT* for an output parameter; select *INOUT* for both
-  an input and an output parameter; or, select *VARIADIC* to specify a VARIADIC
-  parameter.
-* Write a name for the argument in the *Argument Name* field.
-* Specify a default value for the argument in the *Default Value* field.
-
-Click *Add* to define another argument; to discard an argument, click the trash
-icon to the left of the row and confirm deletion in the *Delete Row* popup.
-
 Click the *Parameters* tab to continue.
 
 .. image:: images/procedure_parameters.png
@@ -122,8 +117,7 @@ role:
 * Select the name of the role from the drop-down listbox in the *Grantee* field.
 * Click inside the *Privileges* field. Check the boxes to the left of one or
   more privileges to grant the selected privilege to the specified user.
-* Select the name of the role from the drop-down listbox in the *Grantor* field.
-  The default grantor is the owner of the database.
+* The current user, who is the default grantor for granting the privilege, is displayed in the *Grantor* field.
 
 Click *Add* to assign additional privileges; to discard a privilege, click the
 trash icon to the left of the row and confirm deletion in the *Delete Row*

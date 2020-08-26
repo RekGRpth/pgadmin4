@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -23,10 +23,8 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 class ForeignDataWrapperModule(CollectionNodeModule):
@@ -50,8 +48,8 @@ class ForeignDataWrapperModule(CollectionNodeModule):
         when any of the database node is initialized.
     """
 
-    NODE_TYPE = 'foreign_data_wrapper'
-    COLLECTION_LABEL = gettext("Foreign Data Wrappers")
+    _NODE_TYPE = 'foreign_data_wrapper'
+    _COLLECTION_LABEL = gettext("Foreign Data Wrappers")
 
     def __init__(self, *args, **kwargs):
         """
@@ -88,7 +86,7 @@ class ForeignDataWrapperModule(CollectionNodeModule):
 
         Returns: node type of the databse module.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
     @property
     def module_use_template_javascript(self):
@@ -102,7 +100,7 @@ class ForeignDataWrapperModule(CollectionNodeModule):
 blueprint = ForeignDataWrapperModule(__name__)
 
 
-class ForeignDataWrapperView(PGChildNodeView):
+class ForeignDataWrapperView(PGChildNodeView, SchemaDiffObjectCompare):
     """
     class ForeignDataWrapperView(PGChildNodeView)
 
@@ -200,6 +198,8 @@ class ForeignDataWrapperView(PGChildNodeView):
         'get_validators': [{}, {'get': 'get_validators'}]
     })
 
+    keys_to_ignore = ['oid', 'oid-2', 'fdwhandler', 'fdwvalidator']
+
     def check_precondition(f):
         """
         This function will behave as a decorator which will checks
@@ -211,10 +211,16 @@ class ForeignDataWrapperView(PGChildNodeView):
         def wrap(*args, **kwargs):
             # Here args[0] will hold self & kwargs will hold gid,sid,did
             self = args[0]
-            self.manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(
+            driver = get_driver(PG_DEFAULT_DRIVER)
+            self.manager = driver.connection_manager(
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             # Set the template path for the SQL scripts
             self.template_path = 'foreign_data_wrappers/sql/#{0}#'.format(
@@ -236,7 +242,8 @@ class ForeignDataWrapperView(PGChildNodeView):
             sid: Server ID
             did: Database ID
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               conn=self.conn)
         status, res = self.conn.execute_dict(sql)
 
@@ -266,7 +273,8 @@ class ForeignDataWrapperView(PGChildNodeView):
             did: Database ID
         """
         res = []
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               conn=self.conn
                               )
         status, r_set = self.conn.execute_2darray(sql)
@@ -276,7 +284,7 @@ class ForeignDataWrapperView(PGChildNodeView):
         for row in r_set['rows']:
             res.append(
                 self.blueprint.generate_browser_node(
-                    row['fdwoid'],
+                    row['oid'],
                     did,
                     row['name'],
                     icon="icon-foreign_data_wrapper"
@@ -298,7 +306,8 @@ class ForeignDataWrapperView(PGChildNodeView):
             did: Database ID
             fid: Foreign data wrapper ID
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               conn=self.conn, fid=fid)
         status, r_set = self.conn.execute_2darray(sql)
         if not status:
@@ -307,7 +316,7 @@ class ForeignDataWrapperView(PGChildNodeView):
         for row in r_set['rows']:
             return make_json_response(
                 data=self.blueprint.generate_browser_node(
-                    row['fdwoid'],
+                    row['oid'],
                     did,
                     row['name'],
                     icon="icon-foreign_data_wrapper"
@@ -330,20 +339,40 @@ class ForeignDataWrapperView(PGChildNodeView):
             did: Database ID
             fid: foreign data wrapper ID
         """
+        status, res = self._fetch_properties(fid)
+        if not status:
+            return res
+
+        return ajax_response(
+            response=res,
+            status=200
+        )
+
+    def _fetch_properties(self, fid):
+        """
+        This function fetch the properties of the FDW.
+        :param fid:
+        :return:
+        """
+
         sql = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               fid=fid, conn=self.conn
                               )
         status, res = self.conn.execute_dict(sql)
 
+        status, res = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(
+            return False, gone(
                 gettext("Could not find the foreign data"
                         " wrapper information.")
             )
+
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
 
         if res['rows'][0]['fdwoptions'] is not None:
             res['rows'][0]['fdwoptions'] = tokenize_options(
@@ -351,12 +380,13 @@ class ForeignDataWrapperView(PGChildNodeView):
                 'fdwoption', 'fdwvalue'
             )
 
-        sql = render_template("/".join([self.template_path, 'acl.sql']),
+        sql = render_template("/".join([self.template_path, self._ACL_SQL]),
                               fid=fid
                               )
+
         status, fdw_acl_res = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=fdw_acl_res)
+            return False, internal_server_error(errormsg=fdw_acl_res)
 
         for row in fdw_acl_res['rows']:
             privilege = parse_priv_from_db(row)
@@ -365,10 +395,7 @@ class ForeignDataWrapperView(PGChildNodeView):
             else:
                 res['rows'][0][row['deftype']] = [privilege]
 
-        return ajax_response(
-            response=res['rows'][0],
-            status=200
-        )
+        return True, res['rows'][0]
 
     @check_precondition
     def create(self, gid, sid, did):
@@ -393,8 +420,8 @@ class ForeignDataWrapperView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         try:
@@ -407,7 +434,8 @@ class ForeignDataWrapperView(PGChildNodeView):
                     data['fdwoptions'], 'fdwoption', 'fdwvalue'
                 )
 
-            sql = render_template("/".join([self.template_path, 'create.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._CREATE_SQL]),
                                   data=data,
                                   conn=self.conn,
                                   is_valid_options=is_valid_options
@@ -417,7 +445,7 @@ class ForeignDataWrapperView(PGChildNodeView):
                 return internal_server_error(errormsg=res)
 
             sql = render_template("/".join([self.template_path,
-                                            'properties.sql']),
+                                            self._PROPERTIES_SQL]),
                                   fname=data['name'],
                                   conn=self.conn
                                   )
@@ -429,7 +457,7 @@ class ForeignDataWrapperView(PGChildNodeView):
             for row in r_set['rows']:
                 return jsonify(
                     node=self.blueprint.generate_browser_node(
-                        row['fdwoid'],
+                        row['oid'],
                         did,
                         row['name'],
                         icon='icon-foreign_data_wrapper'
@@ -458,7 +486,7 @@ class ForeignDataWrapperView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, data, did, fid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             status, res = self.conn.execute_scalar(sql)
             if not status:
@@ -475,8 +503,31 @@ class ForeignDataWrapperView(PGChildNodeView):
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
+    @staticmethod
+    def get_delete_data(cmd, fid, request_object):
+        """
+        This function is used to get the data and cascade information.
+        :param cmd: Command
+        :param fid: Object ID
+        :param request_object: request object
+        :return:
+        """
+        cascade = False
+        # Below will decide if it's simple drop or drop with cascade call
+        if cmd == 'delete':
+            # This is a cascade operation
+            cascade = True
+
+        if fid is None:
+            data = request_object.form if request_object.form else \
+                json.loads(request_object.data, encoding='utf-8')
+        else:
+            data = {'ids': [fid]}
+
+        return cascade, data
+
     @check_precondition
-    def delete(self, gid, sid, did, fid=None):
+    def delete(self, gid, sid, did, fid=None, only_sql=False):
         """
         This function will delete the selected foreign data wrapper node.
 
@@ -485,25 +536,16 @@ class ForeignDataWrapperView(PGChildNodeView):
             sid: Server ID
             did: Database ID
             fid: foreign data wrapper ID
+            only_sql:
         """
-        if fid is None:
-            data = request.form if request.form else json.loads(
-                request.data, encoding='utf-8'
-            )
-        else:
-            data = {'ids': [fid]}
-
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        # get the value of cascade and data
+        cascade, data = self.get_delete_data(self.cmd, fid, request)
 
         for fid in data['ids']:
             try:
                 # Get name of foreign data wrapper from fid
                 sql = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       fid=fid, conn=self.conn
                                       )
                 status, name = self.conn.execute_scalar(sql)
@@ -524,10 +566,15 @@ class ForeignDataWrapperView(PGChildNodeView):
                     )
                 # drop foreign data wrapper node
                 sql = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       name=name,
                                       cascade=cascade,
                                       conn=self.conn)
+
+                # Used for schema diff tool
+                if only_sql:
+                    return sql
+
                 status, res = self.conn.execute_scalar(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -566,7 +613,7 @@ class ForeignDataWrapperView(PGChildNodeView):
         try:
             sql, name = self.get_sql(gid, sid, data, did, fid)
             # Most probably this is due to error
-            if not isinstance(sql, (str, unicode)):
+            if not isinstance(sql, str):
                 return sql
             if sql == '':
                 sql = "--modified SQL"
@@ -577,6 +624,81 @@ class ForeignDataWrapperView(PGChildNodeView):
             )
         except Exception as e:
             return internal_server_error(errormsg=str(e))
+
+    def _get_create_sql(self, data):
+        """
+        Get sql for create foreign data wrapper.
+        :param data: Data.
+        :return: Create sql statement for foreign data wrapper.
+        """
+        for key in ['fdwacl']:
+            if key in data and data[key] is not None:
+                data[key] = parse_priv_to_db(data[key], ['U'])
+
+        # Allow user to set the blank value in
+        # fdwvalue field in option model
+        is_valid_options = False
+        if 'fdwoptions' in data:
+            is_valid_options, data['fdwoptions'] = validate_options(
+                data['fdwoptions'], 'fdwoption', 'fdwvalue'
+            )
+
+        sql = render_template("/".join([self.template_path,
+                                        self._CREATE_SQL]),
+                              data=data, conn=self.conn,
+                              is_valid_options=is_valid_options
+                              )
+        return sql
+
+    def _check_and_parse_priv_to_db(self, data):
+        """
+        Check foreign data wrapper privilege and parse privileges before
+        sending to database.
+        :param data: Data.
+        """
+        for key in ['fdwacl']:
+            if key in data and data[key] is not None:
+                if 'added' in data[key]:
+                    data[key]['added'] = parse_priv_to_db(
+                        data[key]['added'],
+                        ['U']
+                    )
+                if 'changed' in data[key]:
+                    data[key]['changed'] = parse_priv_to_db(
+                        data[key]['changed'],
+                        ['U']
+                    )
+                if 'deleted' in data[key]:
+                    data[key]['deleted'] = parse_priv_to_db(
+                        data[key]['deleted'],
+                        ['U']
+                    )
+
+    def _check_validate_options(self, data):
+        """
+        Check option in foreign data wrapper Data and This will call
+        validated options function to set flag for option valid or not in sql.
+        :param data: Data.
+        """
+        is_valid_added_options = is_valid_changed_options = False
+
+        if 'fdwoptions' in data and data['fdwoptions'] is not None and\
+                'added' in data['fdwoptions']:
+            is_valid_added_options, data['fdwoptions']['added'] = \
+                validate_options(
+                    data['fdwoptions']['added'],
+                    'fdwoption',
+                    'fdwvalue')
+
+        if 'fdwoptions' in data and data['fdwoptions'] is not None and\
+                'changed' in data['fdwoptions']:
+            is_valid_changed_options, data['fdwoptions']['changed'] = \
+                validate_options(
+                    data['fdwoptions']['changed'],
+                    'fdwoption',
+                    'fdwvalue')
+
+        return is_valid_added_options, is_valid_changed_options
 
     def get_sql(self, gid, sid, data, did, fid=None):
         """
@@ -596,7 +718,7 @@ class ForeignDataWrapperView(PGChildNodeView):
 
         if fid is not None:
             sql = render_template("/".join([self.template_path,
-                                            'properties.sql']),
+                                            self._PROPERTIES_SQL]),
                                   fid=fid,
                                   conn=self.conn
                                   )
@@ -616,23 +738,7 @@ class ForeignDataWrapperView(PGChildNodeView):
                     'fdwoption', 'fdwvalue'
                 )
 
-            for key in ['fdwacl']:
-                if key in data and data[key] is not None:
-                    if 'added' in data[key]:
-                        data[key]['added'] = parse_priv_to_db(
-                            data[key]['added'],
-                            ['U']
-                        )
-                    if 'changed' in data[key]:
-                        data[key]['changed'] = parse_priv_to_db(
-                            data[key]['changed'],
-                            ['U']
-                        )
-                    if 'deleted' in data[key]:
-                        data[key]['deleted'] = parse_priv_to_db(
-                            data[key]['deleted'],
-                            ['U']
-                        )
+            self._check_and_parse_priv_to_db(data)
 
             old_data = res['rows'][0]
             for arg in required_args:
@@ -641,52 +747,26 @@ class ForeignDataWrapperView(PGChildNodeView):
 
             # Allow user to set the blank value in fdwvalue
             # field in option model
-            is_valid_added_options = is_valid_changed_options = False
-            if 'fdwoptions' in data and 'added' in data['fdwoptions']:
-                is_valid_added_options, data['fdwoptions']['added'] = \
-                    validate_options(
-                        data['fdwoptions']['added'],
-                        'fdwoption',
-                        'fdwvalue')
-            if 'fdwoptions' in data and 'changed' in data['fdwoptions']:
-                is_valid_changed_options, data['fdwoptions']['changed'] = \
-                    validate_options(
-                        data['fdwoptions']['changed'],
-                        'fdwoption',
-                        'fdwvalue')
+            is_valid_added_options, \
+                is_valid_changed_options = self._check_validate_options(data)
 
             sql = render_template(
-                "/".join([self.template_path, 'update.sql']),
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=data,
                 o_data=old_data,
                 is_valid_added_options=is_valid_added_options,
                 is_valid_changed_options=is_valid_changed_options,
                 conn=self.conn
             )
-            return sql, data['name'] if 'name' in data else old_data['name']
+            return sql.strip('\n'), \
+                data['name'] if 'name' in data else old_data['name']
         else:
-            for key in ['fdwacl']:
-                if key in data and data[key] is not None:
-                    data[key] = parse_priv_to_db(data[key], ['U'])
+            sql = self._get_create_sql(data)
 
-            # Allow user to set the blank value in
-            # fdwvalue field in option model
-            is_valid_options = False
-            if 'fdwoptions' in data:
-                is_valid_options, data['fdwoptions'] = validate_options(
-                    data['fdwoptions'], 'fdwoption', 'fdwvalue'
-                )
-
-            sql = render_template("/".join([self.template_path,
-                                            'create.sql']),
-                                  data=data, conn=self.conn,
-                                  is_valid_options=is_valid_options
-                                  )
-
-        return sql, data['name']
+        return sql.strip('\n'), data['name']
 
     @check_precondition
-    def sql(self, gid, sid, did, fid):
+    def sql(self, gid, sid, did, fid, json_resp=True):
         """
         This function will generate sql to show it in sql pane
         for the selected foreign data wrapper node.
@@ -696,8 +776,10 @@ class ForeignDataWrapperView(PGChildNodeView):
             sid: Server ID
             did: Database ID
             fid: Foreign data wrapper ID
+            json_resp:
         """
-        sql = render_template("/".join([self.template_path, 'properties.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               fid=fid, conn=self.conn
                               )
         status, res = self.conn.execute_dict(sql)
@@ -705,7 +787,9 @@ class ForeignDataWrapperView(PGChildNodeView):
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the foreign data wrapper on the server.")
+                gettext(
+                    "Could not find the foreign data wrapper on the server."
+                )
             )
 
         is_valid_options = False
@@ -717,7 +801,7 @@ class ForeignDataWrapperView(PGChildNodeView):
             if len(res['rows'][0]['fdwoptions']) > 0:
                 is_valid_options = True
 
-        sql = render_template("/".join([self.template_path, 'acl.sql']),
+        sql = render_template("/".join([self.template_path, self._ACL_SQL]),
                               fid=fid)
         status, fdw_acl_res = self.conn.execute_dict(sql)
         if not status:
@@ -738,19 +822,24 @@ class ForeignDataWrapperView(PGChildNodeView):
             )
 
         sql = ''
-        sql = render_template("/".join([self.template_path, 'create.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._CREATE_SQL]),
                               data=res['rows'][0], conn=self.conn,
                               is_valid_options=is_valid_options
                               )
         sql += "\n"
 
-        sql_header = u"""-- Foreign Data Wrapper: {0}
+        sql_header = u"""-- Foreign Data Wrapper: {0}\n\n""".format(
+            res['rows'][0]['name'])
 
--- DROP FOREIGN DATA WRAPPER {0}
+        sql_header += """-- DROP FOREIGN DATA WRAPPER {0}
 
-""".format(res['rows'][0]['name'])
+""".format(self.qtIdent(self.conn, res['rows'][0]['name']))
 
         sql = sql_header + sql
+
+        if not json_resp:
+            return sql.strip('\n')
 
         return ajax_response(response=sql.strip('\n'))
 
@@ -853,5 +942,60 @@ class ForeignDataWrapperView(PGChildNodeView):
             status=200
         )
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did):
+        """
+        This function will fetch the list of all the FDWs for
+        specified database id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :return:
+        """
+        res = dict()
+
+        sql = render_template("/".join([self.template_path,
+                                        'properties.sql']))
+        status, rset = self.conn.execute_2darray(sql)
+        if not status:
+            return internal_server_error(errormsg=rset)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(row['oid'])
+            if status:
+                # For schema diff if fdwoptions is None then convert it to
+                # the empty list.
+                if 'fdwoptions' in data and data['fdwoptions'] is None:
+                    data['fdwoptions'] = []
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_sql(gid=gid, sid=sid, did=did, data=data,
+                                     fid=oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  fid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, fid=oid,
+                               json_resp=False)
+        return sql
+
+
+SchemaDiffRegistry(blueprint.node_type, ForeignDataWrapperView, 'Database')
 ForeignDataWrapperView.register_node_view(blueprint)

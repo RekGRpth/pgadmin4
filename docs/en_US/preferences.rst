@@ -34,6 +34,10 @@ Use the fields on the *Display* panel to specify general display preferences:
   saving interval. A value of *-1* will disable the treeview state saving
   functionality.
 
+* When the *Confirm before closing properties with unsaved changes* switch is set to *True*,
+  pgAdmin will warn you before closing the properties dialog of an object if there
+  are any unsaved changes. On user confirmation, the properties dialog will close.
+
 * When the *Confirm on close or refresh* switch is set to *True*, pgAdmin will
   attempt to catch browser close or refresh events and prompt before allowing
   them to continue.
@@ -174,6 +178,15 @@ Expand the *Miscellaneous* node to specify miscellaneous display preferences.
 * Use the *User language* drop-down listbox to select the display language for
   the client.
 
+.. image:: images/preferences_misc_themes.png
+    :alt: Preferences dialog themes section
+    :align: center
+
+* Use the *Themes* drop-down listbox to select the theme for pgAdmin. You'll also get a preview just below the
+  drop down. Note that, to apply the theme you need to refresh the pgAdmin page. You can also submit your
+  own themes, check `here <https://git.postgresql.org/gitweb/?p=pgadmin4.git;a=blob_plain;f=README>`_ how.
+  Currently we support Standard, Dark and High Contrast (Beta) theme.
+
 The Paths Node
 **************
 
@@ -235,14 +248,14 @@ Use the fields on the *Auto Completion* panel to set the auto completion options
     :alt: Preferences dialog sqleditor csv output option
     :align: center
 
-Use the fields on the *CSV Output* panel to control the CSV output.
+Use the fields on the *CSV/TXT Output* panel to control the CSV/TXT output.
 
 * Use the *CSV field separator* drop-down listbox to specify the separator
-  character that will be used in CSV output.
+  character that will be used in CSV/TXT output.
 * Use the *CSV quote character* drop-down listbox to specify the quote character
-  that will be used in CSV output.
+  that will be used in CSV/TXT output.
 * Use the *CSV quoting* drop-down listbox to select the fields that will be
-  quoted in the CSV output; select *Strings*, *All*, or *None*.
+  quoted in the CSV/TXT output; select *Strings*, *All*, or *None*.
 * Use the *Replace null values with* option to replace null values with
   specified string in the output file. Default is set to 'NULL'.
 
@@ -267,6 +280,31 @@ Tool display.
   will disable the notifier, and a value of 0 will display it until clicked. If
   a positive value above zero is specified, the notifier will be displayed for
   the specified number of seconds. The default is *5*.
+
+.. image:: images/preferences_sql_editor.png
+    :alt: Preferences dialog sqleditor editor settings
+    :align: center
+
+Use the fields on the *Editor* panel to change settings of the query editor.
+
+* When the *Brace matching?* switch is set to *True*, the editor will highlight
+  pairs of matched braces.
+
+* When the *Code folding?* switch is set to *False*, the editor will disable
+  code folding. Disabling will improve editor performance with large files.
+
+* Use the *Font size* field to specify the font size that will be used in text
+  boxes and editors.
+
+* When the *Insert bracket pairs?* switch is set to *True*, the editor will
+  automatically insert paired brackets.
+
+* When the *Line wrapping* switch is set to *True*, the editor will implement
+  line-wrapping behavior.
+
+* When the *Plain text mode?* switch is set to *True*, the editor mode will be
+  changed to text/plain. Keyword highlighting and code folding will be disabled.
+  This will improve editor performance with large files.
 
 .. image:: images/preferences_sql_explain.png
     :alt: Preferences dialog sqleditor explain options
@@ -300,18 +338,6 @@ Use the fields on the *Options* panel to manage editor preferences.
 * When the *Auto-Rollback?* switch is set to *True*, failed queries are rolled
   back.
 
-* When the *Brace matching?* switch is set to *True*, the editor will highlight
-  pairs of matched braces.
-
-* Use the *Font size* field to specify the font size that will be used in text
-  boxes and editors.
-
-* When the *Insert bracket pairs?* switch is set to *True*, the editor will
-  automatically insert paired brackets.
-
-* When the *Line wrapping* switch is set to *True*, the editor will implement
-  line-wrapping behavior.
-
 * When the *Prompt to save unsaved data changes?* switch is set to *True*, the
   editor will prompt the user to saved unsaved data when exiting the data
   editor.
@@ -324,11 +350,10 @@ Use the fields on the *Options* panel to manage editor preferences.
   *True*, the editor will prompt the user to commit or rollback changes when
   exiting the Query Tool while the current transaction is not committed.
 
-* Use the *Tab size* field to specify the number of spaces per tab character in
-  the editor.
-
-* When the *Use spaces* switch is set to *True*, the editor will insert spaces
-  (instead of tab characters) when the tab key or auto-indent are used.
+* When the *Sort View Data results by primary key columns?* If set to *True*,
+  data returned when using the View/Edit Data - All Rows option will be sorted
+  by the Primary Key columns by default. When using the First/Last 100 Rows options,
+  data is always sorted.
 
 .. image:: images/preferences_sql_results_grid.png
     :alt: Preferences dialog sql results grid section
@@ -344,12 +369,55 @@ preferences for copied data.
 * Use the *Result copy quoting* drop-down listbox to select which type of fields
   require quoting; select *All*, *None*, or *Strings*.
 
-Use the fields on the *Keyboard shortcuts* panel to configure shortcuts for the
-Query Tool window navigation:
-
 .. image:: images/preferences_sql_keyboard_shortcuts.png
     :alt: Preferences dialog sql keyboard shortcuts section
     :align: center
+
+Use the fields on the *Keyboard shortcuts* panel to configure shortcuts for the
+Query Tool window navigation:
+
+.. image:: images/preferences_sql_formatting.png
+    :alt: Preferences dialog SQL Formatting section
+    :align: center
+
+Use the fields on the *SQL formatting* panel to specify your preferences for
+reformatting of SQL.
+
+* Use the *Command-first notation* option to specify whether to place commas
+  before or after column names.
+* Use the *Identifier case* option to specify whether to change identifiers
+  (object names) into upper, lower, or capitalized case.
+* Use the *Keyword case* option to specify whether to change keywords into
+  upper, lower, or capitalized case.
+* Use the *Re-indent aligned?* option to specify that indentations of statements
+  should be changed, aligned by keywords.
+* Use the *Re-indent?* option to specify that indentations of statements should
+  be changed.
+* Use the *Spaces around operators?* option to specify whether or not to include
+  spaces on either side of operators.
+* Use the *Strip comments?* option to specify whether or not comments should be
+  removed.
+* Use the *Tab size* option to specify the number of spaces per tab or indent.
+* Use the *Use spaces?* option to select whether to use spaces or tabs when
+  indenting.
+* Use the *Wrap after N characters* option to specify the column limit for
+  wrapping column separated lists (e.g. of column names in a table). If set to
+  0 (zero), each item will be on it's own line.
+
+The Schema Diff Node
+********************
+
+Expand the *Schema Diff* node to specify your display preferences.
+
+.. image:: images/preferences_schema_diff.png
+    :alt: Preferences schema diff
+    :align: center
+
+Use the *Ignore whitespaces* switch to ignores the whitespaces while comparing
+the string objects. Whitespace includes space, tabs, and CRLF.
+
+Use the *Open in new browser tab* switch to indicate if you would like Schema Diff
+to open in a new tab.
 
 The Storage Node
 ****************
@@ -374,5 +442,3 @@ Use the fields on the *Options* panel to specify storage preferences.
 
 * When the *Show hidden files and folders?* switch is set to *True*, the file
   manager will display hidden files and folders.
-
-

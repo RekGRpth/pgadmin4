@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -14,15 +14,18 @@ from flask import url_for, render_template, Response, request
 from flask_babelex import gettext
 from pgadmin.utils import PgAdminModule
 from pgadmin.utils.csrf import pgCSRFProtect
-from pgadmin.utils.preferences import Preferences
 from pgadmin.utils.session import cleanup_session_files
-
+from pgadmin.misc.themes import get_all_themes
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 import config
+from werkzeug.exceptions import InternalServerError
 
 MODULE_NAME = 'misc'
 
 
 class MiscModule(PgAdminModule):
+    LABEL = gettext('Miscellaneous')
+
     def get_own_javascripts(self):
         return [
             {
@@ -47,10 +50,6 @@ class MiscModule(PgAdminModule):
         """
         Register preferences for this module.
         """
-        self.misc_preference = Preferences(
-            'miscellaneous', gettext('Miscellaneous')
-        )
-
         lang_options = []
         for lang in config.LANGUAGES:
             lang_options.append(
@@ -61,11 +60,37 @@ class MiscModule(PgAdminModule):
             )
 
         # Register options for the User language settings
-        self.misc_preference.register(
-            'miscellaneous', 'user_language',
+        self.preference.register(
+            'user_language', 'user_language',
             gettext("User language"), 'options', 'en',
             category_label=gettext('User language'),
             options=lang_options
+        )
+
+        theme_options = []
+
+        for theme, theme_data in (get_all_themes()).items():
+            theme_options.append({
+                'label': theme_data['disp_name']
+                .replace('_', ' ')
+                .replace('-', ' ')
+                .title(),
+                'value': theme,
+                'preview_src': url_for(
+                    'static', filename='js/generated/img/' +
+                    theme_data['preview_img']
+                )
+            })
+
+        self.preference.register(
+            'themes', 'theme',
+            gettext("Theme"), 'options', 'standard',
+            category_label=gettext('Themes'),
+            options=theme_options,
+            help_str=gettext(
+                'A refresh is required to apply the theme. Below is the '
+                'preview of the theme'
+            )
         )
 
     def get_exposed_url_endpoints(self):
@@ -122,7 +147,7 @@ def explain_js():
             _=gettext
         ),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )
 
 

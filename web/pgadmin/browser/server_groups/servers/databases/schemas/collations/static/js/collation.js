@@ -2,17 +2,17 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.collation', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.node.schema.dir/child', 'pgadmin.node.schema.dir/schema_child_tree_node',
   'pgadmin.browser.collection',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, schemaChild,
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, schemaChild,
   schemaChildTreeNode) {
 
   if (!pgBrowser.Nodes['coll-collation']) {
@@ -120,21 +120,26 @@ define('pgadmin.node.collation', [
           control: 'node-ajax-options',
           type: 'text', mode: ['create', 'edit'], group: gettext('Definition'),
           url: 'get_collations', disabled: 'inSchemaWithModelCheck',
+          readonly: function(m) {return !m.isNew;},
           deps: ['locale', 'lc_collate', 'lc_type'],
         },{
           id: 'locale', label: gettext('Locale'), cell: 'string',
           type: 'text', mode: ['create', 'edit'], group: gettext('Definition'),
-          disabled: 'inSchemaWithModelCheck',
+          disabled: 'inSchemaWithModelCheck', readonly: function(m) {return !m.isNew;},
           deps: ['lc_collate', 'lc_type', 'copy_collation'],
         },{
           id: 'lc_collate', label: gettext('LC_COLLATE'), cell: 'string',
           type: 'text', mode: ['properties', 'create', 'edit'], group: gettext('Definition'),
           deps: ['locale', 'copy_collation'], disabled: 'inSchemaWithModelCheck',
+          readonly: function(m) {return !m.isNew;},
         },{
           id: 'lc_type', label: gettext('LC_TYPE'), cell: 'string',
           type: 'text', mode: ['properties', 'create', 'edit'], group: gettext('Definition'),
-          disabled: 'inSchemaWithModelCheck',
+          disabled: 'inSchemaWithModelCheck', readonly: function(m) {return !m.isNew;},
           deps: ['locale', 'copy_collation'],
+        },{
+          id: 'is_sys_obj', label: gettext('System collation?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', mode: ['properties', 'create', 'edit'],
@@ -221,14 +226,6 @@ define('pgadmin.node.collation', [
                 return true;
               return false;
             }
-
-            // We will disbale control if it's in 'edit' mode
-            if (m.isNew()) {
-              return false;
-            } else {
-              return true;
-            }
-
           }
           return true;
         },

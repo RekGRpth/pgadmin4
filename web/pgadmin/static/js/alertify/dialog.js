@@ -2,13 +2,12 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 import gettext from '../gettext';
-import {sprintf} from 'sprintf-js';
 import {DialogFactory} from './dialog_factory';
 import Backform from '../backform.pgadmin';
 import {getTreeNodeHierarchyFromIdentifier} from '../tree/pgadmin_tree_node';
@@ -61,7 +60,7 @@ export class Dialog {
             )
           );
         } else {
-          if (databaseNode.hasParent(isServerNode))
+          if (databaseNode.anyParent(isServerNode))
             serverInformation = nodeData;
         }
       } else {
@@ -78,6 +77,39 @@ export class Dialog {
     }
 
     return serverInformation;
+  }
+
+  retrieveAncestorOfTypeDatabase(item) {
+    let databaseInfo = null;
+    let aciTreeItem = item || this.pgBrowser.treeMenu.selected();
+    let treeNode = this.pgBrowser.treeMenu.findNodeByDomElement(aciTreeItem);
+
+    if (treeNode) {
+      if(treeNode.getData()._type === 'database') {
+        databaseInfo = treeNode.getData();
+      } else {
+        let nodeData = null;
+        treeNode.ancestorNode(
+          (node) => {
+            nodeData = node.getData();
+            if(nodeData._type === 'database') {
+              databaseInfo = nodeData;
+              return true;
+            }
+            return false;
+          }
+        );
+      }
+    }
+
+    if (databaseInfo === null) {
+      this.alertify.alert(
+        gettext(this.errorAlertTitle),
+        gettext('Please select a database or its child node from the browser.')
+      );
+    }
+
+    return databaseInfo;
   }
 
   hasBinariesConfiguration(serverInformation) {
@@ -100,7 +132,7 @@ export class Dialog {
     } else {
       this.alertify.alert(
         gettext(this.errorAlertTitle),
-        sprintf(gettext('Failed to load preference %s of module %s'), preference_name, module)
+        gettext('Failed to load preference %s of module %s', preference_name, module)
       );
       return false;
     }

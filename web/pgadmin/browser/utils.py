@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -17,7 +17,8 @@ from flask.views import View, MethodViewType, with_metaclass
 from flask_babelex import gettext
 
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils.ajax import make_json_response, precondition_required
+from pgadmin.utils.ajax import make_json_response, precondition_required,\
+    internal_server_error
 from pgadmin.utils.exception import ConnectionLost, SSHTunnelConnectionLost,\
     CryptKeyMissing
 
@@ -47,6 +48,30 @@ def underscore_escape(text):
     return text
 
 
+def underscore_unescape(text):
+    """
+    This function mimics the behaviour of underscore js unescape function
+    The html unescape by jinja is not compatible for underscore escape
+    function
+    :param text: input html text
+    :return: unescaped text
+    """
+    html_map = {
+        "&amp;": '&',
+        "&lt;": '<',
+        "&gt;": '>',
+        "&quot;": '"',
+        "&#96;": '`',
+        "&#x27;": "'"
+    }
+
+    # always replace & first
+    for c, r in html_map.items():
+        text = text.replace(c, r)
+
+    return text
+
+
 def is_version_in_range(sversion, min_ver, max_ver):
     assert (max_ver is None or isinstance(max_ver, int))
     assert (min_ver is None or isinstance(min_ver, int))
@@ -54,9 +79,9 @@ def is_version_in_range(sversion, min_ver, max_ver):
     if min_ver is None and max_ver is None:
         return True
 
-    if min_ver is None or min_ver <= sversion:
-        if max_ver is None or max_ver >= sversion:
-            return True
+    if (min_ver is None or min_ver <= sversion) and \
+            (max_ver is None or max_ver >= sversion):
+        return True
     return False
 
 
@@ -70,7 +95,7 @@ class PGChildModule(object):
 
     Method:
     ------
-    * BackendSupported(manager)
+    * backend_supported(manager)
     - Return True when it supports certain version.
       Uses the psycopg2 server connection manager as input for checking the
       compatibility of the current module.
@@ -87,7 +112,7 @@ class PGChildModule(object):
 
         super(PGChildModule, self).__init__()
 
-    def BackendSupported(self, manager, **kwargs):
+    def backend_supported(self, manager, **kwargs):
         if hasattr(self, 'show_node'):
             if not self.show_node:
                 return False
@@ -196,6 +221,8 @@ class NodeView(with_metaclass(MethodViewType, View)):
 
     # Inherited class needs to modify these parameters
     node_type = None
+    # Inherited class needs to modify these parameters
+    node_label = None
     # This must be an array object with attributes (type and id)
     parent_ids = []
     # This must be an array object with attributes (type and id)
@@ -278,8 +305,8 @@ class NodeView(with_metaclass(MethodViewType, View)):
                 status=406,
                 success=0,
                 errormsg=gettext(
-                    'Unimplemented method ({0}) for this url ({1})'.format(
-                        meth, flask.request.path)
+                    'Unimplemented method ({0}) for this url ({1})').format(
+                        meth, flask.request.path
                 )
             )
 
@@ -318,10 +345,8 @@ class NodeView(with_metaclass(MethodViewType, View)):
 
     def children(self, *args, **kwargs):
         """Build a list of treeview nodes from the child nodes."""
-        children = []
+        children = self.get_children_nodes(*args, **kwargs)
 
-        for module in self.blueprint.submodules:
-            children.extend(module.get_nodes(*args, **kwargs))
         # Return sorted nodes based on label
         return make_json_response(
             data=sorted(
@@ -329,8 +354,65 @@ class NodeView(with_metaclass(MethodViewType, View)):
             )
         )
 
+    def get_children_nodes(self, *args, **kwargs):
+        """
+        Returns the list of children nodes for the current nodes. Override this
+        function for special cases only.
+
+        :param args:
+        :param kwargs: Parameters to generate the correct set of tree node.
+        :return: List of the children nodes
+        """
+        children = []
+
+        for module in self.blueprint.submodules:
+            children.extend(module.get_nodes(*args, **kwargs))
+
+        return children
+
 
 class PGChildNodeView(NodeView):
+
+    _NODE_SQL = 'node.sql'
+    _NODES_SQL = 'nodes.sql'
+    _CREATE_SQL = 'create.sql'
+    _UPDATE_SQL = 'update.sql'
+    _ALTER_SQL = 'alter.sql'
+    _PROPERTIES_SQL = 'properties.sql'
+    _DELETE_SQL = 'delete.sql'
+    _GRANT_SQL = 'grant.sql'
+    _SCHEMA_SQL = 'schema.sql'
+    _ACL_SQL = 'acl.sql'
+    _OID_SQL = 'get_oid.sql'
+    _FUNCTIONS_SQL = 'functions.sql'
+    _GET_CONSTRAINTS_SQL = 'get_constraints.sql'
+    _GET_TABLES_SQL = 'get_tables.sql'
+    _GET_DEFINITION_SQL = 'get_definition.sql'
+    _GET_SCHEMA_OID_SQL = 'get_schema_oid.sql'
+    _GET_COLUMNS_SQL = 'get_columns.sql'
+    _GET_COLUMNS_FOR_TABLE_SQL = 'get_columns_for_table.sql'
+
+    def get_children_nodes(self, manager, **kwargs):
+        """
+        Returns the list of children nodes for the current nodes.
+
+        :param manager: Server Manager object
+        :param kwargs: Parameters to generate the correct set of browser tree
+          node
+        :return:
+        """
+        nodes = []
+        for module in self.blueprint.submodules:
+            if isinstance(module, PGChildModule):
+                if (
+                    manager is not None and
+                    module.backend_supported(manager, **kwargs)
+                ):
+                    nodes.extend(module.get_nodes(**kwargs))
+            else:
+                nodes.extend(module.get_nodes(**kwargs))
+        return nodes
+
     def children(self, **kwargs):
         """Build a list of treeview nodes from the child nodes."""
 
@@ -353,40 +435,26 @@ class PGChildNodeView(NodeView):
             if not conn.connected():
                 status, msg = conn.connect()
                 if not status:
-                    return precondition_required(
-                        gettext(
-                            "Connection to the server has been lost."
-                        )
-                    )
+                    return internal_server_error(errormsg=msg)
         except (ConnectionLost, SSHTunnelConnectionLost, CryptKeyMissing):
             raise
-        except Exception as e:
+        except Exception:
             return precondition_required(
                 gettext(
                     "Connection to the server has been lost."
                 )
             )
 
-        nodes = []
-        for module in self.blueprint.submodules:
-            if isinstance(module, PGChildModule):
-                if (
-                    manager is not None and
-                    module.BackendSupported(manager, **kwargs)
-                ):
-                    nodes.extend(module.get_nodes(**kwargs))
-            else:
-                nodes.extend(module.get_nodes(**kwargs))
-
         # Return sorted nodes based on label
         return make_json_response(
             data=sorted(
-                nodes, key=lambda c: c['label']
+                self.get_children_nodes(manager, **kwargs),
+                key=lambda c: c['label']
             )
         )
 
     def get_dependencies(self, conn, object_id, where=None,
-                         show_system_objects=None):
+                         show_system_objects=None, is_schema_diff=False):
         """
         This function is used to fetch the dependencies for the selected node.
 
@@ -394,12 +462,15 @@ class PGChildNodeView(NodeView):
             conn: Connection object
             object_id: Object Id of the selected node.
             where: where clause for the sql query (optional)
+            show_system_objects: System object status
+            is_schema_diff: True when function gets called from schema diff.
 
         Returns: Dictionary of dependencies for the selected node.
         """
 
         # Set the sql_path
-        sql_path = 'depends/sql/#{0}#'.format(conn.manager.version)
+        sql_path = 'depends/{0}/#{1}#'.format(
+            conn.manager.server_type, conn.manager.version)
 
         if where is None:
             where_clause = "WHERE dep.objid={0}::oid".format(object_id)
@@ -407,10 +478,11 @@ class PGChildNodeView(NodeView):
             where_clause = where
 
         query = render_template("/".join([sql_path, 'dependencies.sql']),
-                                where_clause=where_clause)
+                                where_clause=where_clause,
+                                object_id=object_id)
         # fetch the dependency for the selected object
-        dependencies = self.__fetch_dependency(conn, query,
-                                               show_system_objects)
+        dependencies = self.__fetch_dependency(
+            conn, query, show_system_objects, is_schema_diff)
 
         # fetch role dependencies
         if where_clause.find('subid') < 0:
@@ -453,7 +525,8 @@ class PGChildNodeView(NodeView):
         Returns: Dictionary of dependents for the selected node.
         """
         # Set the sql_path
-        sql_path = 'depends/sql/#{0}#'.format(conn.manager.version)
+        sql_path = 'depends/{0}/#{1}#'.format(
+            conn.manager.server_type, conn.manager.version)
 
         if where is None:
             where_clause = "WHERE dep.refobjid={0}::oid".format(object_id)
@@ -467,39 +540,51 @@ class PGChildNodeView(NodeView):
 
         return dependents
 
-    def __fetch_dependency(self, conn, query, show_system_objects=None):
+    def __fetch_dependency(self, conn, query, show_system_objects=None,
+                           is_schema_diff=False):
         """
         This function is used to fetch the dependency for the selected node.
 
         Args:
             conn: Connection object
             query: sql query to fetch dependencies/dependents
+            show_system_objects: System object status
+            is_schema_diff: True when function gets called from schema diff.
 
         Returns: Dictionary of dependency for the selected node.
         """
 
-        # Dictionary for the object types
-        types = {
-            # None specified special handling for this type
+        standard_types = {
             'r': None,
             'i': 'index',
             'S': 'sequence',
             'v': 'view',
-            'x': 'external_table',
-            'p': 'partition',
-            'P': 'function',
-            'n': 'schema',
-            'y': 'type',
-            'd': 'domain',
-            't': 'trigger_function',
-            'T': 'trigger',
-            'l': 'language',
-            'f': 'foreign_data_wrapper',
-            'F': 'foreign_server',
-            'R': None,
-            'C': None,
+            'p': 'partition_table',
+            'f': 'foreign_table',
+            'm': 'materialized_view',
+            't': 'toast_table',
+            'I': 'partition_index'
+        }
+
+        # Dictionary for the object types
+        custom_types = {
+            'x': 'external_table', 'n': 'schema', 'd': 'domain',
+            'l': 'language', 'Cc': 'check', 'Cd': 'domain_constraints',
+            'Cf': 'foreign_key', 'Cp': 'primary_key', 'Co': 'collation',
+            'Cu': 'unique_constraint', 'Cx': 'exclusion_constraint',
+            'Fw': 'foreign_data_wrapper', 'Fs': 'foreign_server',
+            'Fc': 'fts_configuration', 'Fp': 'fts_parser',
+            'Fd': 'fts_dictionary', 'Ft': 'fts_template',
+            'Ex': 'extension', 'Et': 'event_trigger', 'Pa': 'package',
+            'Pf': 'function', 'Pt': 'trigger_function', 'Pp': 'procedure',
+            'Rl': 'rule', 'Rs': 'row_security_policy', 'Sy': 'synonym',
+            'Ty': 'type', 'Tr': 'trigger', 'Tc': 'compound_trigger',
+            # None specified special handling for this type
             'A': None
         }
+
+        # Merging above two dictionaries
+        types = {**standard_types, **custom_types}
 
         # Dictionary for the restrictions
         dep_types = {
@@ -521,6 +606,9 @@ class PGChildNodeView(NodeView):
             type_str = row['type']
             dep_str = row['deptype']
             nsp_name = row['nspname']
+            object_id = None
+            if 'refobjid' in row:
+                object_id = row['refobjid']
 
             ref_name = ''
             if nsp_name is not None:
@@ -532,93 +620,110 @@ class PGChildNodeView(NodeView):
             # Fetch the type name from the dictionary
             # if type is not present in the types dictionary then
             # we will continue and not going to add it.
-            if len(type_str) and type_str[0] in types:
-
+            if len(type_str) and type_str in types and \
+                    types[type_str] is not None:
+                type_name = types[type_str]
+                if type_str == 'Rl':
+                    ref_name = \
+                        _ref_name + ' ON ' + ref_name + row['ownertable']
+                    _ref_name = None
+                elif type_str == 'Cf':
+                    ref_name += row['ownertable'] + '.'
+                elif type_str == 'm':
+                    icon = 'icon-mview'
+            elif len(type_str) and type_str[0] in types and \
+                    types[type_str[0]] is None:
                 # if type is present in the types dictionary, but it's
                 # value is None then it requires special handling.
-                if types[type_str[0]] is None:
-                    if type_str[0] == 'r':
-                        if int(type_str[1]) > 0:
-                            type_name = 'column'
-                        else:
-                            type_name = 'table'
-                            if 'is_inherits' in row \
-                                    and row['is_inherits'] == '1':
-                                if 'is_inherited' in row \
-                                        and row['is_inherited'] == '1':
-                                    icon = 'icon-table-multi-inherit'
-                                # For tables under partitioned tables,
-                                # is_inherits will be true and dependency
-                                # will be auto as it inherits from parent
-                                # partitioned table
-                                elif ('is_inherited' in row and
-                                      row['is_inherited'] == '0')\
-                                        and dep_str == 'a':
-                                    type_name = 'partition'
-                                else:
-                                    icon = 'icon-table-inherits'
-                            elif 'is_inherited' in row \
-                                    and row['is_inherited'] == '1':
-                                icon = 'icon-table-inherited'
-
-                    elif type_str[0] == 'R':
-                        type_name = 'rule'
-                        ref_name = \
-                            _ref_name + ' ON ' + ref_name + row['ownertable']
-                        _ref_name = None
-                    elif type_str[0] == 'C':
-                        if type_str[1] == 'c':
-                            type_name = 'check'
-                        elif type_str[1] == 'f':
-                            type_name = 'foreign_key'
-                            ref_name += row['ownertable'] + '.'
-                        elif type_str[1] == 'p':
-                            type_name = 'primary_key'
-                        elif type_str[1] == 'u':
-                            type_name = 'unique_constraint'
-                        elif type_str[1] == 'x':
-                            type_name = 'exclusion_constraint'
-                    elif type_str[0] == 'A':
-                        # Include only functions
-                        if row['adbin'].startswith('{FUNCEXPR'):
-                            type_name = 'function'
-                            ref_name = row['adsrc']
-                        else:
-                            continue
-                else:
-                    type_name = types[type_str[0]]
+                if type_str[0] == 'r':
+                    if int(type_str[1]) > 0:
+                        type_name = 'column'
+                    else:
+                        type_name = 'table'
+                        if 'is_inherits' in row and row['is_inherits'] == '1':
+                            if 'is_inherited' in row and \
+                                    row['is_inherited'] == '1':
+                                icon = 'icon-table-multi-inherit'
+                            # For tables under partitioned tables,
+                            # is_inherits will be true and dependency
+                            # will be auto as it inherits from parent
+                            # partitioned table
+                            elif ('is_inherited' in row and
+                                  row['is_inherited'] == '0') and \
+                                    dep_str == 'a':
+                                type_name = 'partition'
+                            else:
+                                icon = 'icon-table-inherits'
+                        elif 'is_inherited' in row and \
+                                row['is_inherited'] == '1':
+                            icon = 'icon-table-inherited'
+                elif type_str[0] == 'A':
+                    # Include only functions
+                    if row['adbin'].startswith('{FUNCEXPR'):
+                        type_name = 'function'
+                        ref_name = row['adsrc']
+                    else:
+                        continue
             else:
                 continue
 
             if _ref_name is not None:
                 ref_name += _ref_name
 
-            dep_type = ''
-            if show_system_objects is None:
-                show_system_objects = self.blueprint.show_system_objects
-            if dep_str[0] in dep_types:
+            # If schema diff is set to True then we don't need to calculate
+            # field and also no need to add icon and field in the list.
+            if is_schema_diff and type_name != 'schema':
+                dependency.append(
+                    {
+                        'type': type_name,
+                        'name': ref_name,
+                        'oid': object_id
+                    }
+                )
+            elif not is_schema_diff:
+                dep_type = ''
+                if show_system_objects is None:
+                    show_system_objects = self.blueprint.show_system_objects
+                if dep_str[0] in dep_types:
+                    # if dep_type is present in the dep_types dictionary,
+                    # but it's value is None then it requires special
+                    # handling.
+                    if dep_types[dep_str[0]] is None:
+                        if dep_str[0] == 'i':
+                            if show_system_objects:
+                                dep_type = 'internal'
+                            else:
+                                continue
+                        elif dep_str[0] == 'p':
+                            dep_type = 'pin'
+                            type_name = ''
+                    else:
+                        dep_type = dep_types[dep_str[0]]
 
-                # if dep_type is present in the dep_types dictionary, but it's
-                # value is None then it requires special handling.
-                if dep_types[dep_str[0]] is None:
-                    if dep_str[0] == 'i':
-                        if show_system_objects:
-                            dep_type = 'internal'
-                        else:
-                            continue
-                    elif dep_str[0] == 'p':
-                        dep_type = 'pin'
-                        type_name = ''
-                else:
-                    dep_type = dep_types[dep_str[0]]
-
-            dependency.append(
-                {
-                    'type': type_name,
-                    'name': ref_name,
-                    'field': dep_type,
-                    'icon': icon,
-                }
-            )
+                dependency.append(
+                    {
+                        'type': type_name,
+                        'name': ref_name,
+                        'field': dep_type,
+                        'icon': icon,
+                    }
+                )
 
         return dependency
+
+    def _check_cascade_operation(self, only_sql=None):
+        """
+        Check cascade operation.
+        :param only_sql:
+        :return:
+        """
+        if self.cmd == 'delete' or only_sql:
+            # This is a cascade operation
+            cascade = True
+        else:
+            cascade = False
+        return cascade
+
+    def not_found_error_msg(self, custom_label=None):
+        return gettext("Could not find the specified {}.".format(
+            custom_label if custom_label else self.node_label).lower())

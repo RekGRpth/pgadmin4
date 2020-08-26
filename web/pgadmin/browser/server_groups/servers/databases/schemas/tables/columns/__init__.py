@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -23,13 +23,11 @@ from pgadmin.browser.server_groups.servers.utils import parse_priv_from_db, \
 from pgadmin.browser.utils import PGChildNodeView
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
+from pgadmin.browser.server_groups.servers.databases.schemas.tables.\
+    columns import utils as column_utils
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import ColParamsJSONDecoder
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class ColumnsModule(CollectionNodeModule):
@@ -54,8 +52,8 @@ class ColumnsModule(CollectionNodeModule):
         initialized.
     """
 
-    NODE_TYPE = 'column'
-    COLLECTION_LABEL = gettext("Columns")
+    _NODE_TYPE = 'column'
+    _COLLECTION_LABEL = gettext("Columns")
 
     def __init__(self, *args, **kwargs):
         """
@@ -84,7 +82,7 @@ class ColumnsModule(CollectionNodeModule):
         Load the module script for server, when any of the server-group node is
         initialized.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
     @property
     def node_inode(self):
@@ -160,6 +158,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
     """
 
     node_type = blueprint.node_type
+    node_label = "Column"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -215,16 +214,9 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             self.acl = ['a', 'r', 'w', 'x']
 
             # We need parent's name eg table name and schema name
-            SQL = render_template("/".join([self.template_path,
-                                            'get_parent.sql']),
-                                  tid=kwargs['tid'])
-            status, rset = self.conn.execute_2darray(SQL)
-            if not status:
-                return internal_server_error(errormsg=rset)
-
-            for row in rset['rows']:
-                self.schema = row['schema']
-                self.table = row['table']
+            schema, table = column_utils.get_parent(self.conn, kwargs['tid'])
+            self.schema = schema
+            self.table = table
 
             return f(*args, **kwargs)
 
@@ -248,7 +240,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         """
 
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             tid=tid, show_sys_objects=self.blueprint.show_system_objects
         )
         status, res = self.conn.execute_dict(SQL)
@@ -278,7 +270,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         """
         res = []
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             tid=tid,
             clid=clid,
             show_sys_objects=self.blueprint.show_system_objects
@@ -286,11 +278,10 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=rset)
-
         if clid is not None:
             if len(rset['rows']) == 0:
                 return gone(
-                    errormsg=gettext("Could not find the column.")
+                    errormsg=self.not_found_error_msg()
                 )
             row = rset['rows'][0]
             return make_json_response(
@@ -319,138 +310,6 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             status=200
         )
 
-    def _formatter(self, scid, tid, clid, data):
-        """
-        Args:
-             scid: schema oid
-             tid: table oid
-             clid: position of column in table
-             data: dict of query result
-
-        Returns:
-            It will return formatted output of collections
-        """
-        # To check if column is primary key
-        if 'attnum' in data and 'indkey' in data:
-            # Current column
-            attnum = str(data['attnum'])
-
-            # Single/List of primary key column(s)
-            indkey = str(data['indkey'])
-
-            # We will check if column is in primary column(s)
-            if attnum in indkey.split(" "):
-                data['is_pk'] = True
-            else:
-                data['is_pk'] = False
-
-        # Find length & precision of column data type
-        fulltype = self.get_full_type(
-            data['typnspname'], data['typname'],
-            data['isdup'], data['attndims'], data['atttypmod']
-        )
-
-        length = False
-        precision = False
-        if 'elemoid' in data:
-            length, precision, typeval = \
-                self.get_length_precision(data['elemoid'])
-
-        # Set length and precision to None
-        data['attlen'] = None
-        data['attprecision'] = None
-
-        import re
-
-        # If we have length & precision both
-        if length and precision:
-            matchObj = re.search(r'(\d+),(\d+)', fulltype)
-            if matchObj:
-                data['attlen'] = matchObj.group(1)
-                data['attprecision'] = matchObj.group(2)
-        elif length:
-            # If we have length only
-            matchObj = re.search(r'(\d+)', fulltype)
-            if matchObj:
-                data['attlen'] = matchObj.group(1)
-                data['attprecision'] = None
-
-        # We need to fetch inherited tables for each table
-        SQL = render_template("/".join([self.template_path,
-                                        'get_inherited_tables.sql']),
-                              tid=tid)
-        status, inh_res = self.conn.execute_dict(SQL)
-        if not status:
-            return internal_server_error(errormsg=inh_res)
-        for row in inh_res['rows']:
-            if row['attrname'] == data['name']:
-                data['is_inherited'] = True
-                data['tbls_inherited'] = row['inhrelname']
-
-        # We need to format variables according to client js collection
-        if 'attoptions' in data and data['attoptions'] is not None:
-            spcoptions = []
-            for spcoption in data['attoptions']:
-                k, v = spcoption.split('=')
-                spcoptions.append({'name': k, 'value': v})
-
-            data['attoptions'] = spcoptions
-
-        # Need to format security labels according to client js collection
-        if 'seclabels' in data and data['seclabels'] is not None:
-            seclabels = []
-            for seclbls in data['seclabels']:
-                k, v = seclbls.split('=')
-                seclabels.append({'provider': k, 'label': v})
-
-            data['seclabels'] = seclabels
-
-        # We need to parse & convert ACL coming from database to json format
-        SQL = render_template("/".join([self.template_path, 'acl.sql']),
-                              tid=tid, clid=clid)
-        status, acl = self.conn.execute_dict(SQL)
-
-        if not status:
-            return internal_server_error(errormsg=acl)
-
-        # We will set get privileges from acl sql so we don't need
-        # it from properties sql
-        data['attacl'] = []
-
-        for row in acl['rows']:
-            priv = parse_priv_from_db(row)
-            data.setdefault(row['deftype'], []).append(priv)
-
-        # we are receiving request when in edit mode
-        # we will send filtered types related to current type
-        type_id = data['atttypid']
-
-        SQL = render_template("/".join([self.template_path,
-                                        'is_referenced.sql']),
-                              tid=tid, clid=clid)
-
-        status, is_reference = self.conn.execute_scalar(SQL)
-
-        edit_types_list = list()
-        # We will need present type in edit mode
-        edit_types_list.append(data['cltype'])
-
-        if int(is_reference) == 0:
-            SQL = render_template(
-                "/".join([self.template_path, 'edit_mode_types.sql']),
-                type_id=type_id
-            )
-            status, rset = self.conn.execute_2darray(SQL)
-
-            for row in rset['rows']:
-                edit_types_list.append(row['typname'])
-
-        data['edit_types'] = edit_types_list
-
-        data['cltype'] = DataTypeReader.parse_type_name(data['cltype'])
-
-        return data
-
     @check_precondition
     def properties(self, gid, sid, did, scid, tid, clid):
         """
@@ -470,7 +329,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         """
 
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             tid=tid, clid=clid,
             show_sys_objects=self.blueprint.show_system_objects
         )
@@ -481,54 +340,16 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             return internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(gettext("""Could not find the column in the table."""))
+            return gone(self.not_found_error_msg())
 
         # Making copy of output for future use
         data = dict(res['rows'][0])
-        data = self._formatter(scid, tid, clid, data)
+        data = column_utils.column_formatter(self.conn, tid, clid, data)
 
         return ajax_response(
             response=data,
             status=200
         )
-
-    def _cltype_formatter(self, type):
-        """
-
-        Args:
-            data: Type string
-
-        Returns:
-            We need to remove [] from type and append it
-            after length/precision so we will set flag for
-            sql template
-        """
-
-        if '[]' in type:
-            type = type.replace('[]', '')
-            self.hasSqrBracket = True
-        else:
-            self.hasSqrBracket = False
-
-        return type
-
-    @staticmethod
-    def convert_length_precision_to_string(data):
-        """
-        This function is used to convert length & precision to string
-        to handle case like when user gives 0 as length
-
-        Args:
-            data: Data from client
-
-        Returns:
-            Converted data
-        """
-        if 'attlen' in data and data['attlen'] is not None:
-            data['attlen'] = str(data['attlen'])
-        if 'attprecision' in data and data['attprecision'] is not None:
-            data['attprecision'] = str(data['attprecision'])
-        return data
 
     @check_precondition
     def create(self, gid, sid, did, scid, tid):
@@ -547,7 +368,13 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         )
 
         for k, v in data.items():
-            data[k] = json.loads(v, encoding='utf-8', cls=ColParamsJSONDecoder)
+            # comments should be taken as is because if user enters a
+            # json comment it is parsed by loads which should not happen
+            if k in ('description',):
+                data[k] = v
+            else:
+                data[k] = json.loads(v, encoding='utf-8',
+                                     cls=ColParamsJSONDecoder)
 
         required_args = {
             'name': 'Name',
@@ -560,9 +387,8 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." %
-                        required_args[arg]
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(required_args[arg])
                 )
 
         # Parse privilege data coming from client according to database format
@@ -572,14 +398,16 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         # Adding parent into data dict, will be using it while creating sql
         data['schema'] = self.schema
         data['table'] = self.table
+        if len(data['table']) == 0:
+            return gone(gettext(self.not_found_error_msg('Table')))
 
         # check type for '[]' in it
-        data['cltype'] = self._cltype_formatter(data['cltype'])
-        data['hasSqrBracket'] = self.hasSqrBracket
-        data = self.convert_length_precision_to_string(data)
+        data['cltype'], data['hasSqrBracket'] = \
+            column_utils.type_formatter(data['cltype'])
+        data = column_utils.convert_length_precision_to_string(data)
 
         SQL = render_template("/".join([self.template_path,
-                                        'create.sql']),
+                                        self._CREATE_SQL]),
                               data=data, conn=self.conn)
         status, res = self.conn.execute_scalar(SQL)
         if not status:
@@ -628,7 +456,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         try:
             for clid in data['ids']:
                 SQL = render_template(
-                    "/".join([self.template_path, 'properties.sql']),
+                    "/".join([self.template_path, self._PROPERTIES_SQL]),
                     tid=tid, clid=clid,
                     show_sys_objects=self.blueprint.show_system_objects
                 )
@@ -643,9 +471,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
                         errormsg=gettext(
                             'Error: Object not found.'
                         ),
-                        info=gettext(
-                            'The specified column could not be found.\n'
-                        )
+                        info=self.not_found_error_msg()
                     )
 
                 data = dict(res['rows'][0])
@@ -654,7 +480,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
                 data['table'] = self.table
 
                 SQL = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       data=data, conn=self.conn)
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
@@ -695,11 +521,11 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
 
         # check type for '[]' in it
         if 'cltype' in data:
-            data['cltype'] = self._cltype_formatter(data['cltype'])
-            data['hasSqrBracket'] = self.hasSqrBracket
+            data['cltype'], data['hasSqrBracket'] = \
+                column_utils.type_formatter(data['cltype'])
 
         SQL, name = self.get_sql(scid, tid, clid, data)
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
         SQL = SQL.strip('\n').strip(' ')
         status, res = self.conn.execute_scalar(SQL)
@@ -738,12 +564,12 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
 
         # check type for '[]' in it
         if 'cltype' in data:
-            data['cltype'] = self._cltype_formatter(data['cltype'])
-            data['hasSqrBracket'] = self.hasSqrBracket
+            data['cltype'], data['hasSqrBracket'] = \
+                column_utils.type_formatter(data['cltype'])
 
         try:
             SQL, name = self.get_sql(scid, tid, clid, data)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             SQL = SQL.strip('\n').strip(' ')
@@ -756,81 +582,129 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
+    def _parse_acl_to_db_parsing(self, data, old_data):
+        """
+        Convert acl coming from client to required db parsing format.
+        :param data: Data.
+        :param old_data: old data for comparision and get name.
+        """
+        # If name is not present in data then
+        # we will fetch it from old data, we also need schema & table name
+        if 'name' not in data:
+            data['name'] = old_data['name']
+
+        # Convert acl coming from client in db parsing format
+        key = 'attacl'
+        if key in data and data[key] is not None:
+            if 'added' in data[key]:
+                data[key]['added'] = parse_priv_to_db(
+                    data[key]['added'], self.acl
+                )
+            if 'changed' in data[key]:
+                data[key]['changed'] = parse_priv_to_db(
+                    data[key]['changed'], self.acl
+                )
+            if 'deleted' in data[key]:
+                data[key]['deleted'] = parse_priv_to_db(
+                    data[key]['deleted'], self.acl
+                )
+
+    def _get_sql_for_create(self, data, is_sql):
+        """
+        Get sql for create column model.
+        :param data: Data.
+        :param is_sql: flag for get sql.
+        :return: if any error return error else return sql.
+        """
+        required_args = [
+            'name',
+            'cltype'
+        ]
+
+        for arg in required_args:
+            if arg not in data:
+                return True, gettext('-- definition incomplete'), ''
+
+        # We will convert privileges coming from client required
+        # in server side format
+        if 'attacl' in data:
+            data['attacl'] = parse_priv_to_db(data['attacl'],
+                                              self.acl)
+        # If the request for new object which do not have did
+        sql = render_template(
+            "/".join([self.template_path, self._CREATE_SQL]),
+            data=data, conn=self.conn, is_sql=is_sql
+        )
+
+        return False, '', sql
+
+    def _check_type(self, data, old_data):
+        """
+        Check cltype and get required data form it.
+        :param data: Data.
+        :param old_data: old data for check and get default values.
+        """
+        # check type for '[]' in it
+        if 'cltype' in old_data:
+            old_data['cltype'], old_data['hasSqrBracket'] = \
+                column_utils.type_formatter(old_data['cltype'])
+
+            if 'cltype' in data and data['cltype'] != old_data['cltype']:
+                length, precision, typeval = \
+                    self.get_length_precision(data['cltype'])
+
+                # if new datatype does not have length or precision
+                # then we cannot apply length or precision of old
+                # datatype to new one.
+                if not length:
+                    old_data['attlen'] = -1
+                if not precision:
+                    old_data['attprecision'] = None
+
     def get_sql(self, scid, tid, clid, data, is_sql=False):
         """
-        This function will genrate sql from model data
+        This function will generate sql from model data
         """
-        data = self.convert_length_precision_to_string(data)
+        data = column_utils.convert_length_precision_to_string(data)
 
         if clid is not None:
-            SQL = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 tid=tid, clid=clid,
                 show_sys_objects=self.blueprint.show_system_objects
             )
 
-            status, res = self.conn.execute_dict(SQL)
+            status, res = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res)
-            if len(res['rows']) == 0:
-                return gone(
-                    gettext("Could not find the column on the server.")
-                )
+            elif len(res['rows']) == 0:
+                return gone(self.not_found_error_msg())
+
             old_data = dict(res['rows'][0])
+
+            is_view_only = True if 'is_view_only' in old_data and old_data[
+                'is_view_only'] else False
+
+            if 'seqcycle' in old_data and old_data['seqcycle'] is False:
+                old_data['seqcycle'] = None
             # We will add table & schema as well
-            old_data = self._formatter(scid, tid, clid, old_data)
+            old_data = column_utils.column_formatter(
+                self.conn, tid, clid, old_data)
 
-            # check type for '[]' in it
-            if 'cltype' in old_data:
-                old_data['cltype'] = self._cltype_formatter(old_data['cltype'])
-                old_data['hasSqrBracket'] = self.hasSqrBracket
+            self._check_type(data, old_data)
+            self._parse_acl_to_db_parsing(data, old_data)
 
-            # If name is not present in data then
-            # we will fetch it from old data, we also need schema & table name
-            if 'name' not in data:
-                data['name'] = old_data['name']
-
-            # Convert acl coming from client in db parsing format
-            key = 'attacl'
-            if key in data and data[key] is not None:
-                if 'added' in data[key]:
-                    data[key]['added'] = parse_priv_to_db(
-                        data[key]['added'], self.acl
-                    )
-                if 'changed' in data[key]:
-                    data[key]['changed'] = parse_priv_to_db(
-                        data[key]['changed'], self.acl
-                    )
-                if 'deleted' in data[key]:
-                    data[key]['deleted'] = parse_priv_to_db(
-                        data[key]['deleted'], self.acl
-                    )
-
-            SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
-                data=data, o_data=old_data, conn=self.conn
+            sql = render_template(
+                "/".join([self.template_path, self._UPDATE_SQL]),
+                data=data, o_data=old_data, conn=self.conn,
+                is_view_only=is_view_only
             )
         else:
-            required_args = [
-                'name',
-                'cltype'
-            ]
+            is_error, errmsg, sql = self._get_sql_for_create(data, is_sql)
+            if is_error:
+                return errmsg
 
-            for arg in required_args:
-                if arg not in data:
-                    return gettext('-- definition incomplete')
-
-            # We will convert privileges coming from client required
-            # in server side format
-            if 'attacl' in data:
-                data['attacl'] = parse_priv_to_db(data['attacl'],
-                                                  self.acl)
-            # If the request for new object which do not have did
-            SQL = render_template(
-                "/".join([self.template_path, 'create.sql']),
-                data=data, conn=self.conn, is_sql=is_sql
-            )
-        return SQL, data['name'] if 'name' in data else old_data['name']
+        return sql, data['name'] if 'name' in data else old_data['name']
 
     @check_precondition
     def sql(self, gid, sid, did, scid, tid, clid):
@@ -847,7 +721,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         """
         try:
             SQL = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 tid=tid, clid=clid,
                 show_sys_objects=self.blueprint.show_system_objects
             )
@@ -856,9 +730,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             if not status:
                 return internal_server_error(errormsg=res)
             if len(res['rows']) == 0:
-                return gone(
-                    gettext("Could not find the column on the server.")
-                )
+                return gone(self.not_found_error_msg())
 
             data = dict(res['rows'][0])
             # We do not want to display length as -1 in create query
@@ -869,14 +741,17 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             data['table'] = self.table
             # check type for '[]' in it
             if 'cltype' in data:
-                data['cltype'] = self._cltype_formatter(data['cltype'])
-                data['hasSqrBracket'] = self.hasSqrBracket
+                data['cltype'], data['hasSqrBracket'] = \
+                    column_utils.type_formatter(data['cltype'])
 
             # We will add table & schema as well
-            data = self._formatter(scid, tid, clid, data)
+            # Passing edit_types_list param so that it does not fetch
+            # edit types. It is not required here.
+            data = column_utils.column_formatter(self.conn, tid, clid,
+                                                 data, [])
 
             SQL, name = self.get_sql(scid, tid, None, data, is_sql=True)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             sql_header = u"-- Column: {0}\n\n-- ".format(
@@ -885,7 +760,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             )
 
             sql_header += render_template(
-                "/".join([self.template_path, 'delete.sql']),
+                "/".join([self.template_path, self._DELETE_SQL]),
                 data=data, conn=self.conn
             )
             SQL = sql_header + '\n\n' + SQL
@@ -964,9 +839,15 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
             clid: Column ID
 
         """
+
+        # Specific condition for column which we need to append
+        where = "WHERE dep.objid={0}::OID AND dep.objsubid={1}".format(
+            tid, clid
+        )
+
         # Specific condition for column which we need to append
         dependencies_result = self.get_dependencies(
-            self.conn, clid
+            self.conn, clid, where
         )
 
         return ajax_response(
@@ -990,7 +871,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         """
         # Fetch column name
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             tid=tid, clid=clid,
             show_sys_objects=self.blueprint.show_system_objects
         )
@@ -999,9 +880,7 @@ class ColumnsView(PGChildNodeView, DataTypeReader):
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(
-                gettext("Could not find the column on the server.")
-            )
+            return gone(self.not_found_error_msg())
 
         data = dict(res['rows'][0])
         column = data['name']

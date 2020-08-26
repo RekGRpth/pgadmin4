@@ -2,16 +2,21 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
+import sys
+import random
+
 from regression.python_test_utils import test_utils
 from regression.feature_utils.base_feature_test import BaseFeatureTest
 from selenium.webdriver import ActionChains
-import sys
+from selenium.common.exceptions import StaleElementReferenceException, \
+    WebDriverException
+from regression.feature_utils.locators import QueryToolLocators
+from regression.feature_utils.tree_area_locators import TreeAreaLocators
 
 
 class CheckForXssFeatureTest(BaseFeatureTest):
@@ -32,12 +37,22 @@ class CheckForXssFeatureTest(BaseFeatureTest):
     scenarios = [
         ("Test XSS check for panels and query tool", dict())
     ]
-    test_table_name = "<h1>X"
+    test_type_name = '"<script>alert(1)</script>"'
+    check_xss_chars = '&lt;h1&gt;X'
+    check_xss_chars_set2 = '&lt;script&gt;alert(1)&lt;/script&gt;'
 
     def before(self):
+        self.test_table_name = "<h1>X" + str(random.randint(1000, 3000))
+
+        test_utils.create_type(
+            self.server, self.test_db, self.test_type_name,
+            ['"<script>alert(1)</script>" "char"',
+             '"1<script>alert(1)</script>" "char"']
+        )
         test_utils.create_table(
             self.server, self.test_db, self.test_table_name,
-            ['"<script>alert(1)</script>" char']
+            ['"<script>alert(1)</script>" char',
+             'typcol ' + self.test_type_name]
         )
         # This is needed to test dependents tab (eg: BackGrid)
         test_utils.create_constraint(
@@ -51,15 +66,24 @@ class CheckForXssFeatureTest(BaseFeatureTest):
         self.page.add_server(self.server)
         self._tables_node_expandable()
         self._check_xss_in_browser_tree()
-        self._check_xss_in_properties_tab()
         self._check_xss_in_sql_tab()
 
         # sometime the tab for dependent does not show info, so refreshing
         # the page and then again collapsing until the table node
-        self.page.refresh_page()
-        self.page.toggle_open_servers_group()
-        self._tables_node_expandable()
-        self._check_xss_in_dependents_tab()
+        retry = 2
+        while retry > 0:
+            try:
+                self.page.refresh_page()
+                self.page.toggle_open_servers_group()
+                self._tables_node_expandable()
+                self._check_xss_in_dependents_tab()
+                retry = 0
+            except WebDriverException as e:
+                print("Exception in dependent check {0}".format(retry),
+                      file=sys.stderr)
+                if retry == 1:
+                    raise e
+                retry -= 1
 
         # Query tool
         self.page.open_query_tool()
@@ -78,19 +102,23 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
     def after(self):
         self.page.remove_server(self.server)
+        test_utils.delete_table(
+            self.server, self.test_db, self.test_table_name)
 
     def _tables_node_expandable(self):
-        self.page.toggle_open_server(self.server['name'])
-        self.page.toggle_open_tree_item('Databases')
-        self.page.toggle_open_tree_item(self.test_db)
-        self.page.toggle_open_tree_item('Schemas')
-        self.page.toggle_open_tree_item('public')
-        self.page.toggle_open_tree_item('Tables')
-        self.page.select_tree_item(self.test_table_name)
+        self.page.expand_database_node(
+            self.server['name'],
+            self.server['db_password'], self.test_db)
+        self.page.toggle_open_tables_node(self.server['name'],
+                                          self.server['db_password'],
+                                          self.test_db, 'public')
+        self.page.click_a_tree_node(
+            self.test_table_name,
+            TreeAreaLocators.sub_nodes_of_tables_node)
 
     def _check_xss_in_browser_tree(self):
         print(
-            "\n\tChecking the Browser tree for the XSS",
+            "\n\tChecking the Browser tree for XSS vulnerabilities",
             file=sys.stderr, end=""
         )
         # Fetch the inner html & check for escaped characters
@@ -100,28 +128,13 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
         self._check_escaped_characters(
             source_code,
-            "&lt;h1&gt;X",
+            self.check_xss_chars,
             "Browser tree"
-        )
-
-    def _check_xss_in_properties_tab(self):
-        print(
-            "\n\tChecking the Properties tab for the XSS",
-            file=sys.stderr, end=""
-        )
-        self.page.click_tab("Properties")
-        source_code = self.page.find_by_xpath(
-            "//span[contains(@class,'uneditable-input')]"
-        ).get_attribute('innerHTML')
-        self._check_escaped_characters(
-            source_code,
-            "&lt;h1&gt;X",
-            "Properties tab (Backform Control)"
         )
 
     def _check_xss_in_sql_tab(self):
         print(
-            "\n\tChecking the SQL tab for the XSS",
+            "\n\tChecking the SQL tab for for XSS vulnerabilities",
             file=sys.stderr, end=""
         )
         self.page.click_tab("SQL")
@@ -133,7 +146,7 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
         self._check_escaped_characters(
             source_code,
-            "&lt;h1&gt;X",
+            self.check_xss_chars,
             "SQL tab (Code Mirror)"
         )
 
@@ -141,15 +154,27 @@ class CheckForXssFeatureTest(BaseFeatureTest):
     def _check_xss_in_dependents_tab(self):
 
         print(
-            "\n\tChecking the Dependents tab for the XSS",
+            "\n\tChecking the Dependents tab for XSS vulnerabilities",
             file=sys.stderr, end=""
         )
-        self.page.click_tab("Dependents")
 
-        source_code = self.page.find_by_xpath(
-            "//*[@id='5']/table/tbody/tr/td/div/div/div[2]/"
-            "table/tbody/tr/td[2]"
-        ).get_attribute('innerHTML')
+        retry = 2
+        while retry > 0:
+            try:
+                self.page.click_tab("Dependents")
+                source_code = \
+                    self.page.find_by_xpath("//*[@id='5']/table/tbody/tr/td/"
+                                            "div/div/div[2]/table/tbody/tr/"
+                                            "td[2]").get_attribute('innerHTML')
+                retry = 0
+            except WebDriverException as e:
+                print("Exception in dependent tab {0}".format(retry),
+                      file=sys.stderr)
+                self.page.click_tab("Dependencies")
+                if retry == 1:
+                    self.page.click_tab("Dependents")
+                    raise e
+                retry -= 1
 
         self._check_escaped_characters(
             source_code,
@@ -159,7 +184,7 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
     def _check_xss_in_query_tool(self):
         print(
-            "\n\tChecking the SlickGrid cell for the XSS",
+            "\n\tChecking the SlickGrid cell for XSS vulnerabilities",
             file=sys.stderr, end=""
         )
         self.page.fill_codemirror_area_with(
@@ -185,13 +210,14 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
     def _check_xss_in_query_tool_history(self):
         print(
-            "\n\tChecking the query tool history for the XSS",
+            "\n\tChecking the Query Tool history for XSS vulnerabilities... ",
             file=sys.stderr, end=""
         )
         self.page.fill_codemirror_area_with(
             "select '<script>alert(1)</script>"
         )
-        self.page.find_by_id("btn-flash").click()
+        self.page.find_by_css_selector(
+            QueryToolLocators.btn_execute_query_css).click()
 
         self.page.click_tab('Query History')
 
@@ -205,32 +231,42 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
         self._check_escaped_characters(
             source_code,
-            '&lt;script&gt;alert(1)&lt;/script&gt;',
+            self.check_xss_chars_set2,
             "Query tool (History Entry)"
         )
 
-        # Check for history details message
-        history_ele = self.driver\
-            .find_element_by_css_selector(".query-detail .content-value")
-
-        source_code = history_ele.get_attribute('innerHTML')
+        retry = 2
+        while retry > 0:
+            try:
+                history_ele = self.driver \
+                    .find_element_by_css_selector(
+                        ".query-detail .content-value")
+                source_code = history_ele.get_attribute('innerHTML')
+                break
+            except StaleElementReferenceException:
+                retry -= 1
 
         self._check_escaped_characters(
             source_code,
-            '&lt;script&gt;alert(1)&lt;/script&gt;',
+            self.check_xss_chars_set2,
             "Query tool (History Details-Message)"
         )
 
-        # Check for history details error message
-        history_ele = self.page.find_by_css_selector(
-            ".query-detail .history-error-text"
-        )
-
-        source_code = history_ele.get_attribute('innerHTML')
+        retry = 2
+        while retry > 0:
+            try:
+                # Check for history details error message
+                history_ele = self.page.find_by_css_selector(
+                    ".query-detail .history-error-text"
+                )
+                source_code = history_ele.get_attribute('innerHTML')
+                break
+            except StaleElementReferenceException:
+                retry -= 1
 
         self._check_escaped_characters(
             source_code,
-            '&lt;script&gt;alert(1)&lt;/script&gt;',
+            self.check_xss_chars_set2,
             "Query tool (History Details-Error)"
         )
 
@@ -238,7 +274,7 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
     def _check_xss_view_data(self):
         print(
-            "\n\tChecking the SlickGrid cell for the XSS",
+            "\n\tChecking the SlickGrid cell for XSS vulnerabilities",
             file=sys.stderr, end=""
         )
 
@@ -252,20 +288,21 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
         self._check_escaped_characters(
             source_code,
-            '&lt;script&gt;alert(1)&lt;/script&gt;',
+            self.check_xss_chars_set2,
             "View Data (SlickGrid)"
         )
 
     def _check_xss_in_explain_module(self):
         print(
-            "\n\tChecking the Graphical Explain plan for the XSS ...",
+            "\n\tChecking the Graphical Explain plan for XSS vulnerabilities",
             file=sys.stderr, end=""
         )
         self.page.fill_codemirror_area_with(
             'select * from "{0}"'.format(self.test_table_name)
         )
 
-        self.page.find_by_id("btn-explain").click()
+        self.page.find_by_css_selector(
+            QueryToolLocators.btn_explain).click()
         self.page.wait_for_query_tool_loading_indicator_to_disappear()
         self.page.click_tab('Explain')
 
@@ -278,7 +315,7 @@ class CheckForXssFeatureTest(BaseFeatureTest):
                     )
                 ).perform()
                 break
-            except Exception as e:
+            except Exception:
                 if idx != 2:
                     continue
                 else:
@@ -294,7 +331,7 @@ class CheckForXssFeatureTest(BaseFeatureTest):
 
         self._check_escaped_characters(
             source_code,
-            "&lt;h1&gt;X",
+            self.check_xss_chars,
             "Explain tab (Graphical explain plan)"
         )
 

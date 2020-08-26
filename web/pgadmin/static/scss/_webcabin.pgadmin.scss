@@ -1,30 +1,30 @@
 .wcDocker {
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
 }
 
 .wcModalBlocker {
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
 }
 
 .wcPanelBackground {
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
 }
 
 .wcPanelBackground .wcCenter {
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
 }
 
 .wcFrameFlasher {
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
 }
 
 .wcFrameShadower {
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
 }
 
 .wcFrameTitleBar {
   height: $title-height;
-  background-color: $color-bg-theme;
+  background-color: $header-bg;
   border-bottom: $panel-border;
 }
 
@@ -34,16 +34,20 @@
   display: flex;
   border-radius: $btn-border-radius;
   margin: auto;
+
+  & .pg-font-icon {
+    line-height: unset;
+  }
 }
 
 /* darken % taken from bootstrap - button_variant */
-.wcFrameButton:hover, .wcFrameButtonHover {
-  background-color: $btn-secondary-hover-bg;
+.wcFrameButton:hover, .wcFrameButtonHover,  .wcFrameButton:focus {
+  background-color: $btn-frame-close-bg;
 }
 
 .wcFrameButton.disabled {
   pointer-events: none;
-  color: $color-gray;
+  opacity: $btn-disabled-opacity;
 }
 
 .wcFrameButton .fa {
@@ -52,14 +56,12 @@
 
 .wcFrameButtonBar {
   height: $title-height;
-  background-color: $color-bg-theme;
+  background-color: inherit;
   border-bottom: $panel-border;
   padding: 0rem 0.25rem;
 
   display: -webkit-flex; /* Safari */
-  -webkit-flex-direction: row-reverse; /* Safari 6.1+ */
   display: flex;
-  flex-direction: row-reverse;
 }
 
 
@@ -75,23 +77,21 @@
   top: $title-height;
 }
 
-.wcLayoutGrid, .wcLayoutGrid tr, .wcLayoutGrid td {
-  border: 1px solid $panel-border-color;
-}
-
 .wcPanelTab, .wcFrameTitle{
-  color: $color-fg-theme;
+  color: $panel-color-fg;
   padding: $tabs-padding;
   margin: 0px;
 }
 
 .wcFloating {
-  box-shadow: $box-shadow;
+  box-shadow: $dialog-box-shadow;
   z-index: 1050 !important;
 
   &.wcFrame, & .wcPanelBackground {
     border-bottom-left-radius: $card-border-radius;
     border-bottom-right-radius: $card-border-radius;
+    max-width: 100%;
+    max-height: 100%;
   }
 
   & .pg-panel-content {
@@ -152,7 +152,7 @@
 
 .wcFloating .wcPanelTabActive {
   border-bottom: none;
-  color: $color-fg-theme;
+  color: $color-fg;
   font-weight: bold;
 }
 
@@ -162,16 +162,16 @@
 
 .wcFloating .wcFrameTitleBar {
   height: $title-height;
-  background-color: $color-bg-theme;
+  background-color: $header-bg;
   border-bottom: $panel-border;
 }
 
 .wcTabIcon {
   background-position: center;
-  padding: 0px 10px;
+  padding: 0rem 0.75rem;
 
-  &.fa{
-    padding: 0rem 0.25rem 0rem 0rem
+  &.fa, &.pg-font-icon{
+    padding: 0rem 0.25rem 0rem 0rem;
   }
 }
 
@@ -182,7 +182,7 @@
 
 .wcPanelTabActive {
   border-bottom: $active-border;
-  color: $color-primary;
+  color: $active-color;
 }
 
 .wcFrameEdge {
@@ -260,7 +260,7 @@
 
 .wcMenuList, .context-menu-list {
   border: 1px solid $dropdown-border-color;
-  z-index: 999 !important;
+  z-index: 9999 !important;
   background-color: $dropdown-bg;
   box-shadow: $dropdown-box-shadow;
   border-radius: $dropdown-border-radius;
@@ -271,7 +271,7 @@
   background-color: $dropdown-bg;
 }
 
-.wcMenuItemHover, .wcMenuItem:hover, .context-menu-item:not(.context-menu-not-selectable).hover, .context-menu-item:not(.context-menu-not-selectable):hover {
+.wcMenuItemHover, .wcMenuItem:hover, .context-menu-item:not(.context-menu-not-selectable).hover, .context-menu-item:not(.context-menu-not-selectable):hover, .context-menu-hover {
   color: $dropdown-link-hover-color;
   background-color: $dropdown-link-hover-bg !important;
 }
@@ -327,6 +327,7 @@
 .context-menu-submenu::after {
   font-family: $font-family-icon;
   content: "\f054" !important;
+  font-weight: 900;
   right: 15px;
   top: 3px;
   font-size: 0.6rem;

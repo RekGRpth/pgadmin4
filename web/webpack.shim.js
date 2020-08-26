@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -68,9 +68,6 @@ var webpackShimConfig = {
     'backgrid.filter': {
       'deps': ['backgrid'],
     },
-    'backgrid.sizeable.columns': {
-      'deps': ['backgrid'],
-    },
     'jquery.event.drag': {
       'deps': ['jquery'], 'exports': 'jQuery.fn.drag',
     },
@@ -84,9 +81,6 @@ var webpackShimConfig = {
     'slickgrid': {
       'deps': ['jquery', 'jquery.ui', 'jquery.event.drag'],
       'exports': 'Slick',
-    },
-    'flotr2': {
-      deps: ['bean'],
     },
     'alertify': {
       'exports': 'alertify',
@@ -121,10 +115,6 @@ var webpackShimConfig = {
     'pgadmin.browser.messages': {
       'deps': ['pgadmin.browser.datamodel'],
     },
-    'spectrum': {
-      'deps': ['jquery'],
-      'exports': '$.fn.spectrum',
-    },
   },
 
   // Map module id to file path used in 'define(['baseurl', 'misc']). It is
@@ -138,27 +128,25 @@ var webpackShimConfig = {
     'translations': path.join(__dirname, './pgadmin/tools/templates/js/translations'),
     'sources/gettext': path.join(__dirname, './pgadmin/static/js/gettext'),
     'sources/utils': path.join(__dirname, './pgadmin/static/js/utils'),
-    'babel-polyfill': path.join(__dirname, './node_modules/@babel/polyfill/dist/polyfill'),
     'tools': path.join(__dirname, './pgadmin/tools/'),
     'pgbrowser': path.join(__dirname, './pgadmin/browser/static/js/'),
 
     // Vendor JS
     'jquery': path.join(__dirname, './node_modules/jquery/dist/jquery'),
-    'wcdocker': path.join(__dirname, './node_modules/webcabin-docker/Build/wcDocker'),
+    'wcdocker': path.join(__dirname, './node_modules/webcabin-docker/Build/wcDocker.min'),
     'alertify': path.join(__dirname, './node_modules/alertifyjs/build/alertify'),
     'moment': path.join(__dirname, './node_modules/moment/moment'),
     'jquery.event.drag': path.join(__dirname, './node_modules/slickgrid/lib/jquery.event.drag-2.3.0'),
     'jquery.ui': path.join(__dirname, './node_modules/slickgrid/lib/jquery-ui-1.11.3'),
-    'flotr2': path.join(__dirname, './node_modules/flotr2/flotr2.amd'),
-    'bean': path.join(__dirname, './node_modules/flotr2/lib/bean'),
     'jqueryui.position': path.join(__dirname, './node_modules/jquery-contextmenu/dist/jquery.ui.position'),
     'jquery.contextmenu': path.join(__dirname, './node_modules/jquery-contextmenu/dist/jquery.contextMenu'),
     'dropzone': path.join(__dirname, './node_modules/dropzone/dist/dropzone'),
     'bignumber': path.join(__dirname, './node_modules/bignumber.js/bignumber'),
     'json-bignumber': path.join(__dirname, './node_modules/json-bignumber/dist/JSONBigNumber.min'),
-    'snap.svg': path.join(__dirname, './node_modules/snapsvg/dist/snap.svg'),
-    'spectrum': path.join(__dirname, './node_modules/spectrum-colorpicker/spectrum'),
+    'snap.svg': path.join(__dirname, './node_modules/snapsvg/dist/snap.svg-min'),
+    'color-picker': path.join(__dirname, './node_modules/@simonwep/pickr/dist/pickr.es5.min'),
     'mousetrap': path.join(__dirname, './node_modules/mousetrap'),
+    'tablesorter-metric': path.join(__dirname, './node_modules/tablesorter/dist/js/parsers/parser-metric.min'),
 
     // AciTree
     'jquery.acitree': path.join(__dirname, './node_modules/acitree/js/jquery.aciTree.min'),
@@ -170,13 +158,12 @@ var webpackShimConfig = {
     'backbone': path.join(__dirname, './node_modules/backbone/backbone'),
     'backbone.undo': path.join(__dirname, './node_modules/backbone-undo/Backbone.Undo'),
     'backform': path.join(__dirname, './pgadmin/static/vendor/backform/backform'),
-    'backgrid': path.join(__dirname, './node_modules/backgrid/lib/backgrid'),
+    'backgrid': path.join(__dirname, './pgadmin/static/vendor/backgrid/backgrid'),
     'bootstrap.datetimepicker': path.join(__dirname, './node_modules/tempusdominus-bootstrap-4/build/js/tempusdominus-bootstrap-4.min'),
     'bootstrap.toggle': path.join(__dirname, './node_modules/bootstrap4-toggle/js/bootstrap4-toggle'),
     'select2': path.join(__dirname, './node_modules/select2/dist/js/select2.full'),
     'backgrid.filter': path.join(__dirname, './node_modules/backgrid-filter/backgrid-filter'),
-    'backgrid.sizeable.columns': path.join(__dirname, './node_modules/backgrid-sizeable-columns/backgrid-sizeable-columns'),
-    'backgrid.select.all': path.join(__dirname, './node_modules/backgrid-select-all/backgrid-select-all'),
+    'backgrid.select.all': path.join(__dirname, './pgadmin/static/vendor/backgrid/backgrid-select-all'),
     'pgadmin.alertifyjs': path.join(__dirname, './pgadmin/static/js/alertify.pgadmin.defaults'),
     'pgadmin.backform': path.join(__dirname, './pgadmin/static/js/backform.pgadmin'),
     'pgadmin.backgrid': path.join(__dirname, './pgadmin/static/js/backgrid.pgadmin'),
@@ -193,6 +180,7 @@ var webpackShimConfig = {
     'pgadmin.browser.layout': path.join(__dirname, './pgadmin/browser/static/js/layout'),
     'pgadmin.browser.preferences': path.join(__dirname, './pgadmin/browser/static/js/preferences'),
     'pgadmin.browser.menu': path.join(__dirname, './pgadmin/browser/static/js/menu'),
+    'pgadmin.browser.activity': path.join(__dirname, './pgadmin/browser/static/js/activity'),
     'pgadmin.browser.messages': '/browser/js/messages',
     'pgadmin.browser.node': path.join(__dirname, './pgadmin/browser/static/js/node'),
     'pgadmin.browser.node.ui': path.join(__dirname, './pgadmin/browser/static/js/node.ui'),
@@ -220,6 +208,7 @@ var webpackShimConfig = {
     'pgadmin.node.check_constraint': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/tables/constraints/check_constraint/static/js/check_constraint'),
     'pgadmin.node.collation': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/collations/static/js/collation'),
     'pgadmin.node.column': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/tables/columns/static/js/column'),
+    'pgadmin.node.compound_trigger': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/tables/compound_triggers/static/js/compound_trigger'),
     'pgadmin.node.constraints': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/tables/constraints/static/js/constraints'),
     'pgadmin.node.database': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/static/js/database'),
     'pgadmin.node.domain': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/domains/static/js/domain'),
@@ -267,6 +256,7 @@ var webpackShimConfig = {
     'pgadmin.node.unique_constraint': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/tables/constraints/index_constraint/static/js/unique_constraint'),
     'pgadmin.node.user_mapping': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/foreign_data_wrappers/foreign_servers/user_mappings/static/js/user_mapping'),
     'pgadmin.node.view': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/views/static/js/view'),
+    'pgadmin.node.row_security_policy': path.join(__dirname, './pgadmin/browser/server_groups/servers/databases/schemas/tables/row_security_policies/static/js/row_security_policy'),
     'pgadmin.preferences': path.join(__dirname, './pgadmin/preferences/static/js/preferences'),
     'pgadmin.settings': path.join(__dirname, './pgadmin/settings/static/js/settings'),
     'pgadmin.server.supported_servers': '/browser/server/supported_servers',
@@ -281,6 +271,10 @@ var webpackShimConfig = {
     'pgadmin.tools.import_export': path.join(__dirname, './pgadmin/tools/import_export/static/js/import_export'),
     'pgadmin.tools.maintenance': path.join(__dirname, './pgadmin/tools/maintenance/static/js/maintenance'),
     'pgadmin.tools.restore': path.join(__dirname, './pgadmin/tools/restore/static/js/restore'),
+    'pgadmin.tools.schema_diff': path.join(__dirname, './pgadmin/tools/schema_diff/static/js/schema_diff'),
+    'pgadmin.tools.schema_diff_ui': path.join(__dirname, './pgadmin/tools/schema_diff/static/js/schema_diff_ui'),
+    'pgadmin.tools.search_objects': path.join(__dirname, './pgadmin/tools/search_objects/static/js/search_objects'),
+    'pgadmin.search_objects': path.join(__dirname, './pgadmin/tools/search_objects/static/js'),
     'pgadmin.tools.user_management': path.join(__dirname, './pgadmin/tools/user_management/static/js/user_management'),
     'pgadmin.user_management.current_user': '/user_management/current_user',
     'slick.pgadmin.editors': path.join(__dirname, './pgadmin/tools/../static/js/slickgrid/editors'),
@@ -310,13 +304,36 @@ var webpackShimConfig = {
   isExternal: function(module) {
     var context = module.context;
     if (typeof context !== 'string') { return false; }
-    return context.indexOf('node_modules') !== -1;
+    return (context.indexOf('node_modules') !== -1 || context.indexOf('vendor') !== -1);
   },
   // Checks whether module is in pgLibs or not. Returns true if exists
   isPgAdminLib: function (module) {
     if (module.rawRequest === undefined) { return false; }
     return this.pgLibs.indexOf(module.rawRequest) !== -1;
   },
+  isBrowserNode: function(module) {
+    if (module.rawRequest === undefined) { return false; }
+    if(module.rawRequest.startsWith('pgadmin.node')) {
+      return true;
+    }
+    return false;
+  },
+  matchModules: function(module, match_modules) {
+    if (module.rawRequest === undefined) { return false; }
+    if(typeof match_modules === 'string') {
+      if(module.rawRequest.indexOf(match_modules) >= 0) {
+        return true;
+      }
+    } else {
+      for(let i=0; i<match_modules.length; i++) {
+        if(module.rawRequest.indexOf(match_modules[i]) >= 0) {
+          return true;
+        }
+      }
+    }
+    return false;
+  },
+
   /* These will be skipped when webpack picks css/scss files recursively to bundle */
   css_bundle_skip: [
     './pgadmin/static',

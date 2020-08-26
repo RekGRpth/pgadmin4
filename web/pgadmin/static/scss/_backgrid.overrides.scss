@@ -1,13 +1,31 @@
 .backgrid th, .backgrid td {
-  font-weight: normal!important;
   text-align: left;
   line-height: $line-height-base;
+}
+
+.backgrid td {
+  font-weight: normal!important;
+  &.editable {
+    & .display-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      @extend .form-control;
+    }
+  }
 }
 
 .backgrid.table th.sortable > button {
   width: 100%;
   text-align: left;
   cursor: pointer;
+}
+
+.backgrid .ascending .sort-caret {
+    border-bottom-color: $color-fg;
+}
+
+.backgrid .descending .sort-caret {
+    border-top-color: $color-fg;
 }
 
 .backgrid.backgrid-striped tbody {
@@ -51,6 +69,12 @@
   z-index: 10 !important;
 }
 
+.backgrid td.editor {
+  & input[type=text], & input[type=password] {
+    @extend .form-control;
+  }
+}
+
 .backgrid .string-cell.editor input[type=password] {
   text-align: left;
 }
@@ -80,13 +104,12 @@
 
 .backgrid thead td,
 .backgrid thead th{
-  background: $color-bg-theme;
-  background-color: $color-bg-theme !important;
+  background: $table-bg;
+  background-color: $table-bg !important;
   text-align: left;
 }
 
 .backgrid:not(.presentation) td.renderable:not(.editable):not(.delete-cell) {
-    background-color: $color-gray-lighter;
     // if transparent border then setting color will help
     border-bottom-color: $color-gray-lighter;
 }
@@ -100,8 +123,13 @@
     white-space: pre-wrap;
 }
 
+.backgrid > thead > th.renderable {
+  font-weight: bold;
+}
+
 table.backgrid {
   position: initial;
+  overflow: auto;
 }
 
 .backgrid td.editor input[type=password] {
@@ -136,18 +164,20 @@ table.backgrid {
 
 /* Latest backgrid adds column name like `label` to td element, override color*/
 .backgrid td.label {
-  color:  $color-gray-dark;
-  font-size: 14px;
+  color: $color-fg;
+  font-size: $font-size-base;
   font-weight: normal;
 }
 
-span.form-control:disabled {
-  @extend .form-control:disabled
+.backgrid tr:hover {
+  .label {
+    color: $grid-hover-fg-color;
+  }
 }
 
 .subnode {
   border: $panel-border;
-  background: $color-bg-theme;
+  background: $color-bg;
 }
 
 .subnode-noouter-border {
@@ -186,9 +216,12 @@ span.form-control:disabled {
   border-color: $color-gray-light;
   border-style: inset inset inset solid;
   border-width: 2px 1px 0;
+  margin: 0px, 15px;
   margin-top: -10px;
+  height: 38px;
+  min-height: 40px;
+  vertical-align: bottom;
 }
-
 .subnode-footer .ajs-button {
   margin: 2px 2px 0;
 }
@@ -203,8 +236,8 @@ span.form-control:disabled {
 }
 
 .subnode-header {
-    background-color: $color-bg-theme;
-    color: $color-fg-theme;
+    background-color: $header-bg;
+    color: $color-fg;
     border-bottom: $panel-border;
 }
 
@@ -235,15 +268,13 @@ span.form-control:disabled {
       padding: 0.5rem;
     }
 
-    fieldset.inline-fieldset {
-      background: $color-bg-theme;
+    & .tab-content {
+      padding: 0px;
     }
-}
-.subnode-footer {
-    height: 38px;
-    margin: 0px, 15px;
-    min-height: 40px;
-    vertical-align: bottom;
+
+    fieldset.inline-fieldset {
+      background: $color-bg;
+    }
 }
 
 .sub-node-form {
@@ -273,10 +304,6 @@ span.form-control:disabled {
     color: $color-danger;
 }
 
-table.backgrid {
-  overflow: auto;
-}
-
 .backgrid tbody {
   & td.edit-cell.editor {
     background-color: $color-gray-light !important;
@@ -285,11 +312,22 @@ table.backgrid {
   }
 
   & td.editor {
-    background-color: $color-bg-theme !important;
+    background-color: $color-bg !important;
+    color: $color-fg !important;
+
+    & input {
+        color: $color-fg !important;
+    }
   }
 
   & td.edit-cell.editor:focus {
     outline: $input-focus-border-color auto 5px !important;
+  }
+
+  & td.select-cell.editor select{
+    outline: none !important;
+    height: 100% !important;
+    width: 100% !important;
   }
 
   tr.editor-row  {
@@ -305,4 +343,19 @@ table.backgrid {
 
 table tr th button {
   font-weight: bold;
+}
+
+.custom-control.custom-checkbox.custom-checkbox-no-label {
+   padding-left: 0;
+
+   .custom-control-label {
+     // set same width/height as before and after
+     width: 1em;
+     height: 1em;
+
+     &::before,
+     &::after {
+       left: 0;
+     }
+   }
 }

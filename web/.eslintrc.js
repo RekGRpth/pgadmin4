@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -16,12 +16,17 @@ module.exports = {
   },
   'extends': [
     'eslint:recommended',
+    'plugin:react/recommended',
   ],
   'parserOptions': {
     'ecmaVersion': 2018,
+    'ecmaFeatures': {
+      'jsx': true
+    },
     'sourceType': 'module',
   },
   'plugins': [
+    'react'
   ],
   'globals': {
     '_': true,
@@ -49,4 +54,9 @@ module.exports = {
     // We need to exclude below for RegEx case
     "no-useless-escape": 0,
   },
+  'settings': {
+    'react': {
+      'version': 'detect',
+    },
+  }
 };

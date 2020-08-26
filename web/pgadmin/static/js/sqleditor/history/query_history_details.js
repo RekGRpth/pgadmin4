@@ -87,30 +87,33 @@ export default class QueryHistoryDetails {
   updateCopyButton(copied) {
     if (copied) {
       this.$copyBtn.addClass('was-copied').removeClass('copy-all');
-      this.$copyBtn.text('Copied!');
+      this.$copyBtn.text(gettext('Copied!'));
     } else {
       this.$copyBtn.addClass('copy-all').removeClass('was-copied');
-      this.$copyBtn.text('Copy');
+      this.$copyBtn.text(gettext('Copy'));
     }
   }
 
   updateQueryMetaData() {
     let itemTemplate = (data, description) => {
-      return `<div class='item'>
-                <span class='value'>${data}</span>
-                <span class='description'>${description}</span>
-            </div>`;
+      if(data)
+        return `<div class='item'>
+                  <span class='value'>${data}</span>
+                  <span class='description'>${description}</span>
+              </div>`;
+      else
+        return '';
     };
 
     this.$metaData.empty().append(
-      `<div class='metadata'>
-                ${itemTemplate(this.formatDate(this.entry.start_time), 'Date')}
-                ${itemTemplate(
-    this.entry.row_affected.toLocaleString(),
-    'Rows Affected'
-  )}
-                ${itemTemplate(this.entry.total_time, 'Duration')}
-            </div>`
+      '<div class="metadata">' +
+      itemTemplate(this.formatDate(this.entry.start_time), gettext('Date')) +
+      itemTemplate(
+        this.entry.row_affected.toLocaleString(),
+        gettext('Rows Affected')
+      ) +
+      itemTemplate(this.entry.total_time, gettext('Duration')) +
+      '</div>'
     );
   }
 
@@ -125,7 +128,7 @@ export default class QueryHistoryDetails {
       this.$errMsgBlock.removeClass('d-none');
       this.$errMsgBlock.empty().append(
         `<div class='history-error-text'>
-            <span>Error Message</span> ${_.escape(this.parseErrorMessage(this.entry.message))}
+            <span>` + gettext('Error Message') + `</span> ${_.escape(this.parseErrorMessage(this.entry.message))}
         </div>`
       );
     } else {
@@ -134,8 +137,23 @@ export default class QueryHistoryDetails {
     }
   }
 
+  updateInfoMessage() {
+    if (this.entry.info) {
+      this.$infoMsgBlock.removeClass('d-none');
+      this.$infoMsgBlock.empty().append(
+        `<div class='history-info-text'>
+            ${this.entry.info}
+        </div>`
+      );
+    } else {
+      this.$infoMsgBlock.addClass('d-none');
+      this.$infoMsgBlock.empty();
+    }
+  }
+
   selectiveRender() {
     this.updateErrorMessage();
+    this.updateInfoMessage();
     this.updateCopyButton(false);
     this.updateQueryMetaData();
     this.query_codemirror.setValue(this.entry.query);
@@ -147,6 +165,7 @@ export default class QueryHistoryDetails {
       this.parentNode.empty().append(
         `<div id='query_detail' class='query-detail'>
             <div class='error-message-block'></div>
+            <div class='info-message-block'></div>
             <div class='metadata-block'></div>
             <div class='query-statement-block'>
               <div id='history-detail-query'>
@@ -160,7 +179,7 @@ export default class QueryHistoryDetails {
             </div>
             <div class='message-block'>
               <div class='message'>
-                <div class='message-header'>Messages</div>
+                <div class='message-header'>` + gettext('Messages') + `</div>
                 <div class='content'></div>
               </div>
             </div>
@@ -168,6 +187,7 @@ export default class QueryHistoryDetails {
       );
 
       this.$errMsgBlock = this.parentNode.find('.error-message-block');
+      this.$infoMsgBlock = this.parentNode.find('.info-message-block');
       this.$copyBtn = this.parentNode.find('#history-detail-query .btn-copy');
       this.$copyBtn.off('click').on('click', this.copyAllHandler.bind(this));
       this.$copyToEditor = this.parentNode.find('#history-detail-query .btn-copy-editor');

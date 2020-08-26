@@ -1,5 +1,5 @@
 SELECT rel.oid, rel.relname AS name, rel.reltablespace AS spcoid,rel.relacl AS relacl_str,
-  (CASE WHEN length(spc.spcname) > 0 THEN spc.spcname ELSE
+  (CASE WHEN length(spc.spcname::text) > 0 OR rel.relkind = 'p' THEN spc.spcname ELSE
     (SELECT sp.spcname FROM pg_database dtb
     JOIN pg_tablespace sp ON dtb.dattablespace=sp.oid
     WHERE dtb.oid = {{ did }}::oid)
@@ -27,8 +27,7 @@ SELECT rel.oid, rel.relname AS name, rel.reltablespace AS spcoid,rel.relacl AS r
 		WHERE i.inhrelid = rel.oid) AS inherited_tables_cnt,
 	(CASE WHEN rel.relpersistence = 'u' THEN true ELSE false END) AS relpersistence,
 	substring(array_to_string(rel.reloptions, ',') FROM 'fillfactor=([0-9]*)') AS fillfactor,
-	(CASE WHEN (substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_enabled=([a-z|0-9]*)') = 'true')
-	  THEN true ELSE false END) AS autovacuum_enabled,
+	(substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_enabled=([a-z|0-9]*)'))::BOOL AS autovacuum_enabled,
 	substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_vacuum_threshold=([0-9]*)') AS autovacuum_vacuum_threshold,
 	substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_vacuum_scale_factor=([0-9]*[.]?[0-9]*)') AS autovacuum_vacuum_scale_factor,
 	substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_analyze_threshold=([0-9]*)') AS autovacuum_analyze_threshold,
@@ -38,8 +37,7 @@ SELECT rel.oid, rel.relname AS name, rel.reltablespace AS spcoid,rel.relacl AS r
 	substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_freeze_min_age=([0-9]*)') AS autovacuum_freeze_min_age,
 	substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_freeze_max_age=([0-9]*)') AS autovacuum_freeze_max_age,
 	substring(array_to_string(rel.reloptions, ',') FROM 'autovacuum_freeze_table_age=([0-9]*)') AS autovacuum_freeze_table_age,
-	(CASE WHEN (substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_enabled=([a-z|0-9]*)') =  'true')
-	  THEN true ELSE false END) AS toast_autovacuum_enabled,
+	(substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_enabled=([a-z|0-9]*)'))::BOOL AS toast_autovacuum_enabled,
 	substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_vacuum_threshold=([0-9]*)') AS toast_autovacuum_vacuum_threshold,
 	substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_vacuum_scale_factor=([0-9]*[.]?[0-9]*)') AS toast_autovacuum_vacuum_scale_factor,
 	substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_analyze_threshold=([0-9]*)') AS toast_autovacuum_analyze_threshold,
@@ -49,15 +47,9 @@ SELECT rel.oid, rel.relname AS name, rel.reltablespace AS spcoid,rel.relacl AS r
 	substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_freeze_min_age=([0-9]*)') AS toast_autovacuum_freeze_min_age,
 	substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_freeze_max_age=([0-9]*)') AS toast_autovacuum_freeze_max_age,
 	substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_freeze_table_age=([0-9]*)') AS toast_autovacuum_freeze_table_age,
-	array_to_string(rel.reloptions, ',') AS table_vacuum_settings_str,
-	array_to_string(tst.reloptions, ',') AS toast_table_vacuum_settings_str,
 	rel.reloptions AS reloptions, tst.reloptions AS toast_reloptions, rel.reloftype, typ.typname,
 	typ.typrelid AS typoid,
 	(CASE WHEN rel.reltoastrelid = 0 THEN false ELSE true END) AS hastoasttable,
-    -- Added for pgAdmin4
-	(CASE WHEN array_length(rel.reloptions, 1) > 0 THEN true ELSE false END) AS autovacuum_custom,
-	(CASE WHEN array_length(tst.reloptions, 1) > 0 AND rel.reltoastrelid != 0 THEN true ELSE false END) AS toast_autovacuum,
-
 	(SELECT array_agg(provider || '=' || label) FROM pg_seclabels sl1 WHERE sl1.objoid=rel.oid AND sl1.objsubid=0) AS seclabels,
 	(CASE WHEN rel.oid <= {{ datlastsysoid}}::oid THEN true ElSE false END) AS is_sys_table,
 	-- Added for partition table

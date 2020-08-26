@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -18,5 +18,9 @@ define(function () {
     'datagrid.initialize_query_tool': '/initialize/query_tool/<int:sgid>/<int:sid>',
     'datagrid.initialize_query_tool_with_did': '/initialize/query_tool/<int:sgid>/<int:sid>/<int:did>',
     'restore.create_job': '/restore/job/<int:sid>',
+    'datagrid.panel': '/panel/<int:trans_id>',
+    'search_objects.types': '/search_objects/types/<int:sid>/<int:did>',
+    'search_objects.search': '/search_objects/search/<int:sid>/<int:did>',
+    'dashboard.dashboard_stats': '/dashboard/dashboard_stats',
   };
 });

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -37,10 +37,12 @@ define('misc.file_manager', [
     },
     // Call dialogs subject to dialog_type param
     show_dialog: function(params) {
+      let dialogWidth = pgAdmin.Browser.stdW.calc(pgAdmin.Browser.stdW.md);
+      let dialogHeight = pgAdmin.Browser.stdH.calc(pgAdmin.Browser.stdH.lg);
       if (params.dialog_type == 'create_file') {
-        Alertify.createModeDlg(params).resizeTo(pgAdmin.Browser.stdW.md,pgAdmin.Browser.stdH.lg);
+        Alertify.createModeDlg(params).resizeTo(dialogWidth, dialogHeight);
       } else {
-        Alertify.fileSelectionDlg(params).resizeTo(pgAdmin.Browser.stdW.md,pgAdmin.Browser.stdH.lg);
+        Alertify.fileSelectionDlg(params).resizeTo(dialogWidth, dialogHeight);
       }
     },
   };

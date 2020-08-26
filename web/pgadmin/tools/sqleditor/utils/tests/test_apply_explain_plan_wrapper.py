@@ -2,21 +2,16 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
 """Apply Explain plan wrapper to sql object."""
-import sys
 
 from pgadmin.tools.sqleditor.utils import apply_explain_plan_wrapper_if_needed
 from pgadmin.utils.route import BaseTestGenerator
-
-if sys.version_info < (3, 3):
-    from mock import patch, MagicMock
-else:
-    from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class StartRunningQueryTest(BaseTestGenerator):

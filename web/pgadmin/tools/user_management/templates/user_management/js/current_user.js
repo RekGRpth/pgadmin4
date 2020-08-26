@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -14,6 +14,7 @@ define('pgadmin.user_management.current_user', [], function() {
         'is_admin': {{ is_admin }},
         'name': '{{ name }}',
         'allow_save_password': {{ allow_save_password }},
-        'allow_save_tunnel_password': {{ allow_save_tunnel_password }}
+        'allow_save_tunnel_password': {{ allow_save_tunnel_password }},
+        'auth_sources': {{ auth_sources }}
     }
 });

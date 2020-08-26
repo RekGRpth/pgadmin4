@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import with_statement
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 import logging

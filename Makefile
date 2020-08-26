@@ -9,6 +9,10 @@
 
 SHELL = /bin/sh
 
+APP_NAME := $(shell grep ^APP_NAME web/config.py | awk -F"=" '{print $$NF}' | tr -d '[:space:]' | tr -d "'" | awk '{print tolower($$0)}')
+APP_RELEASE := $(shell grep ^APP_RELEASE web/config.py | awk -F"=" '{print $$NF}' | tr -d '[:space:]')
+APP_REVISION := $(shell grep ^APP_REVISION web/config.py | awk -F"=" '{print $$NF}' | tr -d '[:space:]')
+
 #########################################################################
 # High-level targets
 #########################################################################
@@ -20,7 +24,16 @@ appbundle: docs
 	./pkg/mac/build.sh
 
 install-node:
-	cd web && yarn install
+	cd web && npm install
+	cd web && npm audit fix
+	rm -f web/yarn.lock
+	cd web && yarn import
+# Commented the below line to avoid vulnerability in lodash package.
+# Refer https://www.npmjs.com/advisories/1523.
+# Once fixed we will uncomment it.
+#	cd web && yarn audit
+	rm -f package-lock.json
+	rm -f web/package-lock.json
 
 bundle:
 	cd web && yarn run bundle
@@ -33,6 +46,23 @@ linter:
 
 check: install-node bundle linter check-pep8
 	cd web && yarn run karma start --single-run && python regression/runtests.py
+
+check-audit:
+	cd web && yarn run audit
+
+check-auditjs:
+# Commented the below line to avoid vulnerability in decompress package and
+# audit only dependencies folder. Refer https://www.npmjs.com/advisories/1217.
+# Pull request is already been send https://github.com/kevva/decompress/pull/73,
+# once fixed we will uncomment it.
+#	cd web && yarn run auditjs
+	cd web && yarn run auditjs --groups dependencies
+
+check-auditjs-html:
+	cd web && yarn run auditjs-html
+
+check-auditpy:
+	cd web && yarn run auditpy
 
 check-pep8:
 	pycodestyle --config=.pycodestyle docs/
@@ -52,6 +82,9 @@ check-feature: install-node bundle
 check-js: install-node linter
 	cd web && yarn run karma start --single-run
 
+check-js-coverage:
+    cd web && yarn run test:karma-coverage
+
 runtime-debug:
 	cd runtime && qmake CONFIG+=debug && make
 
@@ -59,7 +92,7 @@ runtime:
 	cd runtime && qmake CONFIG+=release && make
 
 # Include all clean sub-targets in clean
-clean: clean-appbundle clean-docker clean-dist clean-docs clean-node clean-pip clean-src clean-runtime
+clean: clean-appbundle clean-debian clean-dist clean-docs clean-node clean-pip clean-redhat clean-src clean-runtime
 	rm -rf web/pgadmin/static/js/generated/*
 	rm -rf web/pgadmin/static/js/generated/.cache
 	rm -rf web/pgadmin/static/css/generated/*
@@ -72,8 +105,8 @@ clean-runtime:
 clean-appbundle:
 	rm -rf mac-build/
 
-clean-docker:
-	rm -rf docker-build/
+clean-debian:
+	rm -rf debian-build/
 
 clean-dist:
 	rm -rf dist/
@@ -87,11 +120,18 @@ clean-node:
 clean-pip:
 	rm -rf pip-build/
 
+clean-redhat:
+	rm -rf redhat-build/
+
 clean-src:
 	rm -rf src-build/
 
+debian:
+	./pkg/debian/build.sh
+
 docker:
-	./pkg/docker/build.sh
+	echo $(APP_NAME)
+	docker build -t ${APP_NAME} -t $(APP_NAME):latest -t $(APP_NAME):$(APP_RELEASE) -t $(APP_NAME):$(APP_RELEASE).$(APP_REVISION) .
 
 docs:
 	LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 $(MAKE) -C docs/en_US -f Makefile.sphinx html
@@ -117,6 +157,9 @@ msg-update:
 
 pip: docs
 	./pkg/pip/build.sh
+
+redhat:
+	./pkg/redhat/build.sh
 
 src:
 	./pkg/src/build.sh

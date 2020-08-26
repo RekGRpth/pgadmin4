@@ -17,10 +17,12 @@ node, and select *Create Cast...*
 
    check_dialog
    column_dialog
+   compound_trigger_dialog
    exclusion_constraint_dialog
    foreign_key_dialog
    index_dialog
    primary_key_dialog
+   rls_policy_dialog
    rule_dialog
    table_dialog
    trigger_dialog

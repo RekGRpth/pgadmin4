@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -78,6 +78,7 @@ define('pgadmin.node.resource_group', [
         defaults: {
           oid: undefined,
           name: undefined,
+          is_sys_obj: undefined,
           cpu_rate_limit: 0.0,
           dirty_rate_limit: 0.0,
         },
@@ -85,10 +86,13 @@ define('pgadmin.node.resource_group', [
         // Defining schema for the resource group node
         schema: [{
           id: 'oid', label: gettext('OID'), type: 'text',
-          editable: false, disabled: true, mode:['properties'],
+          editable: false, mode:['properties'],
         },{
           id: 'name', label: gettext('Name'), cell: 'string',
           type: 'text',
+        },{
+          id: 'is_sys_obj', label: gettext('System resource group?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'cpu_rate_limit', label: gettext('CPU rate limit (percentage)'), cell: 'string',
           type: 'numeric', min:0, max:16777216,

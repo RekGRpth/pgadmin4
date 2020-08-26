@@ -16,8 +16,8 @@ allows you to:
   :ref:`updatable <updatable-result-set>`.
 * Displays current connection and transaction status as configured by the user.
 * Save the data displayed in the output panel to a CSV file.
-* Review the execution plan of a SQL statement in either a text or a graphical
-  format.
+* Review the execution plan of a SQL statement in either a text, a graphical
+  format or a table format (similar to https://explain.depesz.com).
 * View analytical information about a SQL statement.
 
 
@@ -122,7 +122,7 @@ You can:
 * Select and copy from the displayed result set.
 * Use the *Execute/Refresh* options to retrieve query execution information and
   set query execution options.
-* Use the *Download as CSV* icon to download the content of the *Data Output*
+* Use the *Download as CSV/TXT* icon to download the content of the *Data Output*
   tab as a comma-delimited file.
 * Edit the data in the result set of a SELECT query if it is updatable.
 
@@ -130,12 +130,27 @@ You can:
 
 A result set is updatable if:
 
-* All the columns belong to the same table.
-* All the primary keys of the table are selected.
-* No columns are duplicated.
+* All columns are either selected directly from a single table, or
+  are not table columns at all (e.g. concatenation of 2 columns).
+  Only columns that are selected directly from the table are
+  editable, other columns are read-only.
+* All the primary key columns or OIDs of the table are selected in the
+  result set.
 
-An updatable result set can be modified just like in
-:ref:`View/Edit Data <modifying-data-grid>` mode.
+Any columns that are renamed or selected more than once are also read-only.
+
+Editable and read-only columns are identified using pencil and lock icons
+(respectively) in the column headers.
+
+.. image:: images/query_tool_editable_columns.png
+    :alt: Query tool editable and read-only columns
+    :align: center
+
+The  psycopg2 driver version should be equal to or above 2.8 for updatable
+query result sets to work.
+
+An updatable result set is identical to the :ref:`Data Grid <data-grid>` in
+View/Edit Data mode, and can be modified in the same way.
 
 If Auto-commit is off, the data changes are made as part of the ongoing
 transaction, if no transaction is ongoing a new one is initiated. The data
@@ -151,20 +166,31 @@ All rowsets from previous queries or commands that are displayed in the *Data
 Output* panel will be discarded when you invoke another query; open another
 Query Tool tab to keep your previous results available.
 
-Use the *Explain* tab to view a graphical representation of a query:
+Explain Panel
+*************
 
-.. image:: images/query_output_explain.png
-    :alt: Query tool explain panel
+To generate the *Explain* or *Explain Analyze* plan of a query, click on
+*Explain* or *Explain Analyze* button in the toolbar.
+
+More options related to *Explain* and *Explain Analyze* can be selected from
+the drop down on the right side of *Explain Analyze* button in the toolbar.
+
+.. image:: images/query_toolbar_explain.png
+    :alt: Query tool toolbar explain button
     :align: center
 
-To generate a graphical explain diagram, open the *Explain* tab, and select
-*Explain*, *Explain Analyze*, or one or more options from the *Explain options*
-drop-down. Please note that *EXPLAIN VERBOSE*
-cannot be displayed graphically. Hover over an icon on the *Explain* tab to
-review information about that item; a popup window will display information
-about the selected object. For information on JIT statistics, triggers and a
-summary, hover over the icon on top-right corner; a similar popup window will
-be displayed when appropriate.
+Please note that pgAdmin generates the *Explain [Analyze]* plan in JSON format.
+
+On successful generation of *Explain* plan, it will create three tabs/panels
+under the Explain panel.
+
+* Graphical
+
+Please note that *EXPLAIN VERBOSE* cannot be displayed graphically. Hover over
+an icon on the *Graphical* tab to review information about that item; a popup
+window will display information about the selected object. For information on
+JIT statistics, triggers and a summary, hover over the icon on top-right
+corner; a similar popup window will be displayed when appropriate.
 
 Use the download button on top left corner of the *Explain* canvas to download
 the plan as an SVG file.
@@ -177,6 +203,44 @@ the plan as an SVG file.
 
 Note that the query plan that accompanies the *Explain analyze* is available on
 the *Data Output* tab.
+
+* Table
+
+*Table* tab shows the plan details in table format, it generates table format
+similar to *explain.depsez.com*. Each row of the table represent the data for a
+*Explain Plan Node*. It may contain the node information, exclusive timing,
+inclusive timing, actual vs planned rows differences, actual rows, planned
+rows, loops.
+
+background color of the exclusive, inclusive, and Rows X columns may vary based on the
+difference between actual vs planned.
+
+If percentage of the exclusive/inclusive timings of the total query time is:
+> 90 - Red color
+> 50 - Orange (between red and yellow) color
+> 10 - Yellow color
+
+If planner mis-estimated number of rows (actual vs planned) by
+10 times - Yellow color
+100 times - Orange (between Red and Yellow) color
+1000 times - Red color
+
+.. image:: images/query_explain_analyze_table.png
+    :alt: Query tool explain plan table
+    :align: center
+
+* Statistics
+
+*Statistics* tab shows two tables:
+1. Statistics per Plan Node Type
+2. Statistics per Table
+
+.. image:: images/query_explain_analyze_statistics.png
+    :alt: Query tool explain plan statistics
+    :align: center
+
+Messages Panel
+**************
 
 Use the *Messages* tab to view information about the most recently executed
 query:
@@ -194,6 +258,9 @@ query took to complete and how many rows were retrieved:
     :alt: Query tool output information
     :align: center
 
+Query History Panel
+*******************
+
 Use the *Query History* tab to review activity for the current session:
 
 .. image:: images/query_output_history.png
@@ -208,6 +275,10 @@ The Query History tab displays information about recent commands:
 * The amount of time it took the server to process the query and return a
   result set.
 * Messages returned by the server (not noted on the *Messages* tab).
+* The source of the query (indicated by icons corresponding to the toolbar).
+
+You can show or hide the queries generated internally by pgAdmin (during
+'View/Edit Data' or 'Save Data' operations).
 
 To erase the content of the *Query History* tab, select *Clear history* from
 the *Clear* drop-down menu.
@@ -215,8 +286,13 @@ the *Clear* drop-down menu.
 Query History is maintained across sessions for each database on a per-user
 basis when running in Query Tool mode. In View/Edit Data mode, history is not
 retained. By default, the last 20 queries are stored for each database. This
-can be adjusted in `config_local.py` by overriding the `MAX_QUERY_HIST_STORED`
-value. See the :ref:`Deployment <deployment>` section for more information.
+can be adjusted in ``config_local.py`` or ``config_system.py`` (see the
+:ref:`config.py <config_py>` documentation) by overriding the
+`MAX_QUERY_HIST_STORED` value. See the :ref:`Deployment <deployment>` section
+for more information.
+
+Connection Status
+*****************
 
 Use the *Connection status* feature to view the current connection and
 transaction status by clicking on the status icon in the Query Tool:

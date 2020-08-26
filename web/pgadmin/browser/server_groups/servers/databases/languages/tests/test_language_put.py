@@ -2,28 +2,26 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import json
 import uuid
-
+from regression.python_test_utils import test_utils as utils
+from pgadmin.utils.route import BaseTestGenerator
 from pgadmin.browser.server_groups.servers.databases.tests import \
     utils as database_utils
-from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
-from regression.python_test_utils import test_utils as utils
 from . import utils as language_utils
+from unittest.mock import patch
 
 
 class LanguagesPutTestCase(BaseTestGenerator):
-    scenarios = [
-        ('Language update test case', dict(url='/browser/language/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('update_language',
+                                         language_utils.test_cases)
 
     def setUp(self):
         self.server_data = parent_node_dict["database"][-1]
@@ -43,17 +41,29 @@ class LanguagesPutTestCase(BaseTestGenerator):
 
     def runTest(self):
         """This function will update the language under test database."""
+        self.test_data['id'] = self.language_id
+        if self.is_positive_test:
+            response = self.update_language()
+            actual_response_code = response.status_code
+            expected_status_code = self.expected_data['status_code']
 
-        data = \
-            {
-                "id": self.language_id,
-                "description": "This is test comment."
-            }
-        response = self.tester.put("{0}{1}/{2}/{3}/{4}".format(
+        elif self.error_in_update_language:
+            self.mock_data['return_value'] = [(True, self.dummy_dict), (
+                False, self.expected_data["message"])]
+            with patch(self.mock_data["function_name"],
+                       side_effect=self.mock_data['return_value']):
+                response = self.update_language()
+                actual_response_code = response.status_code
+                expected_status_code = self.expected_data['status_code']
+
+        self.assertEquals(actual_response_code, expected_status_code)
+
+    def update_language(self):
+
+        return self.tester.put("{0}{1}/{2}/{3}/{4}".format(
             self.url, utils.SERVER_GROUP, self.server_id, self.db_id,
-            self.language_id), data=json.dumps(data),
+            self.language_id), data=json.dumps(self.test_data),
             follow_redirects=True)
-        self.assertEquals(response.status_code, 200)
 
     def tearDown(self):
         """This function delete added language and

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -30,7 +30,7 @@ describe('queryToolActions', () => {
       it('calls the execute function on the sqlEditorController', () => {
         queryToolActions.executeQuery(sqlEditorController);
 
-        expect(sqlEditorController.execute).toHaveBeenCalled();
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalled();
       });
     });
     describe('when the command is being run from the view data view', () => {
@@ -39,10 +39,10 @@ describe('queryToolActions', () => {
         sqlEditorController.is_query_tool = false;
       });
 
-      it('it calls the execute_data_query function on the sqlEditorController', () => {
+      it('it calls the check_data_changes_to_execute_query function on the sqlEditorController', () => {
         queryToolActions.executeQuery(sqlEditorController);
 
-        expect(sqlEditorController.execute_data_query).toHaveBeenCalled();
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalled();
       });
     });
   });
@@ -74,7 +74,7 @@ describe('queryToolActions', () => {
           settings: false,
         };
 
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
 
@@ -100,7 +100,7 @@ describe('queryToolActions', () => {
           summary: true,
           settings: true,
         };
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
 
@@ -128,7 +128,7 @@ describe('queryToolActions', () => {
           settings: false,
         };
 
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
 
@@ -156,7 +156,7 @@ describe('queryToolActions', () => {
           settings: false,
         };
 
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
 
@@ -184,7 +184,7 @@ describe('queryToolActions', () => {
           settings: true,
         };
 
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
   });
@@ -213,7 +213,7 @@ describe('queryToolActions', () => {
           summary: false,
           settings: false,
         };
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
 
@@ -239,7 +239,7 @@ describe('queryToolActions', () => {
           settings: false,
         };
 
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
 
@@ -264,7 +264,7 @@ describe('queryToolActions', () => {
           summary: false,
           settings: false,
         };
-        expect(sqlEditorController.execute).toHaveBeenCalledWith(explainObject);
+        expect(sqlEditorController.check_data_changes_to_execute_query).toHaveBeenCalledWith(explainObject);
       });
     });
   });
@@ -298,8 +298,17 @@ describe('queryToolActions', () => {
           }));
         });
 
-        it('calls trigger_csv_download with the query and the filename', () => {
+        it('calls trigger_csv_download with the query and the filename with .csv extension', () => {
           let filename = 'data-' + time + '.csv';
+
+          queryToolActions.download(sqlEditorController);
+
+          expect(sqlEditorController.trigger_csv_download).toHaveBeenCalledWith(selectedQueryString, filename);
+        });
+
+        it('calls trigger_csv_download with the query and the filename with .txt extension', () => {
+          sqlEditorController.preferences.csv_field_separator = ';';
+          let filename = 'data-' + time + '.txt';
 
           queryToolActions.download(sqlEditorController);
 
@@ -366,8 +375,8 @@ describe('queryToolActions', () => {
       beforeEach(() => {
         setUpSpies('', 'a string\nddd\nsss');
 
-        sqlEditorController.gridView.query_tool_obj.getCursor = (isFrom) => {
-          return isFrom ? 3 : 3;
+        sqlEditorController.gridView.query_tool_obj.getCursor = () => {
+          return 3;
         };
       });
 
@@ -413,8 +422,8 @@ describe('queryToolActions', () => {
       beforeEach(() => {
         setUpSpies('', 'a string\nddd\nsss');
 
-        sqlEditorController.gridView.query_tool_obj.getCursor = (isFrom) => {
-          return isFrom ? 3 : 3;
+        sqlEditorController.gridView.query_tool_obj.getCursor = () => {
+          return 3;
         };
       });
 
@@ -460,8 +469,8 @@ describe('queryToolActions', () => {
       beforeEach(() => {
         setUpSpies('', 'a string\nddd\nsss');
 
-        sqlEditorController.gridView.query_tool_obj.getCursor = (isFrom) => {
-          return isFrom ? 3 : 3;
+        sqlEditorController.gridView.query_tool_obj.getCursor = () => {
+          return 3;
         };
       });
 
@@ -505,8 +514,8 @@ describe('queryToolActions', () => {
       beforeEach(() => {
         setUpSpies('', 'a string\nddd\nsss');
 
-        sqlEditorController.gridView.query_tool_obj.getCursor = (isFrom) => {
-          return isFrom ? 3 : 3;
+        sqlEditorController.gridView.query_tool_obj.getCursor = () => {
+          return 3;
         };
       });
 
@@ -598,9 +607,9 @@ describe('queryToolActions', () => {
     });
   });
 
-  function setUpSpies(selectedQueryString, entireQueryString) {
-    getValueSpy = jasmine.createSpy('getValueSpy').and.returnValue(entireQueryString);
-    getSelectionSpy = jasmine.createSpy('getSelectionSpy').and.returnValue(selectedQueryString);
+  function setUpSpies(selectedQueryStringArg, entireQueryStringArg) {
+    getValueSpy = jasmine.createSpy('getValueSpy').and.returnValue(entireQueryStringArg);
+    getSelectionSpy = jasmine.createSpy('getSelectionSpy').and.returnValue(selectedQueryStringArg);
     replaceSelectionSpy = jasmine.createSpy('replaceSelectionSpy');
 
     sqlEditorController = {
@@ -613,7 +622,7 @@ describe('queryToolActions', () => {
           uncomment: jasmine.createSpy('uncommentSpy'),
           replaceSelection: replaceSelectionSpy,
           getCursor: (isFrom) => {
-            return entireQueryString.indexOf(selectedQueryString) + (isFrom ? 0 : selectedQueryString.length);
+            return entireQueryStringArg.indexOf(selectedQueryStringArg) + (isFrom ? 0 : selectedQueryStringArg.length);
           },
         },
       },
@@ -621,8 +630,10 @@ describe('queryToolActions', () => {
       trigger: jasmine.createSpy('trigger'),
       table_name: 'iAmATable',
       is_query_tool: true,
-      execute: jasmine.createSpy('execute'),
-      execute_data_query: jasmine.createSpy('execute_data_query'),
+      check_data_changes_to_execute_query: jasmine.createSpy('check_data_changes_to_execute_query'),
+      preferences: {
+        csv_field_separator: ',',
+      },
     };
   }
 });

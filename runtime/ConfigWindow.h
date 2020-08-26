@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 // ConfigWindow.h - Configuration window
@@ -24,19 +24,10 @@ class ConfigWindow : public QDialog
 
 public:
     explicit ConfigWindow(QWidget *parent = Q_NULLPTR);
-    ~ConfigWindow();
 
-    QString getBrowserCommand();
-    bool getFixedPort();
-    int getPortNumber();
-    QString getPythonPath();
-    QString getApplicationPath();
-
-    void setBrowserCommand(QString command);
-    void setFixedPort(bool fixedPort);
-    void setPortNumber(int port);
-    void setPythonPath(QString path);
-    void setApplicationPath(QString path);
+signals:
+    void accepted(bool needRestart);
+    void closing(bool accepted);
 
 private slots:
     void on_buttonBox_accepted();
@@ -45,6 +36,9 @@ private slots:
 
 private:
     Ui::ConfigWindow *ui;
+    bool m_needRestart;
+
+    void initConfigWindow();
 };
 
 #endif // CONFIGWINDOW_H

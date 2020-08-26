@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -19,7 +19,6 @@ function (copyData, RangeSelectionHelper) {
     var isModifierDown = event.ctrlKey || event.metaKey;
     var self = this || window;
     self.slickgrid = args.grid;
-    self.csvOptions;
 
     if (isModifierDown && modifiedKey == KEY_C) {
       copyData.apply(self);

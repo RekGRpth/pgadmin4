@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -13,17 +13,13 @@ fetching results from it, and also takes care of the duplicate column name in
 result.
 """
 
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
 
+from collections import OrderedDict
 import psycopg2
-
 from psycopg2.extensions import cursor as _cursor, encodings
-from .encoding import configureDriverEncodings
+from .encoding import configure_driver_encodings
 
-configureDriverEncodings(encodings)
+configure_driver_encodings(encodings)
 
 
 class _WrapperColumn(object):

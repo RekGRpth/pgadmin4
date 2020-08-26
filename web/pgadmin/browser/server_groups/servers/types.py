@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -13,6 +13,7 @@ import sys
 from flask import render_template
 from flask_babelex import gettext as _
 from pgadmin.utils.preferences import Preferences
+from werkzeug.exceptions import InternalServerError
 
 import config
 
@@ -74,11 +75,11 @@ class ServerType(object):
         return self.spriority
 
     def __str__(self):
-        return "Type: {0}, Description:{1}, Priority: {2}".format(
+        return _("Type: {0}, Description: {1}, Priority: {2}").format(
             self.stype, self.desc, self.spriority
         )
 
-    def instanceOf(self, version):
+    def instance_of(self, version):
         return True
 
     @property
@@ -114,10 +115,10 @@ class ServerType(object):
         elif operation == 'sql':
             res = 'psql'
         else:
-            raise Exception(
-                _("Could not find the utility for the operation '%s'".format(
+            raise InternalServerError(
+                _("Could not find the utility for the operation '%s'").format(
                     operation
-                ))
+                )
             )
         bin_path = self.utility_path.get()
         if "$DIR" in bin_path:

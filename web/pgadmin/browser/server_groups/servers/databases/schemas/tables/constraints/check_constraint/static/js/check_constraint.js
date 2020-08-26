@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -10,9 +10,9 @@
 // Check Constraint Module: Node
 define('pgadmin.node.check_constraint', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs',
+  'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs',
   'pgadmin.node.schema.dir/schema_child_tree_node', 'pgadmin.browser.collection',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, alertify, schemaChildTreeNode) {
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, alertify, schemaChildTreeNode) {
 
   // Check Constraint Node
   if (!pgBrowser.Nodes['check_constraint']) {
@@ -26,6 +26,7 @@ define('pgadmin.node.check_constraint', [
       hasSQL: true,
       hasDepends: true,
       parent_type: ['table','partition'],
+      url_jump_after_node: 'schema',
       Init: function() {
         // Avoid mulitple registration of menus
         if (this.initialized)
@@ -63,30 +64,28 @@ define('pgadmin.node.check_constraint', [
             i = input.item || t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d) {
-            return false;
-          }
-          var data = d;
-          $.ajax({
-            url: obj.generate_url(i, 'validate', d, true),
-            type:'GET',
-          })
-            .done(function(res) {
-              if (res.success == 1) {
-                alertify.success(res.info);
-                t.removeIcon(i);
-                data.valid = true;
-                data.icon = 'icon-check_constraint';
-                t.addIcon(i, {icon: data.icon});
-                setTimeout(function() {t.deselect(i);}, 10);
-                setTimeout(function() {t.select(i);}, 100);
-              }
+          if (d) {
+            var data = d;
+            $.ajax({
+              url: obj.generate_url(i, 'validate', d, true),
+              type:'GET',
             })
-            .fail(function(xhr, status, error) {
-              alertify.pgRespErrorNotify(xhr, error);
-              t.unload(i);
-            });
-
+              .done(function(res) {
+                if (res.success == 1) {
+                  alertify.success(res.info);
+                  t.removeIcon(i);
+                  data.valid = true;
+                  data.icon = 'icon-check_constraint';
+                  t.addIcon(i, {icon: data.icon});
+                  setTimeout(function() {t.deselect(i);}, 10);
+                  setTimeout(function() {t.select(i);}, 100);
+                }
+              })
+              .fail(function(xhr, status, error) {
+                alertify.pgRespErrorNotify(xhr, error);
+                t.unload(i);
+              });
+          }
           return false;
         },
       },
@@ -104,10 +103,13 @@ define('pgadmin.node.check_constraint', [
         // Check Constraint Schema
         schema: [{
           id: 'name', label: gettext('Name'), type:'text', cell:'string',
-          disabled: 'isDisabled',
+          readonly: 'isReadonly',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System check constraint?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comment', label: gettext('Comment'), type: 'multiline', cell:
           'string', mode: ['properties', 'create', 'edit'],
@@ -125,12 +127,8 @@ define('pgadmin.node.check_constraint', [
           },
         },{
           id: 'consrc', label: gettext('Check'), type: 'multiline', cell:
-          'string', group: gettext('Definition'), mode: ['properties',
-            'create', 'edit'], disabled: function(m) {
-            return ((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-              !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
-          }, editable: false,
+          'string', group: gettext('Definition'), mode: ['properties', 'create', 'edit'],
+          readonly: 'isReadonly', editable: false,
         },{
           id: 'connoinherit', label: gettext('No inherit?'), type:
           'switch', cell: 'boolean', group: gettext('Definition'), mode:
@@ -148,10 +146,9 @@ define('pgadmin.node.check_constraint', [
               return true;
             }
 
-            return ((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-              !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
+            return false;
           },
+          readonly: 'isReadonly',
         },{
           id: 'convalidated', label: gettext('Don\'t validate?'), type: 'switch', cell:
           'boolean', group: gettext('Definition'), min_version: 90200,
@@ -175,7 +172,7 @@ define('pgadmin.node.check_constraint', [
 
           if (_.isUndefined(this.get('consrc')) || String(this.get('consrc')).replace(/^\s+|\s+$/g, '') == '') {
             err['consrc'] = gettext('Check cannot be empty.');
-            errmsg = errmsg || err['consrc'];
+            errmsg = err['consrc'];
           }
 
           this.errorModel.clear().set(err);
@@ -188,18 +185,10 @@ define('pgadmin.node.check_constraint', [
           return null;
 
         },
-        isDisabled: function(m){
-          if ((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-              !_.isUndefined(m.get('oid'))) ||
-            (_.isFunction(m.isNew) && !m.isNew())) {
-            var server = (this.node_info || m.top.node_info).server;
-            if (server.version < 90200)
-            {
-              return true;
-            }
-          }
-          return false;
+        isReadonly: function(m) {
+          return ((_.has(m, 'handler') &&
+            !_.isUndefined(m.handler) &&
+            !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
         },
       }),
       // Below function will enable right click menu for creating check constraint.
@@ -219,11 +208,7 @@ define('pgadmin.node.check_constraint', [
           d = i ? t.itemData(i) : null;
         }
         // If node is under catalog then do not allow 'create' menu
-        if (_.indexOf(parents, 'catalog') > -1) {
-          return false;
-        } else {
-          return true;
-        }
+        return (_.indexOf(parents, 'catalog') <= -1);
       },
     });
 

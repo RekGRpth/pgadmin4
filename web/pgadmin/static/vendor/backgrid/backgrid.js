@@ -1,39 +1,33 @@
-/////////////////////////////////////////////////////////////
-//
-// pgAdmin 4 - PostgreSQL Tools
-//
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
-// This software is released under the PostgreSQL Licence
-//
-//////////////////////////////////////////////////////////////
-
 /*!
-  backgrid
-  http://github.com/wyuenho/backgrid
+  backgrid 0.3.8
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2014 Jimmy Yuen Ho Wong and contributors <wyuenho@gmail.com>
+  Copyright (c) 2017 Cloudflare, Inc. and contributors <jwong@cloudflare.com>
   Licensed under the MIT license.
 */
 
-(function (factory) {
+(function (root, factory) {
 
-  // CommonJS
-  if (typeof exports == "object") {
-    module.exports = factory(module.exports,
-                             require("underscore"),
-                             require("backbone"));
-  }
-  // Browser
-  else factory(this, this._, this.Backbone);
-}(function (root, _, Backbone) {
+  if (typeof define === "function" && define.amd) {
+    // AMD (+ global for extensions)
+    define(["underscore", "backbone"], function (_, Backbone) {
+      return (root.Backgrid = factory(_, Backbone));
+    });
+  } else if (typeof exports === "object") {
+    // CommonJS
+    module.exports = factory(require("underscore"), require("backbone"));
+  } else {
+    // Browser
+    root.Backgrid = factory(root._, root.Backbone);
+  }}(this, function (_, Backbone) {
 
   "use strict";
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -72,7 +66,7 @@ function lpad(str, length, padstr) {
 
 var $ = Backbone.$;
 
-var Backgrid = root.Backgrid = {
+var Backgrid = {
 
   Extension: {},
 
@@ -180,9 +174,9 @@ _.extend(Command.prototype, {
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -285,7 +279,7 @@ _.extend(NumberFormatter.prototype, {
   fromRaw: function (number, model) {
     if (_.isNull(number) || _.isUndefined(number)) return '';
 
-    number = number.toFixed(~~this.decimals);
+    number = parseFloat(number).toFixed(~~this.decimals);
 
     var parts = number.split('.');
     var integerPart = parts[0];
@@ -318,8 +312,8 @@ _.extend(NumberFormatter.prototype, {
 
     var decimalParts = rawData.split(this.decimalSeparator);
     rawData = '';
-    for (var i = 0; i < decimalParts.length; i++) {
-      rawData = rawData + decimalParts[i] + '.';
+    for (var j = 0; j < decimalParts.length; j++) {
+      rawData = rawData + decimalParts[j] + '.';
     }
 
     if (rawData[rawData.length - 1] === '.') {
@@ -345,7 +339,7 @@ var PercentFormatter = Backgrid.PercentFormatter = function () {
   Backgrid.NumberFormatter.apply(this, arguments);
 };
 
-PercentFormatter.prototype = new Backgrid.NumberFormatter(),
+PercentFormatter.prototype = new Backgrid.NumberFormatter();
 
 _.extend(PercentFormatter.prototype, {
 
@@ -625,9 +619,9 @@ _.extend(SelectFormatter.prototype, {
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -724,6 +718,7 @@ var InputCellEditor = Backgrid.InputCellEditor = CellEditor.extend({
   */
   render: function () {
     var model = this.model;
+    this.$el.attr('aria-label', this.column.get("label"));
     this.$el.val(this.formatter.fromRaw(model.get(this.column.get("name")), model));
     return this;
   },
@@ -864,8 +859,8 @@ var Cell = Backgrid.Cell = Backbone.View.extend({
     this.listenTo(model, "backgrid:error", this.renderError);
 
     this.listenTo(column, "change:editable change:sortable change:renderable",
-                  function (column) {
-                    var changed = column.changedAttributes();
+                  function (col) {
+                    var changed = col.changedAttributes();
                     for (var key in changed) {
                       if (changed.hasOwnProperty(key)) {
                         $el.toggleClass(key, changed[key]);
@@ -873,9 +868,16 @@ var Cell = Backgrid.Cell = Backbone.View.extend({
                     }
                   });
 
-    if (Backgrid.callByNeed(column.editable(), column, model)) $el.addClass("editable");
-    if (Backgrid.callByNeed(column.sortable(), column, model)) $el.addClass("sortable");
-    if (Backgrid.callByNeed(column.renderable(), column, model)) $el.addClass("renderable");
+    this.updateStateClassesMaybe();
+  },
+
+  updateStateClassesMaybe: function () {
+    var model = this.model;
+    var column = this.column;
+    var $el = this.$el;
+    $el.toggleClass("editable", Backgrid.callByNeed(column.editable(), column, model));
+    $el.toggleClass("sortable", Backgrid.callByNeed(column.sortable(), column, model));
+    $el.toggleClass("renderable", Backgrid.callByNeed(column.renderable(), column, model));
   },
 
   /**
@@ -883,9 +885,14 @@ var Cell = Backgrid.Cell = Backbone.View.extend({
      model's raw value for this cell's column.
   */
   render: function () {
-    this.$el.empty();
+    var $el = this.$el;
+    $el.empty();
     var model = this.model;
-    this.$el.text(this.formatter.fromRaw(model.get(this.column.get("name")), model));
+    var columnName = this.column.get("name");
+    var value = _.escape(this.formatter.fromRaw(model.get(columnName), model));
+    $el.append($(`<span class="display-text" title="${value}">${value}</span>`));
+    $el.addClass(columnName);
+    this.updateStateClassesMaybe();
     this.delegateEvents();
     return this;
   },
@@ -926,9 +933,15 @@ var Cell = Backgrid.Cell = Backbone.View.extend({
 
       // Need to redundantly undelegate events for Firefox
       this.undelegateEvents();
+      var dispText = this.$el.find('.display-text');
+      var width = '100%';
+      if(dispText.length === 1) {
+        width = dispText.width();
+      }
       this.$el.empty();
       this.$el.append(this.currentEditor.$el);
       this.currentEditor.render();
+      this.currentEditor.$el.css('min-width',width);
       this.$el.addClass("editor");
 
       model.trigger("backgrid:editing", model, column, this, this.currentEditor);
@@ -981,6 +994,9 @@ var StringCell = Backgrid.StringCell = Cell.extend({
 
   /** @property */
   className: "string-cell",
+  attributes: {
+    tabIndex: "0"
+  },
 
   formatter: StringFormatter
 
@@ -1044,7 +1060,7 @@ var UriCell = Backgrid.UriCell = Cell.extend({
    @class Backgrid.EmailCell
    @extends Backgrid.StringCell
 */
-var EmailCell = Backgrid.EmailCell = StringCell.extend({
+Backgrid.EmailCell = StringCell.extend({
 
   /** @property */
   className: "email-cell",
@@ -1117,7 +1133,7 @@ var NumberCell = Backgrid.NumberCell = Cell.extend({
    @class Backgrid.IntegerCell
    @extends Backgrid.NumberCell
 */
-var IntegerCell = Backgrid.IntegerCell = NumberCell.extend({
+Backgrid.IntegerCell = NumberCell.extend({
 
   /** @property */
   className: "integer-cell",
@@ -1236,7 +1252,7 @@ var DatetimeCell = Backgrid.DatetimeCell = Cell.extend({
    @class Backgrid.DateCell
    @extends Backgrid.DatetimeCell
 */
-var DateCell = Backgrid.DateCell = DatetimeCell.extend({
+Backgrid.DateCell = DatetimeCell.extend({
 
   /** @property */
   className: "date-cell",
@@ -1252,7 +1268,7 @@ var DateCell = Backgrid.DateCell = DatetimeCell.extend({
    @class Backgrid.TimeCell
    @extends Backgrid.DatetimeCell
 */
-var TimeCell = Backgrid.TimeCell = DatetimeCell.extend({
+Backgrid.TimeCell = DatetimeCell.extend({
 
   /** @property */
   className: "time-cell",
@@ -1356,7 +1372,7 @@ var BooleanCellEditor = Backgrid.BooleanCellEditor = CellEditor.extend({
    @class Backgrid.BooleanCell
    @extends Backgrid.Cell
 */
-var BooleanCell = Backgrid.BooleanCell = Cell.extend({
+Backgrid.BooleanCell = Cell.extend({
 
   /** @property */
   className: "boolean-cell",
@@ -1408,7 +1424,15 @@ var SelectCellEditor = Backgrid.SelectCellEditor = CellEditor.extend({
   },
 
   /** @property {function(Object, ?Object=): string} template */
-  template: _.template('<option value="<%- value %>" <%= selected ? \'selected="selected"\' : "" %>><%- text %></option>', null, {variable: null}),
+  template: _.template(
+    '<option value="<%- value %>" <%= selected ? \'selected="selected"\' : "" %>><%- text %></option>',
+    null,
+    {
+        variable    : null,
+        evaluate    : /<%([\s\S]+?)%>/g,
+        interpolate : /<%=([\s\S]+?)%>/g,
+        escape      : /<%-([\s\S]+?)%>/g
+    }),
 
   setOptionValues: function (optionValues) {
     this.optionValues = optionValues;
@@ -1450,12 +1474,11 @@ var SelectCellEditor = Backgrid.SelectCellEditor = CellEditor.extend({
 
     var optionValue = null;
     var optionText = null;
-    var optionValue = null;
     var optgroupName = null;
     var optgroup = null;
 
     for (var i = 0; i < optionValues.length; i++) {
-      var optionValue = optionValues[i];
+      optionValue = optionValues[i];
 
       if (_.isArray(optionValue)) {
         optionText  = optionValue[0];
@@ -1613,7 +1636,7 @@ var SelectCell = Backgrid.SelectCell = Cell.extend({
 
           if (_.isArray(optionValue)) {
             var optionText  = optionValue[0];
-            var optionValue = optionValue[1];
+            optionValue = optionValue[1];
 
             if (optionValue == rawDatum) selectedText.push(optionText);
           }
@@ -1651,9 +1674,9 @@ var SelectCell = Backgrid.SelectCell = Cell.extend({
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -1706,19 +1729,20 @@ var Column = Backgrid.Column = Backbone.Model.extend({
      this column is sortable. If the value is a string, a method will the same
      name will be looked up from the column instance to determine whether the
      column should be sortable. The method's signature must be `function
-     (Backgrid.Column, Backbone.Model): boolean`.
+     (Backbone.Model): boolean`. The function's context is the column instance.
 
      @cfg {boolean|string|function(): boolean} [defaults.editable=true] Whether
      this column is editable. If the value is a string, a method will the same
      name will be looked up from the column instance to determine whether the
      column should be editable. The method's signature must be `function
-     (Backgrid.Column, Backbone.Model): boolean`.
+     (Backbone.Model): boolean`. The function's context is the column instance.
 
      @cfg {boolean|string|function(): boolean} [defaults.renderable=true]
      Whether this column is renderable. If the value is a string, a method will
      the same name will be looked up from the column instance to determine
      whether the column should be renderable. The method's signature must be
-     `function (Backrid.Column, Backbone.Model): boolean`.
+     `function (Backbone.Model): boolean`. The function's context is the column
+     instance.
 
      @cfg {Backgrid.CellFormatter | Object | string} [defaults.formatter] The
      formatter to use to convert between raw model values and user input.
@@ -1824,24 +1848,33 @@ var Column = Backgrid.Column = Backbone.Model.extend({
   }
 
   /**
+     If you cannot always determine whether a column should be sortable before
+     the grid get initialized, you can override this method.
+
      @member Backgrid.Column
      @protected
      @method sortable
-     @return {function(Backgrid.Column, Backbone.Model): boolean | boolean}
+     @return {function(Backbone.Model): boolean | boolean}
   */
 
   /**
+     If you cannot always determine whether a column should be editable before
+     the grid get initialized, you can override this method.
+
      @member Backgrid.Column
      @protected
      @method editable
-     @return {function(Backgrid.Column, Backbone.Model): boolean | boolean}
+     @return {function(Backbone.Model): boolean | boolean}
   */
 
   /**
+     If you cannot always determine whether a column should be renderable before
+     the grid get initialized, you can override this method.
+
      @member Backgrid.Column
      @protected
      @method renderable
-     @return {function(Backgrid.Column, Backbone.Model): boolean | boolean}
+     @return {function(Backbone.Model): boolean | boolean}
   */
 });
 
@@ -1871,9 +1904,9 @@ var Columns = Backgrid.Columns = Backbone.Collection.extend({
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -1911,24 +1944,24 @@ var Row = Backgrid.Row = Backbone.View.extend({
       cells.push(this.makeCell(columns.at(i), options));
     }
 
-    this.listenTo(columns, "add", function (column, columns) {
-      var i = columns.indexOf(column);
+    this.listenTo(columns, "add", function (column, cols) {
+      var index = cols.indexOf(column);
       var cell = this.makeCell(column, options);
-      cells.splice(i, 0, cell);
+      cells.splice(index, 0, cell);
 
       var $el = this.$el;
-      if (i === 0) {
+      if (index === 0) {
         $el.prepend(cell.render().$el);
       }
-      else if (i === columns.length - 1) {
+      else if (index === cols.length - 1) {
         $el.append(cell.render().$el);
       }
       else {
-        $el.children().eq(i).before(cell.render().$el);
+        $el.children().eq(index).before(cell.render().$el);
       }
     });
 
-    this.listenTo(columns, "remove", function (column, columns, opts) {
+    this.listenTo(columns, "remove", function (column, cols, opts) {
       cells[opts.index].remove();
       cells.splice(opts.index, 1);
     });
@@ -2020,7 +2053,9 @@ var EmptyRow = Backgrid.EmptyRow = Backbone.View.extend({
 
     var td = document.createElement("td");
     td.setAttribute("colspan", this.columns.length);
-    td.appendChild(document.createTextNode(_.result(this, "emptyText")));
+    var span = document.createElement("span");
+    span.innerHTML = _.result(this, "emptyText");
+    td.appendChild(span);
 
     this.el.className = "empty";
     this.el.appendChild(td);
@@ -2031,9 +2066,9 @@ var EmptyRow = Backgrid.EmptyRow = Backbone.View.extend({
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -2052,7 +2087,7 @@ var HeaderCell = Backgrid.HeaderCell = Backbone.View.extend({
 
   /** @property */
   events: {
-    "click a": "onClick"
+    "click button": "onClick"
   },
 
   /**
@@ -2072,8 +2107,8 @@ var HeaderCell = Backgrid.HeaderCell = Backbone.View.extend({
     var column = this.column, collection = this.collection, $el = this.$el;
 
     this.listenTo(column, "change:editable change:sortable change:renderable",
-                  function (column) {
-                    var changed = column.changedAttributes();
+                  function (col) {
+                    var changed = col.changedAttributes();
                     for (var key in changed) {
                       if (changed.hasOwnProperty(key)) {
                         $el.toggleClass(key, changed[key]);
@@ -2087,12 +2122,12 @@ var HeaderCell = Backgrid.HeaderCell = Backbone.View.extend({
     if (Backgrid.callByNeed(column.sortable(), column, collection)) $el.addClass("sortable");
     if (Backgrid.callByNeed(column.renderable(), column, collection)) $el.addClass("renderable");
 
-    this.listenTo(collection.fullCollection || collection, "sort", this.removeCellDirection);
+    this.listenTo(collection.fullCollection || collection, "backgrid:sorted", this.removeCellDirection);
   },
 
   /**
-     Event handler for the collection's `sort` event. Removes all the CSS
-     direction classes.
+     Event handler for the collection's `backgrid:sorted` event. Removes
+     all the CSS direction classes.
    */
   removeCellDirection: function () {
     this.$el.removeClass("ascending").removeClass("descending");
@@ -2151,7 +2186,7 @@ var HeaderCell = Backgrid.HeaderCell = Backbone.View.extend({
     var sortable = Backgrid.callByNeed(column.sortable(), column, this.collection);
     var label;
     if(sortable){
-      label = $("<a>").text(column.get("label")).append("<b class='sort-caret'></b>");
+      label = $("<button>").text(column.get("label")).append("<span class='sort-caret' aria-hidden='true'></span>");
     } else {
       label = document.createTextNode(column.get("label"));
     }
@@ -2159,10 +2194,44 @@ var HeaderCell = Backgrid.HeaderCell = Backbone.View.extend({
     this.$el.append(label);
     this.$el.addClass(column.get("name"));
     this.$el.addClass(column.get("direction"));
+    this.$el.attr("role", "columnheader");
     this.delegateEvents();
     return this;
   }
 
+});
+
+/**
+   EmptyHeaderCell is a special cell class that renders a column header cell.
+   The text is empty here and it is not sortable.
+
+   @class Backgrid.EmptyHeaderCell
+   @extends Backbone.View
+ */
+var EmptyHeaderCell = Backgrid.EmptyHeaderCell = Backbone.View.extend({
+
+  /** @property */
+  tagName: "td",
+
+  /**
+     Initializer.
+
+     @param {Object} options
+     @param {Backgrid.Column|Object} options.column
+   */
+  initialize: function (options) {
+    this.column = options.column;
+  },
+
+  /**
+     Renders a empty header cell with no events
+   */
+  render: function () {
+    this.$el.empty();
+    this.$el.addClass(this.column.get("name"));
+    this.$el.addClass("renderable");
+    return this;
+  }
 });
 
 /**
@@ -2171,9 +2240,7 @@ var HeaderCell = Backgrid.HeaderCell = Backbone.View.extend({
    @class Backgrid.HeaderRow
    @extends Backgrid.Row
  */
-var HeaderRow = Backgrid.HeaderRow = Backgrid.Row.extend({
-
-  requiredOptions: ["columns", "collection"],
+Backgrid.HeaderRow = Backgrid.Row.extend({
 
   /**
      Initializer.
@@ -2192,7 +2259,13 @@ var HeaderRow = Backgrid.HeaderRow = Backgrid.Row.extend({
   },
 
   makeCell: function (column, options) {
-    var headerCell = column.get("headerCell") || options.headerCell || HeaderCell;
+    var headerCell = null;
+    if(column.get("label") === "" || !column.get("label")) {
+      headerCell = column.get("headerCell") || options.headerCell || EmptyHeaderCell;
+    } else {
+      headerCell = column.get("headerCell") || options.headerCell || HeaderCell;
+    }
+
     headerCell = new headerCell({
       column: column,
       collection: this.collection
@@ -2259,9 +2332,9 @@ var Header = Backgrid.Header = Backbone.View.extend({
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -2298,7 +2371,7 @@ var Body = Backgrid.Body = Backbone.View.extend({
       this.columns = new Columns(this.columns);
     }
 
-    this.row = options.row || Row;
+    this.row = options.row || this.row || Row;
     this.rows = this.collection.map(function (model) {
       var row = new this.row({
         columns: this.columns,
@@ -2318,14 +2391,19 @@ var Body = Backgrid.Body = Backbone.View.extend({
     this.listenTo(collection, "reset", this.refresh);
     this.listenTo(collection, "backgrid:sort", this.sort);
     this.listenTo(collection, "backgrid:edited", this.moveToNextCell);
+
+    this.listenTo(this.columns, "add remove", this.updateEmptyRow);
   },
 
   _unshiftEmptyRowMayBe: function () {
     if (this.rows.length === 0 && this.emptyText != null) {
-      this.rows.unshift(new EmptyRow({
+      this.emptyRow = new EmptyRow({
         emptyText: this.emptyText,
         columns: this.columns
-      }));
+      });
+
+      this.rows.unshift(this.emptyRow);
+      return true
     }
   },
 
@@ -2413,7 +2491,9 @@ var Body = Backgrid.Body = Backbone.View.extend({
     // removeRow() is called directly
     if (!options) {
       this.collection.remove(model, (options = collection));
-      this._unshiftEmptyRowMayBe();
+      if (this._unshiftEmptyRowMayBe()) {
+        this.render();
+      }
       return;
     }
 
@@ -2422,9 +2502,22 @@ var Body = Backgrid.Body = Backbone.View.extend({
     }
 
     this.rows.splice(options.index, 1);
-    this._unshiftEmptyRowMayBe();
+    if (this._unshiftEmptyRowMayBe()) {
+      this.render();
+    }
 
     return this;
+  },
+
+  /**
+     Rerender the EmptyRow which empties the DOM element, creates the td with the
+     updated colspan, and appends it back into the DOM
+  */
+
+  updateEmptyRow: function () {
+    if (this.emptyRow != null) {
+      this.emptyRow.render();
+    }
   },
 
   /**
@@ -2503,7 +2596,7 @@ var Body = Backgrid.Body = Backbone.View.extend({
      Triggers a Backbone `backgrid:sorted` event from the collection when done
      with the column, direction and a reference to the collection.
 
-     @param {Backgrid.Column} column
+     @param {Backgrid.Column|string} column
      @param {null|"ascending"|"descending"} direction
 
      See [Backbone.Collection#comparator](http://backbonejs.org/#Collection-comparator)
@@ -2545,18 +2638,19 @@ var Body = Backgrid.Body = Backbone.View.extend({
         }
         collection.fullCollection.sort();
         collection.trigger("backgrid:sorted", column, direction, collection);
+        column.set("direction", direction);
       }
       else collection.fetch({reset: true, success: function () {
         collection.trigger("backgrid:sorted", column, direction, collection);
+        column.set("direction", direction);
       }});
     }
     else {
       collection.comparator = comparator;
       collection.sort();
       collection.trigger("backgrid:sorted", column, direction, collection);
+      column.set("direction", direction);
     }
-
-    column.set("direction", direction);
 
     return this;
   },
@@ -2568,7 +2662,11 @@ var Body = Backgrid.Body = Backbone.View.extend({
       var l = func(left, attr), r = func(right, attr), t;
 
       // if descending order, swap left and right
-      if (order === 1) t = l, l = r, r = t;
+      if (order === 1) {
+        t = l;
+        l = r;
+        r = t;
+      }
 
       // compare as usual
       if (l === r) return 0;
@@ -2595,6 +2693,9 @@ var Body = Backgrid.Body = Backbone.View.extend({
     var i = this.collection.indexOf(model);
     var j = this.columns.indexOf(column);
     var cell, renderable, editable, m, n;
+
+    // return if model being edited in a different grid
+    if (j === -1) return this;
 
     this.rows[i].cells[j].exitEditMode();
 
@@ -2644,9 +2745,9 @@ var Body = Backgrid.Body = Backbone.View.extend({
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -2658,7 +2759,7 @@ var Body = Backgrid.Body = Backbone.View.extend({
    @class Backgrid.Footer
    @extends Backbone.View
  */
-var Footer = Backgrid.Footer = Backbone.View.extend({
+Backgrid.Footer = Backbone.View.extend({
 
   /** @property */
   tagName: "tfoot",
@@ -2684,9 +2785,9 @@ var Footer = Backgrid.Footer = Backbone.View.extend({
 
 /*
   backgrid
-  http://github.com/wyuenho/backgrid
+  http://github.com/cloudflare/backgrid
 
-  Copyright (c) 2013 Jimmy Yuen Ho Wong and contributors
+  Copyright (c) 2013-present Cloudflare, Inc. and contributors
   Licensed under the MIT license.
 */
 
@@ -2737,7 +2838,7 @@ var Footer = Backgrid.Footer = Backbone.View.extend({
    - Backgrid.Row
    - Backgrid.Footer
 */
-var Grid = Backgrid.Grid = Backbone.View.extend({
+Backgrid.Grid = Backbone.View.extend({
 
   /** @property */
   tagName: "table",
@@ -2754,24 +2855,31 @@ var Grid = Backgrid.Grid = Backbone.View.extend({
   /** @property */
   footer: null,
 
+  /** @property */
+  attr: null,
+
   /**
      Initializes a Grid instance.
 
      @param {Object} options
      @param {Backbone.Collection.<Backgrid.Columns>|Array.<Backgrid.Column>|Array.<Object>} options.columns Column metadata.
      @param {Backbone.Collection} options.collection The collection of tabular model data to display.
+     @param {string} [options.caption=string] An optional caption to be added to the table.
      @param {Backgrid.Header} [options.header=Backgrid.Header] An optional Header class to override the default.
      @param {Backgrid.Body} [options.body=Backgrid.Body] An optional Body class to override the default.
      @param {Backgrid.Row} [options.row=Backgrid.Row] An optional Row class to override the default.
      @param {Backgrid.Footer} [options.footer=Backgrid.Footer] An optional Footer class.
+
    */
   initialize: function (options) {
     // Convert the list of column objects here first so the subviews don't have
     // to.
     if (!(options.columns instanceof Backbone.Collection)) {
-      options.columns = new Columns(options.columns);
+      options.columns = new Columns(options.columns || this.columns);
     }
     this.columns = options.columns;
+
+    this.caption = options.caption;
 
     var filteredOptions = _.omit(options, ["el", "id", "attributes",
                                            "className", "tagName", "events"]);
@@ -2789,6 +2897,8 @@ var Grid = Backgrid.Grid = Backbone.View.extend({
     if (this.footer) {
       this.footer = new this.footer(filteredOptions);
     }
+
+    this.attr = options.attr || {};
 
     this.listenTo(this.columns, "reset", function () {
       if (this.header) {
@@ -2851,12 +2961,16 @@ var Grid = Backgrid.Grid = Backbone.View.extend({
   },
 
   /**
-     Renders the grid's header, then footer, then finally the body. Triggers a
+     Renders the grid's caption, then header, then footer, then finally the body. Triggers a
      Backbone `backgrid:rendered` event along with a reference to the grid when
      the it has successfully been rendered.
    */
   render: function () {
     this.$el.empty();
+
+    if (this.caption) {
+      this.$el.append($("<caption>").text(this.caption));
+    }
 
     if (this.header) {
       this.$el.append(this.header.render().$el);
@@ -2867,6 +2981,8 @@ var Grid = Backgrid.Grid = Backbone.View.extend({
     }
 
     this.$el.append(this.body.render().$el);
+    this.$el.attr("role", "table");
+    this.$el.attr(this.attr);
 
     this.delegateEvents();
 
@@ -2888,5 +3004,5 @@ var Grid = Backgrid.Grid = Backbone.View.extend({
   }
 
 });
-return Backgrid;
+  return Backgrid;
 }));

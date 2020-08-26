@@ -1,12 +1,15 @@
-@import './resources/pgadmin.resources.scss';
-
-
 $theme-colors: (
   "primary": $color-primary,
   "danger": $color-danger,
   "success": $color-success,
   "warning": $color-warning,
 );
+
+/* Certain variables are required in JS directly */
+:root {
+  --color-fg: #{$color-fg};
+  --border-color: #{$border-color};
+}
 
 @import "node_modules/bootstrap/scss/bootstrap";
 
@@ -22,3 +25,4 @@ $theme-colors: (
 @import 'pgadmin.grid';
 @import 'pgadmin.style';
 @import 'bootstrap4-toggle.overrides';
+@import 'pickr.overrides';

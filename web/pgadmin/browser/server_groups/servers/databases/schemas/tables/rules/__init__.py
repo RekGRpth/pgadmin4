@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -13,7 +13,8 @@ import simplejson as json
 from functools import wraps
 
 import pgadmin.browser.server_groups.servers.databases.schemas as schemas
-from flask import render_template, make_response, request, jsonify
+from flask import render_template, make_response, request, jsonify,\
+    current_app
 from flask_babelex import gettext
 from pgadmin.browser.collection import CollectionNodeModule
 from pgadmin.browser.server_groups.servers.databases.schemas.utils import \
@@ -23,10 +24,11 @@ from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
 from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.utils.compile_template_name import compile_template_path
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
+from pgadmin.tools.schema_diff.directory_compare import directory_diff,\
+    parse_acl
 
 
 class RuleModule(CollectionNodeModule):
@@ -39,8 +41,8 @@ class RuleModule(CollectionNodeModule):
           script_load - tells when to load js file.
           csssnppets - add css to page
     """
-    NODE_TYPE = 'rule'
-    COLLECTION_LABEL = gettext("Rules")
+    _NODE_TYPE = 'rule'
+    _COLLECTION_LABEL = gettext("Rules")
 
     def __init__(self, *args, **kwargs):
         self.min_ver = None
@@ -48,12 +50,12 @@ class RuleModule(CollectionNodeModule):
 
         super(RuleModule, self).__init__(*args, **kwargs)
 
-    def BackendSupported(self, manager, **kwargs):
+    def backend_supported(self, manager, **kwargs):
         """
         Load this module if tid is view, we will not load it under
         material view
         """
-        if super(RuleModule, self).BackendSupported(manager, **kwargs):
+        if super(RuleModule, self).backend_supported(manager, **kwargs):
             conn = manager.connection(did=kwargs['did'])
 
             if 'vid' not in kwargs:
@@ -63,16 +65,15 @@ class RuleModule(CollectionNodeModule):
             SQL = render_template("/".join(
                 [self.template_path, 'backend_support.sql']
             ), vid=kwargs['vid'])
+
             status, res = conn.execute_scalar(SQL)
             # check if any errors
             if not status:
                 return internal_server_error(errormsg=res)
+
             # Check tid is view not material view
             # then true, othewise false
-            if res is True:
-                return res
-            else:
-                return res
+            return res
 
     def get_nodes(self, gid, sid, did, scid, **kwargs):
         """
@@ -96,7 +97,7 @@ class RuleModule(CollectionNodeModule):
         Load the module script for rule, when any of the database nodes are
         initialized.
         """
-        return schemas.SchemaModule.NODE_TYPE
+        return schemas.SchemaModule.node_type
 
     @property
     def csssnippets(self):
@@ -105,7 +106,7 @@ class RuleModule(CollectionNodeModule):
         """
         snippets = [
             render_template(
-                "browser/css/collection.css",
+                self._COLLECTION_CSS,
                 node_type=self.node_type,
                 _=gettext
             ),
@@ -134,7 +135,7 @@ class RuleModule(CollectionNodeModule):
 blueprint = RuleModule(__name__)
 
 
-class RuleView(PGChildNodeView):
+class RuleView(PGChildNodeView, SchemaDiffObjectCompare):
     """
     This is a class for rule node which inherits the
     properties and methods from PGChildNodeView class and define
@@ -148,6 +149,7 @@ class RuleView(PGChildNodeView):
     * operations - function routes mappings defined.
     """
     node_type = blueprint.node_type
+    node_label = "Rule"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -178,6 +180,9 @@ class RuleView(PGChildNodeView):
         'configs': [{'get': 'configs'}]
     })
 
+    # Schema Diff: Keys to ignore while comparing
+    keys_to_ignore = ['oid', 'schema', 'definition', 'oid-2']
+
     def check_precondition(f):
         """
         This function will behave as a decorator which will check the
@@ -197,6 +202,12 @@ class RuleView(PGChildNodeView):
             ]['datlastsysoid'] if self.manager.db_info is not None and \
                 kwargs['did'] in self.manager.db_info else 0
             self.template_path = 'rules/sql'
+            self.table_template_path = compile_template_path(
+                'tables/sql',
+                self.manager.server_type,
+                self.manager.version
+            )
+
             return f(*args, **kwargs)
 
         return wrap
@@ -209,7 +220,7 @@ class RuleView(PGChildNodeView):
 
         # fetch schema name by schema id
         SQL = render_template("/".join(
-            [self.template_path, 'properties.sql']), tid=tid)
+            [self.template_path, self._PROPERTIES_SQL]), tid=tid)
         status, res = self.conn.execute_dict(SQL)
 
         if not status:
@@ -225,14 +236,14 @@ class RuleView(PGChildNodeView):
         return single node
         """
         SQL = render_template("/".join(
-            [self.template_path, 'nodes.sql']), rid=rid)
+            [self.template_path, self._NODES_SQL]), rid=rid)
 
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=rset)
 
         if len(rset['rows']) == 0:
-            return gone(gettext("""Could not find the rule in the table."""))
+            return gone(self.not_found_error_msg())
 
         res = self.blueprint.generate_browser_node(
             rset['rows'][0]['oid'],
@@ -253,7 +264,7 @@ class RuleView(PGChildNodeView):
         """
         res = []
         SQL = render_template("/".join(
-            [self.template_path, 'nodes.sql']), tid=tid)
+            [self.template_path, self._NODES_SQL]), tid=tid)
 
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
@@ -279,21 +290,33 @@ class RuleView(PGChildNodeView):
         Fetch the properties of an individual rule and render in properties tab
 
         """
+        status, data = self._fetch_properties(rid)
+        if not status:
+            return data
+
+        return ajax_response(
+            response=data,
+            status=200
+        )
+
+    def _fetch_properties(self, rid):
+        """
+        This function is used to fetch the properties of the specified object
+        :param rid:
+        :return:
+        """
         SQL = render_template("/".join(
-            [self.template_path, 'properties.sql']
+            [self.template_path, self._PROPERTIES_SQL]
         ), rid=rid, datlastsysoid=self.datlastsysoid)
         status, res = self.conn.execute_dict(SQL)
 
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(gettext("""Could not find the rule in the table."""))
+            return False, gone(self.not_found_error_msg())
 
-        return ajax_response(
-            response=parse_rule_definition(res),
-            status=200
-        )
+        return True, parse_rule_definition(res)
 
     @check_precondition
     def create(self, gid, sid, did, scid, tid):
@@ -313,12 +336,12 @@ class RuleView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             SQL = render_template("/".join(
-                [self.template_path, 'create.sql']), data=data)
+                [self.template_path, self._CREATE_SQL]), data=data)
             status, res = self.conn.execute_scalar(SQL)
             if not status:
                 return internal_server_error(errormsg=res)
@@ -351,7 +374,7 @@ class RuleView(PGChildNodeView):
         )
         try:
             SQL, name = self.getSQL(gid, sid, data, tid, rid)
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             SQL = SQL.strip('\n').strip(' ')
             status, res = self.conn.execute_scalar(SQL)
@@ -369,10 +392,13 @@ class RuleView(PGChildNodeView):
             return internal_server_error(errormsg=str(e))
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, tid, rid=None):
+    def delete(self, gid, sid, did, scid, tid, **kwargs):
         """
         This function will drop a rule object
         """
+        rid = kwargs.get('rid', None)
+        only_sql = kwargs.get('only_sql', False)
+
         if rid is None:
             data = request.form if request.form else json.loads(
                 request.data, encoding='utf-8'
@@ -381,13 +407,14 @@ class RuleView(PGChildNodeView):
             data = {'ids': [rid]}
 
         # Below will decide if it's simple drop or drop with cascade call
-        cascade = True if self.cmd == 'delete' else False
+
+        cascade = self._check_cascade_operation()
 
         try:
             for rid in data['ids']:
                 # Get name for rule from did
                 SQL = render_template("/".join(
-                    [self.template_path, 'delete.sql']), rid=rid)
+                    [self.template_path, self._DELETE_SQL]), rid=rid)
                 status, res_data = self.conn.execute_dict(SQL)
                 if not status:
                     return internal_server_error(errormsg=res_data)
@@ -398,20 +425,20 @@ class RuleView(PGChildNodeView):
                         errormsg=gettext(
                             'Error: Object not found.'
                         ),
-                        info=gettext(
-                            'The specified rule could not be found.\n'
-                        )
+                        info=self.not_found_error_msg()
                     )
 
                 # drop rule
                 rset = res_data['rows'][0]
                 SQL = render_template("/".join(
-                    [self.template_path, 'delete.sql']),
+                    [self.template_path, self._DELETE_SQL]),
                     rulename=rset['rulename'],
                     relname=rset['relname'],
                     nspname=rset['nspname'],
                     cascade=cascade
                 )
+                if only_sql:
+                    return SQL
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -431,7 +458,7 @@ class RuleView(PGChildNodeView):
         """
         data = request.args
         sql, name = self.getSQL(gid, sid, data, tid, rid)
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
         sql = sql.strip('\n').strip(' ')
 
@@ -448,16 +475,16 @@ class RuleView(PGChildNodeView):
         This function will generate sql to render into the sql panel
         """
         SQL = render_template("/".join(
-            [self.template_path, 'properties.sql']), rid=rid)
+            [self.template_path, self._PROPERTIES_SQL]), rid=rid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(gettext("""Could not find the rule in the table."""))
+            return gone(self.not_found_error_msg())
 
         res_data = parse_rule_definition(res)
         SQL = render_template("/".join(
-            [self.template_path, 'create.sql']),
+            [self.template_path, self._CREATE_SQL]),
             data=res_data, display_comments=True)
 
         return ajax_response(response=SQL)
@@ -469,25 +496,66 @@ class RuleView(PGChildNodeView):
 
         if rid is not None:
             SQL = render_template("/".join(
-                [self.template_path, 'properties.sql']), rid=rid)
+                [self.template_path, self._PROPERTIES_SQL]), rid=rid)
             status, res = self.conn.execute_dict(SQL)
             if not status:
                 return internal_server_error(errormsg=res)
             if len(res['rows']) == 0:
-                return gone(
-                    gettext("""Could not find the rule in the table.""")
-                )
+                return gone(self.not_found_error_msg())
             res_data = parse_rule_definition(res)
 
             old_data = res_data
             SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=data, o_data=old_data
             )
         else:
             SQL = render_template("/".join(
-                [self.template_path, 'create.sql']), data=data)
+                [self.template_path, self._CREATE_SQL]), data=data)
         return SQL, data['name'] if 'name' in data else old_data['name']
+
+    @check_precondition
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        tid = kwargs.get('tid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if drop_sql:
+            sql = self.delete(gid=gid, sid=sid, did=did,
+                              scid=scid, tid=tid,
+                              rid=oid, only_sql=True)
+        else:
+            sql = render_template("/".join(
+                [self.template_path, self._PROPERTIES_SQL]), rid=oid)
+            status, res = self.conn.execute_dict(sql)
+            if not status:
+                return internal_server_error(errormsg=res)
+            if len(res['rows']) == 0:
+                return gone(self.not_found_error_msg())
+            res_data = parse_rule_definition(res)
+
+            if data:
+                old_data = res_data
+                sql = render_template(
+                    "/".join([self.template_path, self._UPDATE_SQL]),
+                    data=data, o_data=old_data
+                )
+            else:
+                sql = render_template("/".join(
+                    [self.template_path, self._CREATE_SQL]),
+                    data=res_data, display_comments=True)
+
+        return sql
 
     @check_precondition
     def dependents(self, gid, sid, did, scid, tid, rid):
@@ -527,5 +595,90 @@ class RuleView(PGChildNodeView):
             status=200
         )
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid, tid, oid=None):
+        """
+        This function will fetch the list of all the rules for
+        specified schema id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :param tid: Table Id
+        :return:
+        """
+
+        res = {}
+        if oid:
+            status, data = self._fetch_properties(oid)
+            if not status:
+                current_app.logger.error(data)
+                return False
+
+            res = data
+        else:
+            SQL = render_template("/".join([self.template_path,
+                                            self._NODES_SQL]),
+                                  tid=tid)
+            status, rules = self.conn.execute_2darray(SQL)
+            if not status:
+                current_app.logger.error(rules)
+                return False
+
+            for row in rules['rows']:
+                status, data = self._fetch_properties(row['oid'])
+                if status:
+                    res[row['name']] = data
+        return res
+
+    def ddl_compare(self, **kwargs):
+        """
+        This function returns the DDL/DML statements based on the
+        comparison status.
+
+        :param kwargs:
+        :return:
+        """
+
+        src_params = kwargs.get('source_params')
+        tgt_params = kwargs.get('target_params')
+        source = kwargs.get('source')
+        target = kwargs.get('target')
+        comp_status = kwargs.get('comp_status')
+
+        diff = ''
+        if comp_status == 'source_only':
+            diff = self.get_sql_from_diff(gid=src_params['gid'],
+                                          sid=src_params['sid'],
+                                          did=src_params['did'],
+                                          scid=src_params['scid'],
+                                          tid=src_params['tid'],
+                                          oid=source['oid'])
+        elif comp_status == 'target_only':
+            diff = self.get_sql_from_diff(gid=tgt_params['gid'],
+                                          sid=tgt_params['sid'],
+                                          did=tgt_params['did'],
+                                          scid=tgt_params['scid'],
+                                          tid=tgt_params['tid'],
+                                          oid=target['oid'],
+                                          drop_sql=True)
+        elif comp_status == 'different':
+            diff_dict = directory_diff(
+                source, target,
+                ignore_keys=self.keys_to_ignore, difference={}
+            )
+            parse_acl(source, target, diff_dict)
+
+            diff = self.get_sql_from_diff(gid=tgt_params['gid'],
+                                          sid=tgt_params['sid'],
+                                          did=tgt_params['did'],
+                                          scid=tgt_params['scid'],
+                                          tid=tgt_params['tid'],
+                                          oid=target['oid'],
+                                          data=diff_dict)
+
+        return diff
+
+
+SchemaDiffRegistry(blueprint.node_type, RuleView, 'table')
 RuleView.register_node_view(blueprint)

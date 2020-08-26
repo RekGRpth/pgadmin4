@@ -2,17 +2,17 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.pga_schedule', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'moment', 'pgadmin.browser', 'alertify',
+  'sources/pgadmin', 'moment', 'pgadmin.browser', 'alertify',
   'pgadmin.backform', 'pgadmin.backgrid',
 ], function(
-  gettext, url_for, $, _, S, pgAdmin, moment, pgBrowser, Alertify, Backform,
+  gettext, url_for, $, _, pgAdmin, moment, pgBrowser, Alertify, Backform,
   Backgrid
 ) {
 
@@ -356,7 +356,7 @@ define('pgadmin.node.pga_schedule', [
           }), mode: ['properties'],
         },{
           type: 'control',  mode: ['create', 'edit'], group: gettext('Repeat'),
-          infotext: gettext('Schedules are specified using a <b>cron-style</b> format.<br/><ul><li>For each selected time or date element, the schedule will execute.<br/>e.g. To execute at 5 minutes past every hour, simply select ‘05’ in the Minutes list box.<br/></li><li>Values from more than one field may be specified in order to further control the schedule.<br/>e.g. To execute at 12:05 and 14:05 every Monday and Thursday, you would click minute 05, hours 12 and 14, and weekdays Monday and Thursday.</li><li>For additional flexibility, the Month Days check list includes an extra Last Day option. This matches the last day of the month, whether it happens to be the 28th, 29th, 30th or 31st.</li></ul>'),
+          infotext: gettext('Schedules are specified using a <strong>cron-style</strong> format.<br/><ul><li>For each selected time or date element, the schedule will execute.<br/>e.g. To execute at 5 minutes past every hour, simply select ‘05’ in the Minutes list box.<br/></li><li>Values from more than one field may be specified in order to further control the schedule.<br/>e.g. To execute at 12:05 and 14:05 every Monday and Thursday, you would click minute 05, hours 12 and 14, and weekdays Monday and Thursday.</li><li>For additional flexibility, the Month Days check list includes an extra Last Day option. This matches the last day of the month, whether it happens to be the 28th, 29th, 30th or 31st.</li></ul>'),
           control: CustomInfoControl,
         },{
           type: 'nested', label: gettext('Days'), group: gettext('Repeat'),
@@ -366,13 +366,6 @@ define('pgadmin.node.pga_schedule', [
               var res = Backform.FieldsetControl.prototype.render.apply(
                 this, arguments
               );
-
-              // $(
-              //   '<div>' +
-              //     gettext('Schedules are specified using a <b>cron-style</b> format.<br/><ul><li>For each selected time or date element, the schedule will execute.<br/>e.g. To execute at 5 minutes past every hour, simply select ‘05’ in the Minutes list box.<br/></li><li>Values from more than one field may be specified in order to further control the schedule.<br/>e.g. To execute at 12:05 and 14:05 every Monday and Thursday, you would click minute 05, hours 12 and 14, and weekdays Monday and Thursday.</li><li>For additional flexibility, the Month Days check list includes an extra Last Day option. This matches the last day of the month, whether it happens to be the 28th, 29th, 30th or 31st.</li></ul>') +
-              //   '</div>'
-              // ).insertBefore(this.$el);
-
               return res;
             },
           }),
@@ -400,6 +393,7 @@ define('pgadmin.node.pga_schedule', [
               allowClear: true,
               placeholder: gettext('Select the month days...'),
               width: 'style',
+              showOnScroll: false,
               dropdownAdapter: $.fn.select2.amd.require(
                 'select2/selectAllAdapter'
               ),
@@ -434,6 +428,7 @@ define('pgadmin.node.pga_schedule', [
               allowClear: true,
               placeholder: gettext('Select the hours...'),
               width: 'style',
+              showOnScroll: false,
               dropdownAdapter: $.fn.select2.amd.require(
                 'select2/selectAllAdapter'
               ),
@@ -449,6 +444,7 @@ define('pgadmin.node.pga_schedule', [
               allowClear: true,
               placeholder: gettext('Select the minutes...'),
               width: 'style',
+              showOnScroll: false,
               dropdownAdapter: $.fn.select2.amd.require(
                 'select2/selectAllAdapter'
               ),
@@ -498,7 +494,8 @@ define('pgadmin.node.pga_schedule', [
             if (_.isUndefined(val) || _.isNull(val) ||
               String(val).replace(/^\s+|\s+$/g, '') == '') {
               if (val == '') {
-                this.set('jscend', undefined);
+                /* Set the default value used in model initialization */
+                this.set('jscend', null);
               }
               return;
             }

@@ -16,9 +16,9 @@ superuser privileges to use the debugger.
 
 Before using the debugger, you must modify the *postgresql.conf* file, adding
 the server-side debugger components to the the value of the
-*shared_preload_libraries* parameter:
+*shared_preload_libraries* parameter, for example:
 
-  shared_preload_libraries = '$libdir/*other_libraries*/plugin_debugger'
+  shared_preload_libraries = '$libdir/plugin_debugger'
 
 After modifying the *shared_preload_libraries* parameter, restart the server to
 apply the changes.
@@ -81,6 +81,8 @@ Use the fields on the *Debugger* dialog to provide a value for each parameter:
 
 Provide values required by the program, and click the *Debug* button to start
 stepping through the program.
+The values of the arguments provided here are saved. The values will be pre-filled
+next time the dialog opens. To clear the values, use the *Clear All* button.
 
 .. image:: images/debug_step_in.png
     :alt: Debugger step-in demo

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -34,14 +34,14 @@ class HelpModule(PgAdminModule):
                      label=gettext('pgAdmin Website'),
                      priority=200,
                      target='pgadmin_website',
-                     icon='fa fa-external-link',
+                     icon='fa fa-external-link-alt',
                      url='https://www.pgadmin.org/'),
 
             MenuItem(name='mnu_postgresql_website',
                      label=gettext('PostgreSQL Website'),
                      priority=300,
                      target='postgres_website',
-                     icon='fa fa-external-link',
+                     icon='fa fa-external-link-alt',
                      url='https://www.postgresql.org/')]}
 
     def register_preferences(self):
@@ -66,7 +66,8 @@ class HelpModule(PgAdminModule):
         self.edbas_help_path = self.help_preference.register(
             'help', 'edbas_help_path',
             gettext("EDB Advanced Server Help Path"), 'text',
-            'https://www.enterprisedb.com/docs/en/$VERSION$/pg/',
+            'https://www.enterprisedb.com/edb-docs/d/postgresql/reference/'
+            'manual/$VERSION$/',
             category_label=gettext('Help'),
             help_str=gettext(
                 'Path to the EDB Advanced Server documentation. $VERSION$ '

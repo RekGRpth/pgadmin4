@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -17,21 +17,30 @@
 })(function(CodeMirror) {
   'use strict';
 
-  CodeMirror.pgadminKeywordRangeFinder = function(cm, start, startTkn, endTkn) {
+  var pgadminKeywordRangeFinder = function(cm, start, tokenSet) {
     var line = start.line,
       lineText = cm.getLine(line);
     var at = lineText.length,
       startChar, tokenType;
-    for (; at > 0;) {
+
+    let tokenSetNo = 0;
+    let startTkn = tokenSet[tokenSetNo].start,
+      endTkn = tokenSet[tokenSetNo].end;
+    while (at > 0) {
       var found = lineText.lastIndexOf(startTkn, at);
       var startToken = startTkn;
       var endToken = endTkn;
 
       if (found < start.ch) {
-        found = lineText.lastIndexOf('[', at);
-        if (found < start.ch) break;
-        startToken = '[';
-        endToken = ']';
+        /* If the start token is not found then search for the next set of token */
+        tokenSetNo++;
+        if(tokenSetNo >= tokenSet.length) {
+          return undefined;
+        }
+        startTkn = tokenSet[tokenSetNo].start;
+        endTkn = tokenSet[tokenSetNo].end;
+        at = lineText.length;
+        continue;
       }
 
       tokenType = cm.getTokenAt(CodeMirror.Pos(line, found + 1)).type;
@@ -48,7 +57,8 @@
     outer: for (var i = line + 1; i < lastLine; ++i) {
       var text = cm.getLine(i),
         pos = 0;
-      for (;;) {
+      var whileloopvar = 0;
+      while (whileloopvar < 1) {
         var nextOpen = text.indexOf(startToken, pos),
           nextClose = text.indexOf(endToken, pos);
         if (nextOpen < 0) nextOpen = text.length;
@@ -73,32 +83,13 @@
     };
   };
 
-  CodeMirror.pgadminBeginRangeFinder = function(cm, start) {
-    var startToken = 'BEGIN';
-    var endToken = 'END;';
-    var fromToPos = CodeMirror.pgadminKeywordRangeFinder(cm, start, startToken, endToken);
+  CodeMirror.registerHelper('fold', 'sql', function(cm, start) {
+    var fromToPos = pgadminKeywordRangeFinder(cm, start, [
+      {start: 'BEGIN', end:'END;'},
+      {start: 'IF', end:'END IF'},
+      {start: 'LOOP', end:'END LOOP'},
+      {start: 'CASE', end:'END CASE'},
+    ]);
     return fromToPos;
-  };
-
-  CodeMirror.pgadminIfRangeFinder = function(cm, start) {
-    var startToken = 'IF';
-    var endToken = 'END IF';
-    var fromToPos = CodeMirror.pgadminKeywordRangeFinder(cm, start, startToken, endToken);
-    return fromToPos;
-  };
-
-  CodeMirror.pgadminLoopRangeFinder = function(cm, start) {
-    var startToken = 'LOOP';
-    var endToken = 'END LOOP';
-    var fromToPos = CodeMirror.pgadminKeywordRangeFinder(cm, start, startToken, endToken);
-    return fromToPos;
-  };
-
-  CodeMirror.pgadminCaseRangeFinder = function(cm, start) {
-    var startToken = 'CASE';
-    var endToken = 'END CASE';
-    var fromToPos = CodeMirror.pgadminKeywordRangeFinder(cm, start, startToken, endToken);
-    return fromToPos;
-  };
-
+  });
 });

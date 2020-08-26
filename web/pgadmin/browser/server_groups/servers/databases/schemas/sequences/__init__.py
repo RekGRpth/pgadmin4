@@ -2,31 +2,31 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
 """Implements Sequence Node"""
 
-import simplejson as json
 from functools import wraps
-import pgadmin.browser.server_groups.servers.databases as database
-from flask import render_template, make_response, request, jsonify
+
+import simplejson as json
+from flask import render_template, request, jsonify
 from flask_babelex import gettext as _
+
+import pgadmin.browser.server_groups.servers.databases as database
+from config import PG_DEFAULT_DRIVER
 from pgadmin.browser.server_groups.servers.databases.schemas.utils \
     import SchemaChildModule
 from pgadmin.browser.server_groups.servers.utils import parse_priv_from_db, \
     parse_priv_to_db
 from pgadmin.browser.utils import PGChildNodeView
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
-from config import PG_DEFAULT_DRIVER
-from pgadmin.utils import IS_PY2
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
 
 
 class SequenceModule(SchemaChildModule):
@@ -52,8 +52,8 @@ class SequenceModule(SchemaChildModule):
 
     """
 
-    NODE_TYPE = 'sequence'
-    COLLECTION_LABEL = _("Sequences")
+    _NODE_TYPE = 'sequence'
+    _COLLECTION_LABEL = _("Sequences")
 
     def __init__(self, *args, **kwargs):
         super(SequenceModule, self).__init__(*args, **kwargs)
@@ -73,7 +73,7 @@ class SequenceModule(SchemaChildModule):
         Load the module script for database, when any of the database node is
         initialized.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
     @property
     def node_inode(self):
@@ -88,8 +88,9 @@ class SequenceModule(SchemaChildModule):
 blueprint = SequenceModule(__name__)
 
 
-class SequenceView(PGChildNodeView):
+class SequenceView(PGChildNodeView, SchemaDiffObjectCompare):
     node_type = blueprint.node_type
+    node_label = "Sequence"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -136,6 +137,10 @@ class SequenceView(PGChildNodeView):
                     self.conn = self.manager.connection(did=kwargs['did'])
                 else:
                     self.conn = self.manager.connection()
+                self.datlastsysoid = \
+                    self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                    if self.manager.db_info is not None and \
+                    kwargs['did'] in self.manager.db_info else 0
 
                 self.template_path = 'sequences/sql/#{0}#'.format(
                     self.manager.version
@@ -163,7 +168,7 @@ class SequenceView(PGChildNodeView):
 
         """
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             scid=scid
         )
         status, res = self.conn.execute_dict(SQL)
@@ -194,7 +199,7 @@ class SequenceView(PGChildNodeView):
         """
         res = []
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             scid=scid,
             seid=seid
         )
@@ -204,7 +209,7 @@ class SequenceView(PGChildNodeView):
 
         if seid is not None:
             if len(rset['rows']) == 0:
-                return gone(errormsg=_("Could not find the sequence."))
+                return gone(errormsg=self.not_found_error_msg())
             row = rset['rows'][0]
             return make_json_response(
                 data=self.blueprint.generate_browser_node(
@@ -273,26 +278,45 @@ class SequenceView(PGChildNodeView):
         Returns:
 
         """
-        SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+        status, res = self._fetch_properties(scid, seid)
+        if not status:
+            return res
+
+        return ajax_response(
+            response=res,
+            status=200
+        )
+
+    def _fetch_properties(self, scid, seid):
+        """
+        This function is used to fetch the properties of the specified object.
+        :param scid:
+        :param seid:
+        :return:
+        """
+
+        sql = render_template(
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             scid=scid, seid=seid
         )
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self.conn.execute_dict(sql)
 
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
+        elif len(res['rows']) == 0:
+            return False, gone(self.not_found_error_msg())
 
-        if len(res['rows']) == 0:
-            return gone(_("Could not find the sequence in the database."))
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
 
         for row in res['rows']:
-            SQL = render_template(
+            sql = render_template(
                 "/".join([self.template_path, 'get_def.sql']),
                 data=row
             )
-            status, rset1 = self.conn.execute_dict(SQL)
+            status, rset1 = self.conn.execute_dict(sql)
             if not status:
-                return internal_server_error(errormsg=rset1)
+                return False, internal_server_error(errormsg=rset1)
 
             row['current_value'] = rset1['rows'][0]['last_value']
             row['minimum'] = rset1['rows'][0]['min_value']
@@ -302,24 +326,15 @@ class SequenceView(PGChildNodeView):
             row['cache'] = rset1['rows'][0]['cache_value']
             row['cycled'] = rset1['rows'][0]['is_cycled']
 
-            sec_lbls = []
-            if 'securities' in row and row['securities'] is not None:
-                for sec in row['securities']:
-                    import re
-                    sec = re.search(r'([^=]+)=(.*$)', sec)
-                    sec_lbls.append({
-                        'provider': sec.group(1),
-                        'label': sec.group(2)
-                    })
-            row['securities'] = sec_lbls
+            self._add_securities_to_row(row)
 
-        SQL = render_template(
-            "/".join([self.template_path, 'acl.sql']),
+        sql = render_template(
+            "/".join([self.template_path, self._ACL_SQL]),
             scid=scid, seid=seid
         )
-        status, dataclres = self.conn.execute_dict(SQL)
+        status, dataclres = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         for row in dataclres['rows']:
             priv = parse_priv_from_db(row)
@@ -328,10 +343,19 @@ class SequenceView(PGChildNodeView):
             else:
                 res['rows'][0][row['deftype']] = [priv]
 
-        return ajax_response(
-            response=res['rows'][0],
-            status=200
-        )
+        return True, res['rows'][0]
+
+    def _add_securities_to_row(self, row):
+        sec_lbls = []
+        if 'securities' in row and row['securities'] is not None:
+            for sec in row['securities']:
+                import re
+                sec = re.search(r'([^=]+)=(.*$)', sec)
+                sec_lbls.append({
+                    'provider': sec.group(1),
+                    'label': sec.group(2)
+                })
+        row['securities'] = sec_lbls
 
     @check_precondition(action="create")
     def create(self, gid, sid, did, scid):
@@ -363,20 +387,20 @@ class SequenceView(PGChildNodeView):
                     status=400,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         try:
             # The SQL below will execute CREATE DDL only
-            SQL = render_template(
-                "/".join([self.template_path, 'create.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._CREATE_SQL]),
                 data=data, conn=self.conn
             )
         except Exception as e:
             return internal_server_error(errormsg=e)
 
-        status, msg = self.conn.execute_scalar(SQL)
+        status, msg = self.conn.execute_scalar(sql)
         if not status:
             return internal_server_error(errormsg=msg)
 
@@ -385,25 +409,25 @@ class SequenceView(PGChildNodeView):
 
         # The SQL below will execute rest DMLs because we cannot execute
         # CREATE with any other
-        SQL = render_template(
-            "/".join([self.template_path, 'grant.sql']),
+        sql = render_template(
+            "/".join([self.template_path, self._GRANT_SQL]),
             data=data, conn=self.conn
         )
-        SQL = SQL.strip('\n').strip(' ')
-        if SQL and SQL != "":
-            status, msg = self.conn.execute_scalar(SQL)
+        sql = sql.strip('\n').strip(' ')
+        if sql and sql != "":
+            status, msg = self.conn.execute_scalar(sql)
             if not status:
                 return internal_server_error(errormsg=msg)
 
         # We need oid of newly created sequence.
-        SQL = render_template(
-            "/".join([self.template_path, 'get_oid.sql']),
+        sql = render_template(
+            "/".join([self.template_path, self._OID_SQL]),
             name=data['name'],
             schema=data['schema']
         )
-        SQL = SQL.strip('\n').strip(' ')
+        sql = sql.strip('\n').strip(' ')
 
-        status, rset = self.conn.execute_2darray(SQL)
+        status, rset = self.conn.execute_2darray(sql)
         if not status:
             return internal_server_error(errormsg=rset)
 
@@ -418,7 +442,7 @@ class SequenceView(PGChildNodeView):
         )
 
     @check_precondition(action='delete')
-    def delete(self, gid, sid, did, scid, seid=None):
+    def delete(self, gid, sid, did, scid, seid=None, only_sql=False):
         """
         This function will drop the object
 
@@ -428,6 +452,7 @@ class SequenceView(PGChildNodeView):
           did: Database ID
           scid: Schema ID
           seid: Sequence ID
+          only_sql: Return SQL only if True
 
         Returns:
 
@@ -440,38 +465,37 @@ class SequenceView(PGChildNodeView):
             data = {'ids': [seid]}
 
         # Below will decide if it's simple drop or drop with cascade call
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+
+        cascade = self._check_cascade_operation()
 
         try:
             for seid in data['ids']:
-                SQL = render_template(
-                    "/".join([self.template_path, 'properties.sql']),
+                sql = render_template(
+                    "/".join([self.template_path, self._PROPERTIES_SQL]),
                     scid=scid, seid=seid
                 )
-                status, res = self.conn.execute_dict(SQL)
+                status, res = self.conn.execute_dict(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
 
-                if not res['rows']:
+                elif not res['rows']:
                     return make_json_response(
                         success=0,
                         errormsg=_(
                             'Error: Object not found.'
                         ),
-                        info=_(
-                            'The specified sequence could not be found.\n'
-                        )
+                        info=self.not_found_error_msg()
                     )
 
-                SQL = render_template(
-                    "/".join([self.template_path, 'delete.sql']),
+                sql = render_template(
+                    "/".join([self.template_path, self._DELETE_SQL]),
                     data=res['rows'][0], cascade=cascade
                 )
-                status, res = self.conn.execute_scalar(SQL)
+
+                if only_sql:
+                    return sql
+
+                status, res = self.conn.execute_scalar(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
 
@@ -501,22 +525,22 @@ class SequenceView(PGChildNodeView):
         data = request.form if request.form else json.loads(
             request.data, encoding='utf-8'
         )
-        SQL, name = self.getSQL(gid, sid, did, data, scid, seid)
+        sql, name = self.get_SQL(gid, sid, did, data, scid, seid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
-            return SQL
+        if not isinstance(sql, str):
+            return sql
 
-        SQL = SQL.strip('\n').strip(' ')
+        sql = sql.strip('\n').strip(' ')
 
-        status, res = self.conn.execute_scalar(SQL)
+        status, res = self.conn.execute_scalar(sql)
         if not status:
             return internal_server_error(errormsg=res)
 
-        SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+        sql = render_template(
+            "/".join([self.template_path, self._NODES_SQL]),
             seid=seid
         )
-        status, rset = self.conn.execute_2darray(SQL)
+        status, rset = self.conn.execute_2darray(sql)
         if not status:
             return internal_server_error(errormsg=rset)
         row = rset['rows'][0]
@@ -567,24 +591,24 @@ class SequenceView(PGChildNodeView):
                         status=400,
                         success=0,
                         errormsg=_(
-                            "Could not find the required parameter (%s)." % arg
-                        )
+                            "Could not find the required parameter ({})."
+                        ).format(arg)
                     )
-        SQL, name = self.getSQL(gid, sid, did, data, scid, seid)
+        sql, name = self.get_SQL(gid, sid, did, data, scid, seid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
-            return SQL
+        if not isinstance(sql, str):
+            return sql
 
-        SQL = SQL.strip('\n').strip(' ')
-        if SQL == '':
-            SQL = "--modified SQL"
+        sql = sql.strip('\n').strip(' ')
+        if sql == '':
+            sql = "--modified SQL"
 
         return make_json_response(
-            data=SQL,
+            data=sql,
             status=200
         )
 
-    def getSQL(self, gid, sid, did, data, scid, seid=None):
+    def get_SQL(self, gid, sid, did, data, scid, seid=None):
         """
         This function will generate sql from model data.
 
@@ -601,63 +625,66 @@ class SequenceView(PGChildNodeView):
         ]
 
         if seid is not None:
-            SQL = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 scid=scid, seid=seid
             )
-            status, res = self.conn.execute_dict(SQL)
+            status, res = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res)
-            if len(res['rows']) == 0:
-                return gone(_("Could not find the sequence in the database."))
+            elif len(res['rows']) == 0:
+                return gone(self.not_found_error_msg())
 
             # Making copy of output for further processing
             old_data = dict(res['rows'][0])
             old_data = self._formatter(old_data, scid, seid)
 
-            # To format privileges data coming from client
-            for key in ['relacl']:
-                if key in data and data[key] is not None:
-                    if 'added' in data[key]:
-                        data[key]['added'] = parse_priv_to_db(
-                            data[key]['added'], self.acl
-                        )
-                    if 'changed' in data[key]:
-                        data[key]['changed'] = parse_priv_to_db(
-                            data[key]['changed'], self.acl
-                        )
-                    if 'deleted' in data[key]:
-                        data[key]['deleted'] = parse_priv_to_db(
-                            data[key]['deleted'], self.acl
-                        )
+            self._format_privilege_data(data)
 
             # If name is not present with in update data then copy it
             # from old data
             for arg in required_args:
                 if arg not in data:
                     data[arg] = old_data[arg]
-            SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=data, o_data=old_data, conn=self.conn
             )
-            return SQL, data['name'] if 'name' in data else old_data['name']
+            return sql, data['name'] if 'name' in data else old_data['name']
         else:
             # To format privileges coming from client
             if 'relacl' in data:
                 data['relacl'] = parse_priv_to_db(data['relacl'], self.acl)
 
-            SQL = render_template(
-                "/".join([self.template_path, 'create.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._CREATE_SQL]),
                 data=data, conn=self.conn
             )
-            SQL += render_template(
-                "/".join([self.template_path, 'grant.sql']),
+            sql += render_template(
+                "/".join([self.template_path, self._GRANT_SQL]),
                 data=data, conn=self.conn
             )
-            return SQL, data['name']
+            return sql, data['name']
+
+    def _format_privilege_data(self, data):
+        # To format privileges data coming from client
+        for key in ['relacl']:
+            if key in data and data[key] is not None:
+                if 'added' in data[key]:
+                    data[key]['added'] = parse_priv_to_db(
+                        data[key]['added'], self.acl
+                    )
+                if 'changed' in data[key]:
+                    data[key]['changed'] = parse_priv_to_db(
+                        data[key]['changed'], self.acl
+                    )
+                if 'deleted' in data[key]:
+                    data[key]['deleted'] = parse_priv_to_db(
+                        data[key]['deleted'], self.acl
+                    )
 
     @check_precondition(action="sql")
-    def sql(self, gid, sid, did, scid, seid):
+    def sql(self, gid, sid, did, scid, seid, **kwargs):
         """
         This function will generate sql for sql panel
 
@@ -667,24 +694,26 @@ class SequenceView(PGChildNodeView):
             did: Database ID
             scid: Schema ID
             seid: Sequence ID
+            json_resp: json response or plain text response
         """
+        json_resp = kwargs.get('json_resp', True)
 
-        SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+        sql = render_template(
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             scid=scid, seid=seid
         )
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self.conn.execute_dict(sql)
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(_("Could not find the sequence in the database."))
+            return gone(self.not_found_error_msg())
 
         for row in res['rows']:
-            SQL = render_template(
+            sql = render_template(
                 "/".join([self.template_path, 'get_def.sql']),
                 data=row
             )
-            status, rset1 = self.conn.execute_dict(SQL)
+            status, rset1 = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=rset1)
 
@@ -692,26 +721,33 @@ class SequenceView(PGChildNodeView):
             row['minimum'] = rset1['rows'][0]['min_value']
             row['maximum'] = rset1['rows'][0]['max_value']
             row['increment'] = rset1['rows'][0]['increment_by']
+            row['start'] = rset1['rows'][0]['start_value']
             row['cache'] = rset1['rows'][0]['cache_value']
             row['cycled'] = rset1['rows'][0]['is_cycled']
 
         result = res['rows'][0]
+
         result = self._formatter(result, scid, seid)
-        SQL, name = self.getSQL(gid, sid, did, result, scid)
+        sql, name = self.get_SQL(gid, sid, did, result, scid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
-            return SQL
-        SQL = SQL.strip('\n').strip(' ')
+        if not isinstance(sql, str):
+            return sql
+        sql = sql.strip('\n').strip(' ')
 
-        sql_header = u"""-- SEQUENCE: {0}
+        # Return sql for schema diff
+        if not json_resp:
+            return sql
 
--- DROP SEQUENCE {0};
+        sql_header = u"""-- SEQUENCE: {0}.{1}\n\n""".format(
+            result['schema'], result['name'])
+
+        sql_header += """-- DROP SEQUENCE {0};
 
 """.format(self.qtIdent(self.conn, result['schema'], result['name']))
 
-        SQL = sql_header + SQL
+        sql = sql_header + sql
 
-        return ajax_response(response=SQL)
+        return ajax_response(response=sql)
 
     def _formatter(self, data, scid, seid):
         """
@@ -734,9 +770,9 @@ class SequenceView(PGChildNodeView):
             data['securities'] = seclabels
 
         # We need to parse & convert ACL coming from database to json format
-        SQL = render_template("/".join([self.template_path, 'acl.sql']),
+        sql = render_template("/".join([self.template_path, self._ACL_SQL]),
                               scid=scid, seid=seid)
-        status, acl = self.conn.execute_dict(SQL)
+        status, acl = self.conn.execute_dict(sql)
         if not status:
             return internal_server_error(errormsg=acl)
 
@@ -869,5 +905,56 @@ class SequenceView(PGChildNodeView):
             status=200
         )
 
+    @check_precondition(action="fetch_objects_to_compare")
+    def fetch_objects_to_compare(self, sid, did, scid):
+        """
+        This function will fetch the list of all the sequences for
+        specified schema id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :return:
+        """
+        res = dict()
+        sql = render_template("/".join([self.template_path,
+                                        self._NODES_SQL]), scid=scid)
+        status, rset = self.conn.execute_2darray(sql)
+        if not status:
+            return internal_server_error(errormsg=res)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(scid, row['oid'])
+            if status:
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_SQL(gid, sid, did, data, scid, oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, seid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, seid=oid,
+                               json_resp=False)
+        return sql
+
+
+SchemaDiffRegistry(blueprint.node_type, SequenceView)
 SequenceView.register_node_view(blueprint)

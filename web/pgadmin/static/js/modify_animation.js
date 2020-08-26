@@ -2,20 +2,17 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
 
 import $ from 'jquery';
 import _ from 'underscore';
+import pgWindow from 'sources/window';
 
 function getBrowserInstance() {
-  if (!_.isUndefined(window.opener) && !_.isNull(window.opener)) {
-    return window.opener.pgAdmin.Browser;
-  } else {
-    return window.parent.pgAdmin.Browser;
-  }
+  return pgWindow.pgAdmin.Browser;
 }
 
 function modifyAcitreeAnimation(pgBrowser, tree) {
@@ -56,18 +53,14 @@ function modifyAlertifyAnimation(pgBrowser) {
   ).value;
 
   if(enableAcitreeAnimation) {
-    $(document).find('link#alertify-no-animation')
-      .attr('disabled', 'disabled');
+    $(document).find('body').removeClass('alertify-no-animation');
     _.each(document.getElementsByTagName('iframe'), function(frame) {
-      $(frame.contentDocument).find('link#alertify-no-animation')
-        .attr('disabled', 'disabled');
+      $(frame.contentDocument).find('body').removeClass('alertify-no-animation');
     });
   } else {
-    $(document).find('link#alertify-no-animation')
-      .removeAttr('disabled', 'disabled');
+    $(document).find('body').addClass('alertify-no-animation');
     _.each(document.getElementsByTagName('iframe'), function(frame) {
-      $(frame.contentDocument).find('link#alertify-no-animation')
-        .removeAttr('disabled', 'disabled');
+      $(frame.contentDocument).find('body').addClass('alertify-no-animation');
     });
   }
 }

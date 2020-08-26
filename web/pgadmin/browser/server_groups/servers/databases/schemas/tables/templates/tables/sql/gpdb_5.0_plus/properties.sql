@@ -3,7 +3,7 @@ SELECT *,
   {% if tid %}, (CASE WHEN is_partitioned THEN (SELECT substring(pg_get_partition_def({{ tid }}::oid, true) from 14)) ELSE '' END) AS partition_scheme {% endif %}
 FROM (
 	SELECT rel.oid, rel.relname AS name, rel.reltablespace AS spcoid,rel.relacl AS relacl_str,
-		(CASE WHEN length(spc.spcname) > 0 THEN spc.spcname ELSE
+		(CASE WHEN length(spc.spcname::text) > 0 THEN spc.spcname ELSE
 			(SELECT sp.spcname FROM pg_database dtb
 			JOIN pg_tablespace sp ON dtb.dattablespace=sp.oid
 			WHERE dtb.oid = {{ did }}::oid)
@@ -59,13 +59,9 @@ FROM (
 		substring(array_to_string(tst.reloptions, ',') FROM 'autovacuum_freeze_table_age=([0-9]*)') AS toast_autovacuum_freeze_table_age,
 		array_to_string(rel.reloptions, ',') AS table_vacuum_settings_str,
 		array_to_string(tst.reloptions, ',') AS toast_table_vacuum_settings_str,
-		rel.reloptions AS reloptions, tst.reloptions AS toast_reloptions, NULL AS reloftype, NULL AS typname,
+		rel.reloptions AS reloptions, tst.reloptions AS toast_reloptions, NULL AS reloftype, typ.typname AS typname,
 		typ.typrelid AS typoid,
 		(CASE WHEN rel.reltoastrelid = 0 THEN false ELSE true END) AS hastoasttable,
-			-- Added for pgAdmin4
-		(CASE WHEN array_length(rel.reloptions, 1) > 0 THEN true ELSE false END) AS autovacuum_custom,
-		(CASE WHEN array_length(tst.reloptions, 1) > 0 AND rel.reltoastrelid != 0 THEN true ELSE false END) AS toast_autovacuum,
-
 		ARRAY[]::varchar[] AS seclabels,
 		(CASE WHEN rel.oid <= {{ datlastsysoid}}::oid THEN true ElSE false END) AS is_sys_table,
 
@@ -79,6 +75,7 @@ FROM (
 		LEFT OUTER JOIN pg_constraint con ON con.conrelid=rel.oid AND con.contype='p'
 		LEFT OUTER JOIN pg_class tst ON tst.oid = rel.reltoastrelid
 		LEFT OUTER JOIN gp_distribution_policy gdp ON gdp.localoid = rel.oid
+		LEFT OUTER JOIN pg_type typ ON typ.oid = rel.reltype
 
 	 WHERE rel.relkind IN ('r','s','t') AND rel.relnamespace = {{ scid }}
 	{% if tid %}  AND rel.oid = {{ tid }}::oid {% endif %}

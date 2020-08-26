@@ -2,14 +2,13 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 import {calculateQueryRunTime} from './calculate_query_run_time';
 import gettext from '../gettext';
-import {sprintf} from 'sprintf-js';
 
 function hasResultsToDisplay(res) {
   return res.colinfo != null;
@@ -34,13 +33,12 @@ export function callRenderAfterPoll(sqlEditor, alertify, res) {
     sqlEditor.total_time = calculateQueryRunTime(
       sqlEditor.query_start_time,
       sqlEditor.query_end_time);
-    const msg = sprintf(
-      gettext('Query returned successfully in %s.'), sqlEditor.total_time);
+    const msg = gettext('Query returned successfully in %s.', sqlEditor.total_time);
     if (res.result)
       res.result += '\n\n' + msg;
     else
       res.result = msg;
-    sqlEditor.update_msg_history(true, res.result, true);
+    sqlEditor.update_msg_history(true, res.result, false);
     sqlEditor.reset_data_store();
     if (isNotificationEnabled(sqlEditor)) {
       alertify.success(msg, sqlEditor.info_notifier_timeout);

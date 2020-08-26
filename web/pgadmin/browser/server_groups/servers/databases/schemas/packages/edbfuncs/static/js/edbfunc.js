@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -65,41 +65,37 @@ define('pgadmin.node.edbfunc', [
         schema: [{
           id: 'name', label: gettext('Name'), cell: 'string',
           type: 'text', mode: ['properties'],
-          disabled: true,
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'],
         },{
           id: 'funcowner', label: gettext('Owner'), cell: 'string',
-          type: 'text', disabled: true,
+          type: 'text', readonly: true,
         },{
           id: 'pronargs', label: gettext('Argument count'), cell: 'string',
           type: 'text', group: gettext('Definition'), mode: ['properties'],
         },{
           id: 'proargs', label: gettext('Arguments'), cell: 'string',
           type: 'text', group: gettext('Definition'), mode: ['properties'],
-          disabled: true,
         },{
           id: 'proargtypenames', label: gettext('Signature arguments'), cell:
           'string', type: 'text', group: gettext('Definition'), mode: ['properties'],
-          disabled: true,
         },{
           id: 'prorettypename', label: gettext('Return type'), cell: 'string',
-          type: 'text', group: gettext('Definition'), disabled: true,
+          type: 'text', group: gettext('Definition'),
           mode: ['properties'], visible: 'isVisible',
         },{
           id: 'visibility', label: gettext('Visibility'), cell: 'string',
           type: 'text', mode: ['properties'],
-          disabled: true,
         },{
           id: 'lanname', label: gettext('Language'), cell: 'string',
-          type: 'text', group: gettext('Definition'), disabled: true,
+          type: 'text', group: gettext('Definition'), readonly: true,
         },{
           id: 'prosrc', label: gettext('Code'), cell: 'string',
           type: 'text', mode: ['properties'],
-          group: gettext('Definition'),
-          control: Backform.SqlFieldControl,
-          extraClasses:['custom_height_css_class'],
+          group: gettext('Code'),
+          tabPanelCodeClass: 'sql-code-control',
+          control: Backform.SqlCodeControl,
           visible: function(m) {
             if (m.get('lanname') == 'c') {
               return false;

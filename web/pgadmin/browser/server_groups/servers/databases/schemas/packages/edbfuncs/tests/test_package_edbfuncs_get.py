@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -41,7 +41,8 @@ class PackageEDBFuncsGetTestCase(BaseTestGenerator):
         self.func_name = "func_%s" % str(uuid.uuid4())[1:8]
         self.server_id = schema_info["server_id"]
         self.db_id = schema_info["db_id"]
-        server_con = server_utils.connect_server(self, self.server_id)
+
+        server_utils.connect_server(self, self.server_id)
 
         connection = utils.get_db_connection(self.db_name,
                                              self.server['username'],

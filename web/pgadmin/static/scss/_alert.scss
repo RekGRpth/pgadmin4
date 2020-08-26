@@ -44,12 +44,13 @@
   align-self: center;
   // To make sure IE picks up the correct font
   font-family: $font-family-primary;
+  color: $alert-color-fg;
 }
 
 .alert-info {
   border-color: $color-primary;
   background-color: $color-primary-light;
-  color : $color-fg-theme;
+  color : $color-fg;
   background-image: none;
 }
 
@@ -86,6 +87,12 @@
     }
   }
 }
+.alertify_tools_dialog_properties .pg-prop-status-bar {
+  position: absolute;
+  right: 0;
+  left: 0;
+  bottom: 0;
+}
 
 .pg-prop-status-bar {
   padding: 5px;
@@ -114,26 +121,26 @@
 
   .error-in-footer {
     border-radius: $border-radius;
-    border: 1px solid $color-danger-light;
-    background: $color-danger-lighter;
+    background: $alert-danger-bg;
+    border: $border-width solid $alert-danger-color;
+    color: $alert-danger-color;
   }
 
   .success-in-footer {
-    border-radius: 5px;
-    border: 1px solid transparent;
-
-    .alert-text {
-      border-color: $color-success-light;
-    }
+    border-radius: $border-radius;
+    background: $alert-success-bg;
+    border: $border-width solid $alert-success-color;
+    color: $alert-success-color;
   }
 
   .info-in-footer {
-    border: 1px solid $color-primary;
-    border-radius: 4px;
-    height: 35px;
+    border-radius: $border-radius;
+    background: $alert-primary-bg;
+    border: $border-width solid $alert-primary-color;
+    color: $alert-primary-color;
 
-    .alert-text {
-      border: none;
+    .fa {
+        font-size: 1rem;
     }
   }
 }

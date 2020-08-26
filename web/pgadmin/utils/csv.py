@@ -58,11 +58,9 @@ Agreement.
 # quote it.
 ############################################################################
 
-from __future__ import unicode_literals, absolute_import
-
 __all__ = ["QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE",
-           "Error", "Dialect", "__doc__", "excel", "excel_tab",
-           "field_size_limit", "reader", "writer", "register_dialect",
+           "Error", "Dialect", "__doc__", "Excel", "ExcelTab",
+           "field_size_limit", "Reader", "Writer", "register_dialect",
            "get_dialect", "list_dialects", "unregister_dialect",
            "__version__", "DictReader", "DictWriter"]
 
@@ -73,19 +71,6 @@ from csv import (
     QUOTE_MINIMAL, QUOTE_ALL, QUOTE_NONNUMERIC, QUOTE_NONE,
     __version__, __doc__, Error, field_size_limit,
 )
-
-# Stuff needed from six
-import sys
-PY3 = sys.version_info[0] == 3
-if PY3:
-    string_types = str
-    text_type = str
-    binary_type = bytes
-    unichr = chr
-else:
-    string_types = basestring
-    text_type = unicode
-    binary_type = str
 
 
 class QuoteStrategy(object):
@@ -130,7 +115,7 @@ class QuoteStrategy(object):
         return self.dialect.escapechar
 
     def prepare(self, raw_field, only=None):
-        field = text_type(raw_field if raw_field is not None else '')
+        field = str(raw_field if raw_field is not None else '')
         quoted = self.quoted(field=field, raw_field=raw_field, only=only)
 
         escape_re = self.escape_re(quoted=quoted)
@@ -229,14 +214,14 @@ class QuoteNoneStrategy(QuoteStrategy):
         return False
 
 
-class writer(object):
+class Writer(object):
     def __init__(self, fileobj, dialect='excel', **fmtparams):
         if fileobj is None:
             raise TypeError('fileobj must be file-like, not None')
 
         self.fileobj = fileobj
 
-        if isinstance(dialect, text_type):
+        if isinstance(dialect, str):
             dialect = get_dialect(dialect)
 
         try:
@@ -279,11 +264,11 @@ EAT_CRNL = 7
 AFTER_ESCAPED_CRNL = 8
 
 
-class reader(object):
+class Reader(object):
     def __init__(self, fileobj, dialect='excel', **fmtparams):
         self.input_iter = iter(fileobj)
 
-        if isinstance(dialect, text_type):
+        if isinstance(dialect, str):
             dialect = get_dialect(dialect)
 
         try:
@@ -390,17 +375,15 @@ class reader(object):
             self.parse_add_char(c)
 
     def _parse_in_quoted_field(self, c):
-        if c == '\0':
-            pass
-        elif c == self.dialect.escapechar:
+        if c != '\0' and c == self.dialect.escapechar:
             self.state = ESCAPE_IN_QUOTED_FIELD
-        elif (c == self.dialect.quotechar and
-              self.dialect.quoting != QUOTE_NONE):
+        elif c != '\0' and (c == self.dialect.quotechar and
+                            self.dialect.quoting != QUOTE_NONE):
             if self.dialect.doublequote:
                 self.state = QUOTE_IN_QUOTED_FIELD
             else:
                 self.state = IN_FIELD
-        else:
+        elif c != '\0':
             self.parse_add_char(c)
 
     def _parse_escape_in_quoted_field(self, c):
@@ -434,11 +417,9 @@ class reader(object):
             ))
 
     def _parse_eat_crnl(self, c):
-        if c == '\n' or c == '\r':
-            pass
-        elif c == '\0':
+        if c != '\n' and c != '\r' and c == '\0':
             self.state = START_RECORD
-        else:
+        elif c != '\n' and c != '\r':
             raise Error('new-line character seen in unquoted field - do you '
                         'need to open the file in universal-newline mode?')
 
@@ -460,7 +441,7 @@ class reader(object):
                     break
                 raise
 
-            if not isinstance(lineobj, text_type):
+            if not isinstance(lineobj, str):
                 typ = type(lineobj)
                 typ_name = 'bytes' if typ == bytes else typ.__name__
                 err_str = ('iterator should return strings, not {0}'
@@ -489,14 +470,14 @@ _dialect_registry = {}
 
 
 def register_dialect(name, dialect='excel', **fmtparams):
-    if not isinstance(name, text_type):
+    if not isinstance(name, str):
         raise TypeError('"name" must be a string')
 
     dialect = Dialect.extend(dialect, fmtparams)
 
     try:
         Dialect.validate(dialect)
-    except Exception as e:
+    except Exception:
         raise TypeError('dialect is invalid')
 
     assert name not in _dialect_registry
@@ -557,7 +538,7 @@ class Dialect(object):
 
         if dialect.lineterminator is None:
             raise Error('lineterminator must be set')
-        if not isinstance(dialect.lineterminator, text_type):
+        if not isinstance(dialect.lineterminator, str):
             raise Error('"lineterminator" must be a string')
 
         if dialect.quoting not in [
@@ -573,7 +554,7 @@ class Dialect(object):
     @staticmethod
     def validate_text(dialect, attr):
         val = getattr(dialect, attr)
-        if not isinstance(val, text_type):
+        if not isinstance(val, str):
             if type(val) == bytes:
                 raise Error('"{0}" must be string, not bytes'.format(attr))
             raise Error('"{0}" must be string, not {1}'.format(
@@ -598,7 +579,7 @@ class Dialect(object):
 
     @classmethod
     def extend(cls, dialect, fmtparams=None):
-        if isinstance(dialect, string_types):
+        if isinstance(dialect, str):
             dialect = get_dialect(dialect)
 
         if fmtparams is None:
@@ -645,7 +626,7 @@ class Dialect(object):
         super(Dialect, self).__setattr__(attr, value)
 
 
-class excel(Dialect):
+class Excel(Dialect):
     """Describe the usual properties of Excel-generated CSV files."""
     delimiter = ','
     quotechar = '"'
@@ -655,18 +636,18 @@ class excel(Dialect):
     quoting = QUOTE_MINIMAL
 
 
-register_dialect("excel", excel)
+register_dialect("excel", Excel)
 
 
-class excel_tab(excel):
+class ExcelTab(Excel):
     """Describe the usual properties of Excel-generated TAB-delimited files."""
     delimiter = '\t'
 
 
-register_dialect("excel-tab", excel_tab)
+register_dialect("excel-tab", ExcelTab)
 
 
-class unix_dialect(Dialect):
+class UnixDialect(Dialect):
     """Describe the usual properties of Unix-generated CSV files."""
     delimiter = ','
     quotechar = '"'
@@ -676,17 +657,17 @@ class unix_dialect(Dialect):
     quoting = QUOTE_ALL
 
 
-register_dialect("unix", unix_dialect)
+register_dialect("unix", UnixDialect)
 
 
 class DictReader(object):
     def __init__(self, f, fieldnames=None, restkey=None, restval=None,
-                 dialect="excel", *args, **kwds):
+                 *args, **kwds):
         self._fieldnames = fieldnames   # list of keys for the dict
         self.restkey = restkey          # key to catch long rows
         self.restval = restval          # default value for short rows
-        self.reader = reader(f, dialect, *args, **kwds)
-        self.dialect = dialect
+        self.dialect = kwds.get('dialect', "excel")
+        self.reader = Reader(f, self.dialect, *args, **kwds)
         self.line_num = 0
 
     def __iter__(self):
@@ -732,15 +713,15 @@ class DictReader(object):
 
 
 class DictWriter(object):
-    def __init__(self, f, fieldnames, restval="", extrasaction="raise",
-                 dialect="excel", *args, **kwds):
+    def __init__(self, f, fieldnames, *args, **kwds):
         self.fieldnames = fieldnames    # list of keys for the dict
-        self.restval = restval          # for writing short dicts
-        if extrasaction.lower() not in ("raise", "ignore"):
+        self.extrasaction = kwds.get('extrasaction', "raise")
+        self.restval = kwds.get('restval', "")  # for writing short dicts
+        if self.extrasaction.lower() not in ("raise", "ignore"):
             raise ValueError("extrasaction (%s) must be 'raise' or 'ignore'"
-                             % extrasaction)
-        self.extrasaction = extrasaction
-        self.writer = writer(f, dialect, *args, **kwds)
+                             % self.extrasaction)
+        dialect = kwds.get('dialect', "excel")
+        self.writer = Writer(f, dialect, *args, **kwds)
 
     def writeheader(self):
         header = dict(zip(self.fieldnames, self.fieldnames))

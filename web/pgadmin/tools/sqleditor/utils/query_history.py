@@ -14,11 +14,13 @@ class QueryHistory:
                     QueryHistoryModel.dbname == dbname) \
             .all()
 
+        result = [rec.query_info for rec in list(result)]
+
         return make_json_response(
             data={
                 'status': True,
                 'msg': '',
-                'result': [rec.query_info for rec in result]
+                'result': result
             }
         )
 

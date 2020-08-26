@@ -2,12 +2,13 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 import GeometryViewer from 'sources/sqleditor/geometry_viewer';
+import {Geometry} from 'wkx';
 
 describe('geometry viewer test', function () {
 
@@ -54,7 +55,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(2);
     });
 
@@ -75,7 +76,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(1);
     });
 
@@ -95,7 +96,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(1);
     });
 
@@ -113,7 +114,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(1);
     });
 
@@ -144,7 +145,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(2);
     });
 
@@ -163,7 +164,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(0);
     });
 
@@ -182,7 +183,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(0);
     });
 
@@ -202,7 +203,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toEqual(0);
     });
 
@@ -224,7 +225,7 @@ describe('geometry viewer test', function () {
         },
       ];
       let columnIndex = 0;
-      let result = GeometryViewer.parse_data(items, columns, columnIndex);
+      let result = GeometryViewer.parse_data(items, columns, columnIndex, Geometry);
       expect(result.geoJSONs.length).toBeLessThan(600000);
     });
   });

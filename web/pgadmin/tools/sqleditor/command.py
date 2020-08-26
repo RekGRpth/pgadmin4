@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -10,18 +10,19 @@
 """ Implemented classes for the different object type used by data grid """
 
 from abc import ABCMeta, abstractmethod
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
+from collections import OrderedDict
 import six
 from flask import render_template
 from flask_babelex import gettext
+from werkzeug.exceptions import InternalServerError
 from pgadmin.utils.ajax import forbidden
 from pgadmin.utils.driver import get_driver
 from pgadmin.tools.sqleditor.utils.is_query_resultset_updatable \
     import is_query_resultset_updatable
 from pgadmin.tools.sqleditor.utils.save_changed_data import save_changed_data
+from pgadmin.tools.sqleditor.utils.get_column_types import get_columns_types
+from pgadmin.utils.preferences import Preferences
+from pgadmin.utils.exception import ObjectGone, ExecuteError
 
 from config import PG_DEFAULT_DRIVER
 
@@ -45,15 +46,15 @@ class ObjectRegistry(ABCMeta):
 
     registry = dict()
 
-    def __init__(cls, name, bases, d):
+    def __init__(self, name, bases, d):
         """
         This method is used to register the objects based on object type.
         """
 
         if d and 'object_type' in d:
-            ObjectRegistry.registry[d['object_type']] = cls
+            ObjectRegistry.registry[d['object_type']] = self
 
-        ABCMeta.__init__(cls, name, bases, d)
+        ABCMeta.__init__(self, name, bases, d)
 
     @classmethod
     def get_object(cls, name, **kwargs):
@@ -187,12 +188,15 @@ class SQLFilter(object):
 
             status, result = conn.execute_dict(query)
             if not status:
-                raise Exception(result)
+                raise ExecuteError(result)
+            if len(result['rows']) == 0:
+                raise ObjectGone(
+                    gettext("The specified object could not be found."))
 
             self.nsp_name = result['rows'][0]['nspname']
             self.object_name = result['rows'][0]['relname']
         else:
-            raise Exception(gettext(
+            raise InternalServerError(gettext(
                 'Not connected to server or connection with the server '
                 'has been closed.')
             )
@@ -249,9 +253,9 @@ class SQLFilter(object):
         if self._row_filter is None or self._row_filter == '':
             is_filter_applied = False
 
-        if not is_filter_applied:
-            if self._data_sorting and len(self._data_sorting) > 0:
-                is_filter_applied = True
+        if not is_filter_applied and \
+                self._data_sorting and len(self._data_sorting) > 0:
+            is_filter_applied = True
 
         return is_filter_applied
 
@@ -398,12 +402,12 @@ class GridCommand(BaseCommand, SQLFilter, FetchedRowTracker):
             )
             status, result = conn.execute_dict(query)
             if not status:
-                raise Exception(result)
+                raise ExecuteError(result)
 
             for row in result['rows']:
                 all_columns.append(row['attname'])
         else:
-            raise Exception(
+            raise InternalServerError(
                 gettext('Not connected to server or connection with the '
                         'server has been closed.')
             )
@@ -462,6 +466,11 @@ class TableCommand(GridCommand):
         # call base class init to fetch the table name
         super(TableCommand, self).__init__(**kwargs)
 
+        # Set the default sorting on table data by primary key if user
+        # preference value is set
+        self.data_sorting_by_pk = Preferences.module('sqleditor').preference(
+            'table_view_data_by_pk').get()
+
     def get_sql(self, default_conn=None):
         """
         This method is used to create a proper SQL query
@@ -485,7 +494,7 @@ class TableCommand(GridCommand):
         if data_sorting is None and \
             not self.is_sorting_set_from_filter_dialog() \
             and (self.cmd_type in (VIEW_FIRST_100_ROWS, VIEW_LAST_100_ROWS) or
-                 (self.cmd_type == VIEW_ALL_ROWS and self.limit > 0)):
+                 (self.cmd_type == VIEW_ALL_ROWS and self.data_sorting_by_pk)):
             sorting = {'data_sorting': []}
             for pk in primary_keys:
                 sorting['data_sorting'].append(
@@ -534,7 +543,7 @@ class TableCommand(GridCommand):
 
             status, result = conn.execute_dict(query)
             if not status:
-                raise Exception(result)
+                raise ExecuteError(result)
 
             for row in result['rows']:
                 pk_names += driver.qtIdent(conn, row['attname']) + ','
@@ -544,7 +553,7 @@ class TableCommand(GridCommand):
                 # Remove last character from the string
                 pk_names = pk_names[:-1]
         else:
-            raise Exception(
+            raise InternalServerError(
                 gettext('Not connected to server or connection with the '
                         'server has been closed.')
             )
@@ -582,7 +591,7 @@ class TableCommand(GridCommand):
         status, result = conn.execute_dict(query)
 
         if not status:
-            raise Exception(result)
+            raise ExecuteError(result)
 
         for row in result['rows']:
             all_columns.append(row['attname'])
@@ -594,7 +603,7 @@ class TableCommand(GridCommand):
         )
         status, result = conn.execute_dict(query)
         if not status:
-            raise Exception(result)
+            raise ExecuteError(result)
 
         for row in result['rows']:
             # Only append if not already present in the list
@@ -638,10 +647,10 @@ class TableCommand(GridCommand):
 
             status, has_oids = conn.execute_scalar(query)
             if not status:
-                raise Exception(has_oids)
+                raise ExecuteError(has_oids)
 
         else:
-            raise Exception(
+            raise InternalServerError(
                 gettext('Not connected to server or connection with the '
                         'server has been closed.')
             )
@@ -676,6 +685,16 @@ class TableCommand(GridCommand):
                                  command_obj=self,
                                  client_primary_key=client_primary_key,
                                  conn=conn)
+
+    def get_columns_types(self, conn):
+        columns_info = conn.get_column_info()
+        has_oids = self.has_oids()
+        table_oid = self.obj_id
+        return get_columns_types(conn=conn,
+                                 columns_info=columns_info,
+                                 has_oids=has_oids,
+                                 table_oid=table_oid,
+                                 is_query_tool=False)
 
 
 class ViewCommand(GridCommand):
@@ -863,6 +882,8 @@ class QueryToolCommand(BaseCommand, FetchedRowTracker):
         self.is_updatable_resultset = False
         self.primary_keys = None
         self.pk_names = None
+        self.table_has_oids = False
+        self.columns_types = None
 
     def get_sql(self, default_conn=None):
         return None
@@ -873,13 +894,19 @@ class QueryToolCommand(BaseCommand, FetchedRowTracker):
     def get_primary_keys(self):
         return self.pk_names, self.primary_keys
 
+    def get_columns_types(self, conn=None):
+        return self.columns_types
+
+    def has_oids(self):
+        return self.table_has_oids
+
     def can_edit(self):
         return self.is_updatable_resultset
 
     def can_filter(self):
         return False
 
-    def check_updatable_results_pkeys(self):
+    def check_updatable_results_pkeys_oids(self):
         """
             This function is used to check whether the last successful query
             produced updatable results and sets the necessary flags and
@@ -892,11 +919,19 @@ class QueryToolCommand(BaseCommand, FetchedRowTracker):
         manager = driver.connection_manager(self.sid)
         conn = manager.connection(did=self.did, conn_id=self.conn_id)
 
+        # Get the driver version as a float
+        driver_version = float('.'.join(driver.version().split('.')[:2]))
+
+        # Checking for updatable resultsets uses features in psycopg 2.8
+        if driver_version < 2.8:
+            return False
+
         # Get the path to the sql templates
         sql_path = 'sqleditor/sql/#{0}#'.format(manager.version)
 
-        self.is_updatable_resultset, self.primary_keys, pk_names, table_oid = \
-            is_query_resultset_updatable(conn, sql_path)
+        self.is_updatable_resultset, self.table_has_oids,\
+            self.primary_keys, pk_names, table_oid,\
+            self.columns_types = is_query_resultset_updatable(conn, sql_path)
 
         # Create pk_names attribute in the required format
         if pk_names is not None:
@@ -914,6 +949,7 @@ class QueryToolCommand(BaseCommand, FetchedRowTracker):
             self.__set_updatable_results_attrs(sql_path=sql_path,
                                                table_oid=table_oid,
                                                conn=conn)
+        return self.is_updatable_resultset
 
     def save(self,
              changed_data,
@@ -961,12 +997,12 @@ class QueryToolCommand(BaseCommand, FetchedRowTracker):
 
             status, result = conn.execute_dict(query)
             if not status:
-                raise Exception(result)
+                raise ExecuteError(result)
 
             self.nsp_name = result['rows'][0]['nspname']
             self.object_name = result['rows'][0]['relname']
         else:
-            raise Exception(gettext(
+            raise InternalServerError(gettext(
                 'Not connected to server or connection with the server '
                 'has been closed.')
             )

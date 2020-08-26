@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -19,6 +19,7 @@ define('pgadmin.node.fts_configuration', [
 
   // Model for tokens control
   var TokenModel = pgAdmin.Browser.Node.Model.extend({
+    idAttribute: 'token',
     defaults: {
       token: undefined,
       dictname: undefined,
@@ -33,6 +34,7 @@ define('pgadmin.node.fts_configuration', [
       id: 'dictname', label: gettext('Dictionaries'), type: 'text', group:null,
       cellHeaderClasses:'width_percent_50', editable: true,
       cell:Backgrid.Extension.MultiSelectAjaxCell, url: 'dictionaries',
+      cache_level:'fts_configuration', cache_node:'fts_configuration',
     }],
     // Validation for token and dictionary list
     validate: function() {
@@ -83,13 +85,13 @@ define('pgadmin.node.fts_configuration', [
                   this,
                   arguments
                 );
-                var self = this,
-                  url = self.field.get('url') || self.defaults.url,
-                  m = self.model.top || self.model;
+                var _self = this,
+                  url = _self.field.get('url') || _self.defaults.url,
+                  m = _self.model.top || _self.model;
 
-                /* Fetch the tokens/dict list from 'self' node.
-                 * Here 'self' refers to unique collection control where
-                 * 'self' refers to nodeAjaxOptions control for dictionary
+                /* Fetch the tokens/dict list from '_self' node.
+                 * Here '_self' refers to unique collection control where
+                 * '_self' refers to nodeAjaxOptions control for dictionary
                  */
                 if (url) {
                   var node = this.field.get('schema_node'),
@@ -107,6 +109,9 @@ define('pgadmin.node.fts_configuration', [
                                     pgAdmin.Browser.Nodes[cache_node])
                                || node;
 
+                  // Clear the cache to get the latest dictionaries and parsers.
+                  cache_node.clear_cache(this);
+
                   /*
                    * We needs to check, if we have already cached data
                    * for this url. If yes - use it, and do not bother about
@@ -117,7 +122,7 @@ define('pgadmin.node.fts_configuration', [
                   // Fetch token/dictionary list
                   if (this.field.get('version_compatible') &&
                     (_.isUndefined(data) || _.isNull(data))) {
-                    m.trigger('pgadmin:view:fetching', m, self.field);
+                    m.trigger('pgadmin:view:fetching', m, _self.field);
                     $.ajax({
                       async: false,
                       url: full_url,
@@ -134,9 +139,9 @@ define('pgadmin.node.fts_configuration', [
                         );
                       })
                       .fail(function() {
-                        m.trigger('pgadmin:view:fetch:error', m, self.field);
+                        m.trigger('pgadmin:view:fetch:error', m, _self.field);
                       });
-                    m.trigger('pgadmin:view:fetched', m, self.field);
+                    m.trigger('pgadmin:view:fetched', m, _self.field);
                   }
 
                   // It is feasible that the data may not have been fetched.
@@ -146,11 +151,11 @@ define('pgadmin.node.fts_configuration', [
                    * Transform the data
                    */
                   var transform = (this.field.get('transform')
-                                || self.defaults.transform);
+                                || _self.defaults.transform);
                   if (transform && _.isFunction(transform)) {
-                    self.field.set('options', transform.bind(self, data));
+                    _self.field.set('options', transform.bind(_self, data));
                   } else {
-                    self.field.set('options', data);
+                    _self.field.set('options', data);
                   }
                 }
               },
@@ -212,7 +217,7 @@ define('pgadmin.node.fts_configuration', [
           '   </div>',
           '   <div class="col-6" header="token"></div>',
           '   <div class="col-2">',
-          '     <button class="btn btn-sm-sq btn-secondary add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> ></button>',
+          '     <button class="btn btn-sm-sq btn-primary-icon add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> ><span class="sr-only">' + gettext('Add Token') + '</span></button>',
           '   </div>',
           '  </div>',
           ' </div>',
@@ -287,7 +292,7 @@ define('pgadmin.node.fts_configuration', [
 
         if (self.grid) {
           self.grid.remove();
-          self.grid.null;
+          self.grid = null;
         }
         // Initialize a new Grid instance
         var grid = self.grid = new Backgrid.Grid({
@@ -332,42 +337,39 @@ define('pgadmin.node.fts_configuration', [
         var self = this,
           token = self.headerData.get('token');
 
-        if (!token || token == '') {
-          return false;
-        }
+        if (token && token != '') {
+          var coll = self.model.get(self.field.get('name')),
+            m = new (self.field.get('model'))(
+              self.headerData.toJSON(), {
+                silent: true, top: self.model.top,
+                collection: coll, handler: coll,
+              }),
+            checkVars = ['token'],
+            idx = -1;
 
-        var coll = self.model.get(self.field.get('name')),
-          m = new (self.field.get('model'))(
-            self.headerData.toJSON(), {
-              silent: true, top: self.model.top,
-              collection: coll, handler: coll,
-            }),
-          checkVars = ['token'],
-          idx = -1;
-
-        // Find if token exists in grid
-        self.collection.each(function(m) {
-          _.each(checkVars, function(v) {
-            var val = m.get(v);
-            if(val == token) {
-              idx = coll.indexOf(m);
-            }
+          // Find if token exists in grid
+          self.collection.each(function(local_model) {
+            _.each(checkVars, function(v) {
+              var val = local_model.get(v);
+              if(val == token) {
+                idx = coll.indexOf(local_model);
+              }
+            });
           });
-        });
 
 
 
-        // remove 'm' if duplicate value found.
-        if (idx == -1) {
-          coll.add(m);
-          idx = coll.indexOf(m);
+          // remove 'm' if duplicate value found.
+          if (idx == -1) {
+            coll.add(m);
+            idx = coll.indexOf(m);
+          }
+          self.$grid.find('.new').removeClass('new');
+          var newRow = self.grid.body.rows[idx].$el;
+          newRow.addClass('new');
+          //$(newRow).pgMakeVisible('table-bordered');
+          $(newRow).pgMakeVisible('backform-tab');
         }
-        self.$grid.find('.new').removeClass('new');
-        var newRow = self.grid.body.rows[idx].$el;
-        newRow.addClass('new');
-        //$(newRow).pgMakeVisible('table-bordered');
-        $(newRow).pgMakeVisible('backform-tab');
-
 
         return false;
       },
@@ -468,6 +470,7 @@ define('pgadmin.node.fts_configuration', [
         defaults: {
           name: undefined,        // FTS Configuration name
           owner: undefined,       // FTS Configuration owner
+          is_sys_obj: undefined,  // Is system object
           description: undefined, // Comment on FTS Configuration
           schema: undefined,      // Schema name FTS Configuration belongs to
           prsname: undefined,    // FTS parser list for FTS Configuration node
@@ -492,7 +495,7 @@ define('pgadmin.node.fts_configuration', [
           type: 'text', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          editable: false, type: 'text', disabled: true, mode:['properties'],
+          editable: false, type: 'text', mode:['properties'],
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
           type: 'text', mode: ['properties', 'edit','create'], node: 'role',
@@ -502,6 +505,9 @@ define('pgadmin.node.fts_configuration', [
           type: 'text', mode: ['create','edit'], node: 'schema',
           control: 'node-list-by-id', cache_node: 'database',
           cache_level: 'database',
+        },{
+          id: 'is_sys_obj', label: gettext('System FTS configuration?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', cellHeaderClasses: 'width_percent_50',
@@ -513,11 +519,11 @@ define('pgadmin.node.fts_configuration', [
           //disable parser when user select copy_config manually and vica-versa
           disabled: function(m) {
             var copy_config = m.get('copy_config');
-            return m.isNew() &&
-                    (_.isNull(copy_config) ||
+            return (_.isNull(copy_config) ||
                     _.isUndefined(copy_config) ||
                     copy_config === '') ? false : true;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'copy_config', label: gettext('Copy config'),type: 'text',
           mode: ['create'], group: gettext('Definition'),
@@ -526,11 +532,11 @@ define('pgadmin.node.fts_configuration', [
           //disable copy_config when user select parser manually and vica-versa
           disabled: function(m) {
             var parser = m.get('prsname');
-            return m.isNew() &&
-                    (_.isNull(parser) ||
+            return (_.isNull(parser) ||
                     _.isUndefined(parser) ||
                     parser === '') ? false : true;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'tokens', label: gettext('Tokens'), type: 'collection',
           group: gettext('Tokens'), control: TokenControl,

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -10,11 +10,15 @@
 """Schema collection node helper class"""
 
 import json
+import copy
+import re
 
 from flask import render_template
 
 from pgadmin.browser.collection import CollectionNodeModule
 from pgadmin.utils.ajax import internal_server_error
+from pgadmin.utils.driver import get_driver
+from config import PG_DEFAULT_DRIVER
 
 
 class SchemaChildModule(CollectionNodeModule):
@@ -42,7 +46,7 @@ class SchemaChildModule(CollectionNodeModule):
     CATALOG_DB_SUPPORTED = True
     SUPPORTED_SCHEMAS = None
 
-    def BackendSupported(self, manager, **kwargs):
+    def backend_supported(self, manager, **kwargs):
         return (
             (
                 (
@@ -67,7 +71,7 @@ class SchemaChildModule(CollectionNodeModule):
                     not kwargs['is_catalog'] and self.CATALOG_DB_SUPPORTED
                 )
             ) and
-            CollectionNodeModule.BackendSupported(self, manager, **kwargs)
+            CollectionNodeModule.backend_supported(self, manager, **kwargs)
         )
 
     @property
@@ -91,6 +95,56 @@ class DataTypeReader:
       - Returns data-types on the basis of the condition provided.
     """
 
+    def _get_types_sql(self, conn, condition, add_serials, schema_oid):
+        """
+        Get sql for types.
+        :param conn: connection
+        :param condition: Condition for sql
+        :param add_serials: add_serials flag
+        :param schema_oid: schema iod.
+        :return: sql for get type sql result, status and response.
+        """
+        # Check if template path is already set or not
+        # if not then we will set the template path here
+        if not hasattr(self, 'data_type_template_path'):
+            self.data_type_template_path = 'datatype/sql/' + (
+                '#{0}#{1}#'.format(
+                    self.manager.server_type,
+                    self.manager.version
+                ) if self.manager.server_type == 'gpdb' else
+                '#{0}#'.format(self.manager.version)
+            )
+        sql = render_template(
+            "/".join([self.data_type_template_path, 'get_types.sql']),
+            condition=condition,
+            add_serials=add_serials,
+            schema_oid=schema_oid
+        )
+        status, rset = conn.execute_2darray(sql)
+
+        return status, rset
+
+    @staticmethod
+    def _types_length_checks(length, typeval, precision):
+        min_val = 0
+        max_val = 0
+        if length:
+            min_val = 0 if typeval == 'D' else 1
+            if precision:
+                max_val = 1000
+            elif min_val:
+                # Max of integer value
+                max_val = 2147483647
+            else:
+                # Max value is 6 for data type like
+                # interval, timestamptz, etc..
+                if typeval == 'D':
+                    max_val = 6
+                else:
+                    max_val = 10
+
+        return min_val, max_val
+
     def get_types(self, conn, condition, add_serials=False, schema_oid=''):
         """
         Returns data-types including calculation for Length and Precision.
@@ -103,23 +157,8 @@ class DataTypeReader:
         """
         res = []
         try:
-            # Check if template path is already set or not
-            # if not then we will set the template path here
-            if not hasattr(self, 'data_type_template_path'):
-                self.data_type_template_path = 'datatype/sql/' + (
-                    '#{0}#{1}#'.format(
-                        self.manager.server_type,
-                        self.manager.version
-                    ) if self.manager.server_type == 'gpdb' else
-                    '#{0}#'.format(self.manager.version)
-                )
-            SQL = render_template(
-                "/".join([self.data_type_template_path, 'get_types.sql']),
-                condition=condition,
-                add_serials=add_serials,
-                schema_oid=schema_oid
-            )
-            status, rset = conn.execute_2darray(SQL)
+            status, rset = self._get_types_sql(conn, condition, add_serials,
+                                               schema_oid)
             if not status:
                 return status, rset
 
@@ -128,23 +167,14 @@ class DataTypeReader:
                 # & length validation for current type
                 precision = False
                 length = False
-                min_val = 0
-                max_val = 0
 
                 # Check if the type will have length and precision or not
                 if row['elemoid']:
                     length, precision, typeval = self.get_length_precision(
                         row['elemoid'])
 
-                if length:
-                    min_val = 0 if typeval == 'D' else 1
-                    if precision:
-                        max_val = 1000
-                    elif min_val:
-                        # Max of integer value
-                        max_val = 2147483647
-                    else:
-                        max_val = 10
+                min_val, max_val = DataTypeReader._types_length_checks(
+                    length, typeval, precision)
 
                 res.append({
                     'label': row['typname'], 'value': row['typname'],
@@ -206,7 +236,101 @@ class DataTypeReader:
 
         return length, precision, typeval
 
-    def get_full_type(self, nsp, typname, isDup, numdims, typmod):
+    @staticmethod
+    def _check_typmod(typmod, name):
+        """
+        Check type mode ad return length as per type.
+        :param typmod:type mode.
+        :param name: name of type.
+        :return:
+        """
+        length = '('
+        if name == 'numeric':
+            _len = (typmod - 4) >> 16
+            _prec = (typmod - 4) & 0xffff
+            length += str(_len)
+            if _prec is not None:
+                length += ',' + str(_prec)
+        elif (
+            name == 'time' or
+            name == 'timetz' or
+            name == 'time without time zone' or
+            name == 'time with time zone' or
+            name == 'timestamp' or
+            name == 'timestamptz' or
+            name == 'timestamp without time zone' or
+            name == 'timestamp with time zone' or
+            name == 'bit' or
+            name == 'bit varying' or
+            name == 'varbit'
+        ):
+            _prec = 0
+            _len = typmod
+            length += str(_len)
+        elif name == 'interval':
+            _prec = 0
+            _len = typmod & 0xffff
+            # Max length for interval data type is 6
+            # If length is greater then 6 then set length to None
+            if _len > 6:
+                _len = ''
+            length += str(_len)
+        elif name == 'date':
+            # Clear length
+            length = ''
+        else:
+            _len = typmod - 4
+            _prec = 0
+            length += str(_len)
+
+        if len(length) > 0:
+            length += ')'
+
+        return length
+
+    @staticmethod
+    def _get_full_type_value(name, schema, length, array):
+        """
+        Generate full type value as per req.
+        :param name: type name.
+        :param schema: schema name.
+        :param length: length.
+        :param array: array of types
+        :return: full type value
+        """
+        if name == 'char' and schema == 'pg_catalog':
+            return '"char"' + array
+        elif name == 'time with time zone':
+            return 'time' + length + ' with time zone' + array
+        elif name == 'time without time zone':
+            return 'time' + length + ' without time zone' + array
+        elif name == 'timestamp with time zone':
+            return 'timestamp' + length + ' with time zone' + array
+        elif name == 'timestamp without time zone':
+            return 'timestamp' + length + ' without time zone' + array
+        else:
+            return name + length + array
+
+    @staticmethod
+    def _check_schema_in_name(typname, schema):
+        """
+        Above 7.4, format_type also sends the schema name if it's not
+        included in the search_path, so we need to skip it in the typname
+        :param typename: typename for check.
+        :param schema: schema name for check.
+        :return: name
+        """
+        if typname.find(schema + '".') >= 0:
+            name = typname[len(schema) + 3]
+        elif typname.find(schema + '.') >= 0:
+            name = typname[len(schema) + 1]
+        else:
+            name = typname
+
+        return name
+
+    @staticmethod
+    def get_full_type(nsp, typname, is_dup, numdims, typmod):
         """
         Returns full type name with Length and Precision.
 
@@ -219,14 +343,7 @@ class DataTypeReader:
         array = ''
         length = ''
 
-        # Above 7.4, format_type also sends the schema name if it's not
-        # included in the search_path, so we need to skip it in the typname
-        if typname.find(schema + '".') >= 0:
-            name = typname[len(schema) + 3]
-        elif typname.find(schema + '.') >= 0:
-            name = typname[len(schema) + 1]
-        else:
-            name = typname
+        name = DataTypeReader._check_schema_in_name(typname, schema)
 
         if name.startswith('_'):
             if not numdims:
@@ -247,56 +364,11 @@ class DataTypeReader:
                 numdims -= 1
 
         if typmod != -1:
-            length = '('
-            if name == 'numeric':
-                _len = (typmod - 4) >> 16
-                _prec = (typmod - 4) & 0xffff
-                length += str(_len)
-                if _prec is not None:
-                    length += ',' + str(_prec)
-            elif (
-                name == 'time' or
-                name == 'timetz' or
-                name == 'time without time zone' or
-                name == 'time with time zone' or
-                name == 'timestamp' or
-                name == 'timestamptz' or
-                name == 'timestamp without time zone' or
-                name == 'timestamp with time zone' or
-                name == 'bit' or
-                name == 'bit varying' or
-                name == 'varbit'
-            ):
-                _prec = 0
-                _len = typmod
-                length += str(_len)
-            elif name == 'interval':
-                _prec = 0
-                _len = typmod & 0xffff
-                length += str(_len)
-            elif name == 'date':
-                # Clear length
-                length = ''
-            else:
-                _len = typmod - 4
-                _prec = 0
-                length += str(_len)
+            length = DataTypeReader._check_typmod(typmod, name)
 
-            if len(length) > 0:
-                length += ')'
-
-        if name == 'char' and schema == 'pg_catalog':
-            return '"char"' + array
-        elif name == 'time with time zone':
-            return 'time' + length + ' with time zone' + array
-        elif name == 'time without time zone':
-            return 'time' + length + ' without time zone' + array
-        elif name == 'timestamp with time zone':
-            return 'timestamp' + length + ' with time zone' + array
-        elif name == 'timestamp without time zone':
-            return 'timestamp' + length + ' without time zone' + array
-        else:
-            return name + length + array
+        type_value = DataTypeReader._get_full_type_value(name, schema, length,
+                                                         array)
+        return type_value
 
     @classmethod
     def parse_type_name(cls, type_name):
@@ -330,11 +402,39 @@ class DataTypeReader:
                 from re import sub as sub_str
                 pattern = r'(\(\d+\))'
                 type_name = sub_str(pattern, '', type_name)
+        # We need special handling for interval types like
+        # interval hours to minute.
+        elif type_name.startswith("interval"):
+            type_name = 'interval'
 
         if is_array:
             type_name += "[]"
 
         return type_name
+
+    @classmethod
+    def parse_length_precision(cls, fulltype, is_tlength, is_precision):
+        """
+        Parse the type string and split length, precision.
+        :param fulltype: type string
+        :param is_tlength: is length type
+        :param is_precision: is precision type
+        :return: length, precision
+        """
+        t_len, t_prec = None, None
+        if is_tlength and is_precision:
+            match_obj = re.search(r'(\d+),(\d+)', fulltype)
+            if match_obj:
+                t_len = match_obj.group(1)
+                t_prec = match_obj.group(2)
+        elif is_tlength:
+            # If we have length only
+            match_obj = re.search(r'(\d+)', fulltype)
+            if match_obj:
+                t_len = match_obj.group(1)
+                t_prec = None
+
+        return t_len, t_prec
 
 
 def trigger_definition(data):
@@ -412,31 +512,43 @@ def parse_rule_definition(res):
         res_data = res['rows'][0]
         data_def = res_data['definition']
         import re
-        # Parse data for event
-        e_match = re.search(r"ON\s+(.*)\s+TO", data_def)
-        event_data = e_match.group(1) if e_match is not None else None
-        event = event_data if event_data is not None else ''
-
-        # Parse data for do instead
-        inst_match = re.search(r"\s+(INSTEAD)\s+", data_def)
-        instead_data = inst_match.group(1) if inst_match is not None else None
-        instead = True if instead_data is not None else False
 
         # Parse data for condition
-        condition_match = re.search(r"(?:WHERE)\s+(.*)\s+(?:DO)", data_def)
-        condition_data = condition_match.group(1) \
-            if condition_match is not None else None
-        condition = condition_data if condition_data is not None else ''
+        condition = ''
+        condition_part_match = re.search(
+            r"((?:ON)\s+(?:[\s\S]+?)"
+            r"(?:TO)\s+(?:[\s\S]+?)(?:DO))", data_def)
+        if condition_part_match is not None:
+            condition_part = condition_part_match.group(1)
 
-        # Parse data for statements
+            condition_match = re.search(
+                r"(?:WHERE)\s+(\([\s\S]*\))\s+(?:DO)", condition_part)
+
+            if condition_match is not None:
+                condition = condition_match.group(1)
+                # also remove enclosing brackets
+                if condition.startswith('(') and condition.endswith(')'):
+                    condition = condition[1:-1]
+
+            # Parse data for statements
         statement_match = re.search(
-            r"(?:DO\s+)(?:INSTEAD\s+)?((.|\n)*)", data_def)
-        statement_data = statement_match.group(1) if statement_match else None
-        statement = statement_data if statement_data is not None else ''
+            r"(?:DO\s+)(?:INSTEAD\s+)?([\s\S]*)(?:;)", data_def)
+
+        statement = ''
+        if statement_match is not None:
+            statement = statement_match.group(1)
+            # also remove enclosing brackets
+            if statement.startswith('(') and statement.endswith(')'):
+                statement = statement[1:-1]
 
         # set columns parse data
-        res_data['event'] = event.lower().capitalize()
-        res_data['do_instead'] = instead
+        res_data['event'] = {
+            '1': 'SELECT',
+            '2': 'UPDATE',
+            '3': 'INSERT',
+            '4': 'DELETE'
+        }[res_data['ev_type']]
+        res_data['do_instead'] = res_data['is_instead']
         res_data['statements'] = statement
         res_data['condition'] = condition
     except Exception as e:
@@ -470,11 +582,47 @@ class VacuumSettings:
         * type - table/toast vacuum type
 
     """
+    vacuum_settings = dict()
 
-    def __init__(self):
-        pass
+    def fetch_default_vacuum_settings(self, conn, sid, setting_type):
+        """
+        This function is used to fetch and cached the default vacuum settings
+        for specified server id.
+        :param conn: Connection Object
+        :param sid:  Server ID
+        :param setting_type: Type (table or toast)
+        :return:
+        """
+        if sid in VacuumSettings.vacuum_settings:
+            if setting_type in VacuumSettings.vacuum_settings[sid]:
+                return VacuumSettings.vacuum_settings[sid][setting_type]
+        else:
+            VacuumSettings.vacuum_settings[sid] = dict()
 
-    def get_vacuum_table_settings(self, conn):
+        # returns an array of name & label values
+        vacuum_fields = render_template("vacuum_settings/vacuum_fields.json")
+        vacuum_fields = json.loads(vacuum_fields)
+
+        # returns an array of setting & name values
+        vacuum_fields_keys = "'" + "','".join(
+            vacuum_fields[setting_type].keys()) + "'"
+        SQL = render_template('vacuum_settings/sql/vacuum_defaults.sql',
+                              columns=vacuum_fields_keys)
+
+        status, res = conn.execute_dict(SQL)
+        if not status:
+            return internal_server_error(errormsg=res)
+
+        for row in res['rows']:
+            row_name = row['name']
+            row['name'] = vacuum_fields[setting_type][row_name][0]
+            row['label'] = vacuum_fields[setting_type][row_name][1]
+            row['column_type'] = vacuum_fields[setting_type][row_name][2]
+
+        VacuumSettings.vacuum_settings[sid][setting_type] = res['rows']
+        return VacuumSettings.vacuum_settings[sid][setting_type]
+
+    def get_vacuum_table_settings(self, conn, sid):
         """
         Fetch the default values for autovacuum
         fields, return an array of
@@ -483,31 +631,9 @@ class VacuumSettings:
           - setting
         values
         """
+        return self.fetch_default_vacuum_settings(conn, sid, 'table')
 
-        # returns an array of name & label values
-        vacuum_fields = render_template("vacuum_settings/vacuum_fields.json")
-
-        vacuum_fields = json.loads(vacuum_fields)
-
-        # returns an array of setting & name values
-        vacuum_fields_keys = "'" + "','".join(
-            vacuum_fields['table'].keys()) + "'"
-        SQL = render_template('vacuum_settings/sql/vacuum_defaults.sql',
-                              columns=vacuum_fields_keys)
-        status, res = conn.execute_dict(SQL)
-
-        if not status:
-            return internal_server_error(errormsg=res)
-
-        for row in res['rows']:
-            row_name = row['name']
-            row['name'] = vacuum_fields['table'][row_name][0]
-            row['label'] = vacuum_fields['table'][row_name][1]
-            row['column_type'] = vacuum_fields['table'][row_name][2]
-
-        return res
-
-    def get_vacuum_toast_settings(self, conn):
+    def get_vacuum_toast_settings(self, conn, sid):
         """
         Fetch the default values for autovacuum
         fields, return an array of
@@ -516,29 +642,7 @@ class VacuumSettings:
           - setting
         values
         """
-
-        # returns an array of name & label values
-        vacuum_fields = render_template("vacuum_settings/vacuum_fields.json")
-
-        vacuum_fields = json.loads(vacuum_fields)
-
-        # returns an array of setting & name values
-        vacuum_fields_keys = "'" + "','".join(
-            vacuum_fields['toast'].keys()) + "'"
-        SQL = render_template('vacuum_settings/sql/vacuum_defaults.sql',
-                              columns=vacuum_fields_keys)
-        status, res = conn.execute_dict(SQL)
-
-        if not status:
-            return internal_server_error(errormsg=res)
-
-        for row in res['rows']:
-            row_name = row['name']
-            row['name'] = vacuum_fields['toast'][row_name][0]
-            row['label'] = vacuum_fields['toast'][row_name][1]
-            row['column_type'] = vacuum_fields['table'][row_name][2]
-
-        return res
+        return self.fetch_default_vacuum_settings(conn, sid, 'toast')
 
     def parse_vacuum_data(self, conn, result, type):
         """
@@ -552,47 +656,42 @@ class VacuumSettings:
         * type - table/toast vacuum type
         """
 
-        # returns an array of name & label values
-        vacuum_fields = render_template("vacuum_settings/vacuum_fields.json")
+        vacuum_settings_tmp = copy.deepcopy(self.fetch_default_vacuum_settings(
+            conn, self.manager.sid, type))
 
-        vacuum_fields = json.loads(vacuum_fields)
+        for row in vacuum_settings_tmp:
+            row_name = row['name']
+            if type == 'toast':
+                row_name = 'toast_{0}'.format(row['name'])
+            if result.get(row_name, None) is not None:
+                value = float(result[row_name])
+                row['value'] = int(value) if value % 1 == 0 else value
+            else:
+                row.pop('value', None)
 
-        # returns an array of setting & name values
-        vacuum_fields_keys = "'" + "','".join(
-            vacuum_fields[type].keys()) + "'"
-        SQL = render_template('vacuum_settings/sql/vacuum_defaults.sql',
-                              columns=vacuum_fields_keys)
-        status, res = conn.execute_dict(SQL)
+        return vacuum_settings_tmp
 
-        if not status:
-            return internal_server_error(errormsg=res)
 
-        if type is 'table':
-            for row in res['rows']:
-                row_name = row['name']
-                row['name'] = vacuum_fields[type][row_name][0]
-                row['label'] = vacuum_fields[type][row_name][1]
-                row['column_type'] = vacuum_fields[type][row_name][2]
-                if result[row['name']] is not None:
-                    if row['column_type'] == 'number':
-                        value = float(result[row['name']])
-                    else:
-                        value = int(result[row['name']])
-                    row['value'] = row['setting'] = value
+def get_schema(sid, did, scid):
+    """
+    This function will return the schema name.
+    """
 
-        elif type is 'toast':
-            for row in res['rows']:
-                row_old_name = row['name']
-                row_name = 'toast_{0}'.format(
-                    vacuum_fields[type][row_old_name][0])
-                row['name'] = vacuum_fields[type][row_old_name][0]
-                row['label'] = vacuum_fields[type][row_old_name][1]
-                row['column_type'] = vacuum_fields[type][row_old_name][2]
-                if result[row_name] and result[row_name] is not None:
-                    if row['column_type'] == 'number':
-                        value = float(result[row_name])
-                    else:
-                        value = int(result[row_name])
-                    row['value'] = row['setting'] = value
+    driver = get_driver(PG_DEFAULT_DRIVER)
+    manager = driver.connection_manager(sid)
+    conn = manager.connection(did=did)
 
-        return res['rows']
+    ver = manager.version
+    server_type = manager.server_type
+
+    # Fetch schema name
+    status, schema_name = conn.execute_scalar(
+        render_template("/".join(['schemas',
+                                  '{0}/#{1}#'.format(server_type,
+                                                     ver),
+                                  'sql/get_name.sql']),
+                        conn=conn, scid=scid
+                        )
+    )
+
+    return status, schema_name

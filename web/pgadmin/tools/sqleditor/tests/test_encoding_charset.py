@@ -3,7 +3,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -11,10 +11,9 @@
 from pgadmin.utils.route import BaseTestGenerator
 from pgadmin.browser.server_groups.servers.databases.tests import utils as \
     database_utils
-from regression import parent_node_dict
 from regression.python_test_utils import test_utils
 import json
-from pgadmin.utils import server_utils, IS_PY2
+from pgadmin.utils import server_utils
 import random
 
 
@@ -256,13 +255,12 @@ class TestEncodingCharset(BaseTestGenerator):
             raise Exception("Could not connect to the database.")
 
         # Initialize query tool
-        url = '/datagrid/initialize/query_tool/{0}/{1}/{2}'.format(
-            test_utils.SERVER_GROUP, self.encode_sid, self.encode_did)
+        self.trans_id = str(random.randint(1, 9999999))
+        url = '/datagrid/initialize/query_tool/{0}/{1}/{2}/{3}'\
+            .format(self.trans_id, test_utils.SERVER_GROUP, self.encode_sid,
+                    self.encode_did)
         response = self.tester.post(url)
         self.assertEquals(response.status_code, 200)
-
-        response_data = json.loads(response.data.decode('utf-8'))
-        self.trans_id = response_data['data']['gridTransId']
 
         # Check character
         url = "/sqleditor/query_tool/start/{0}".format(self.trans_id)
@@ -275,10 +273,7 @@ class TestEncodingCharset(BaseTestGenerator):
         self.assertEquals(response.status_code, 200)
         response_data = json.loads(response.data.decode('utf-8'))
         self.assertEquals(response_data['data']['rows_fetched_to'], 1)
-        if IS_PY2 and type(response_data['data']['result'][0][0]) == unicode:
-            result = response_data['data']['result'][0][0].encode('utf-8')
-        else:
-            result = response_data['data']['result'][0][0]
+        result = response_data['data']['result'][0][0]
         self.assertEquals(result, self.test_str)
 
         database_utils.disconnect_database(self, self.encode_sid,

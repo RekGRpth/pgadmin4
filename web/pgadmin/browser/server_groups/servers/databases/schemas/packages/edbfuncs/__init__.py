@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -55,8 +55,8 @@ class EdbFuncModule(CollectionNodeModule):
       - Returns a snippet of css.
     """
 
-    NODE_TYPE = 'edbfunc'
-    COLLECTION_LABEL = gettext("Functions")
+    _NODE_TYPE = 'edbfunc'
+    _COLLECTION_LABEL = gettext("Functions")
 
     def __init__(self, *args, **kwargs):
         """
@@ -83,7 +83,7 @@ class EdbFuncModule(CollectionNodeModule):
         Load the module script for Functions, when the
         package node is initialized.
         """
-        return packages.PackageModule.NODE_TYPE
+        return packages.PackageModule.node_type
 
     @property
     def node_inode(self):
@@ -161,6 +161,8 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
     * dependencies(gid, sid, did, scid, pkgid, edbfnid):
       - Returns the dependencies for the Functions object.
 
+    * compare(**kwargs):
+      - This function will compare the nodes from two different schemas.
     """
 
     node_type = blueprint.node_type
@@ -184,7 +186,8 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
         'nodes': [{'get': 'nodes'}, {'get': 'nodes'}],
         'sql': [{'get': 'sql'}],
         'dependency': [{'get': 'dependencies'}],
-        'dependent': [{'get': 'dependents'}]
+        'dependent': [{'get': 'dependents'}],
+        'compare': [{'get': 'compare'}, {'get': 'compare'}]
     })
 
     def check_precondition(f):
@@ -243,7 +246,8 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
             scid: Schema Id
         """
 
-        SQL = render_template("/".join([self.sql_template_path, 'node.sql']),
+        SQL = render_template("/".join([self.sql_template_path,
+                                        self._NODE_SQL]),
                               pkgid=pkgid)
         status, res = self.conn.execute_dict(SQL)
 
@@ -268,7 +272,7 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
 
         res = []
         SQL = render_template(
-            "/".join([self.sql_template_path, 'node.sql']),
+            "/".join([self.sql_template_path, self._NODE_SQL]),
             pkgid=pkgid,
             fnid=edbfnid
         )
@@ -280,7 +284,7 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
         if edbfnid is not None:
             if len(rset['rows']) == 0:
                 return gone(
-                    errormsg=_("Could not find the function")
+                    errormsg=gettext("Could not find the function")
                 )
             row = rset['rows'][0]
             return make_json_response(
@@ -323,7 +327,7 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
             edbfnid: Function Id
         """
         SQL = render_template("/".join([self.sql_template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               pkgid=pkgid, edbfnid=edbfnid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
@@ -373,8 +377,6 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
         proargdefaultvals = [ptype for ptype in
                              data['proargdefaultvals'].split(",")] \
             if data['proargdefaultvals'] else []
-        proallargtypes = data['proallargtypes'] \
-            if data['proallargtypes'] else []
 
         proargmodenames = {'i': 'IN', 'o': 'OUT', 'b': 'INOUT',
                            'v': 'VARIADIC', 't': 'TABLE'}
@@ -406,19 +408,21 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
 
         # Insert null value against the parameters which do not have
         # default values.
-        if len(proargmodes_fltrd) > len(proargdefaultvals):
-            dif = len(proargmodes_fltrd) - len(proargdefaultvals)
-            while (dif > 0):
-                proargdefaultvals.insert(0, '')
-                dif -= 1
+        dif = len(proargmodes_fltrd) - len(proargdefaultvals)
+        while dif > 0:
+            proargdefaultvals.insert(0, '')
+            dif -= 1
+
+        def list_get(arr, index, default=''):
+            return arr[index] if len(arr) > index else default
 
         # Prepare list of Argument list dict to be displayed in the Data Grid.
         params = {"arguments": [
             self._map_arguments_dict(
-                i, proargmodes_fltrd[i] if len(proargmodes_fltrd) > i else '',
-                proargtypes[i] if len(proargtypes) > i else '',
-                proargnames[i] if len(proargnames) > i else '',
-                proargdefaultvals[i] if len(proargdefaultvals) > i else ''
+                i, list_get(proargmodes_fltrd, i),
+                list_get(proargtypes, i),
+                list_get(proargnames, i),
+                list_get(proargdefaultvals, i)
             )
             for i in range(len(proargtypes))]}
 
@@ -426,10 +430,10 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
         # panel.
 
         proargs = [self._map_arguments_list(
-            proargmodes_fltrd[i] if len(proargmodes_fltrd) > i else '',
-            proargtypes[i] if len(proargtypes) > i else '',
-            proargnames[i] if len(proargnames) > i else '',
-            proargdefaultvals[i] if len(proargdefaultvals) > i else ''
+            list_get(proargmodes_fltrd, i),
+            list_get(proargtypes, i),
+            list_get(proargnames, i),
+            list_get(proargdefaultvals, i)
         )
             for i in range(len(proargtypes))]
 
@@ -476,7 +480,7 @@ class EdbFuncView(PGChildNodeView, DataTypeReader):
 
         arg = ''
 
-        if argmode and argmode:
+        if argmode:
             arg += argmode + " "
         if argname:
             arg += argname + " "
@@ -617,8 +621,8 @@ class EdbProcModule(CollectionNodeModule):
 
     """
 
-    NODE_TYPE = 'edbproc'
-    COLLECTION_LABEL = gettext("Procedures")
+    _NODE_TYPE = 'edbproc'
+    _COLLECTION_LABEL = gettext("Procedures")
 
     def __init__(self, *args, **kwargs):
         """
@@ -654,7 +658,7 @@ class EdbProcModule(CollectionNodeModule):
         Load the module script for Procedures, when the
         database node is initialized.
         """
-        return packages.PackageModule.NODE_TYPE
+        return packages.PackageModule.node_type
 
     def register_preferences(self):
         """

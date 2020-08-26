@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -22,6 +22,7 @@ from pgadmin.utils.ajax import make_json_response, bad_request,\
 from pgadmin.utils.menu import MenuItem
 
 from pgadmin.model import db, Setting
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 
 MODULE_NAME = 'settings'
 
@@ -86,7 +87,7 @@ def get_setting(setting, default=''):
 @blueprint.route("/")
 @login_required
 def index():
-    return bad_request(errormsg=_("This URL cannot be called directly."))
+    return bad_request(errormsg=gettext("This URL cannot be called directly."))
 
 
 @blueprint.route("/settings.js")
@@ -95,7 +96,7 @@ def script():
     """Render the required Javascript"""
     return Response(response=render_template("settings/settings.js"),
                     status=200,
-                    mimetype="application/javascript")
+                    mimetype=MIMETYPE_APP_JS)
 
 
 @blueprint.route("/store", methods=['POST'], endpoint='store_bulk')

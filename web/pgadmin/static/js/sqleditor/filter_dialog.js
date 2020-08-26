@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -65,11 +65,12 @@ let FilterDialog = {
                 buttons: [{
                   text: '',
                   key: 112,
-                  className: 'btn btn-secondary pull-left fa fa-question pg-alertify-icon-button',
+                  className: 'btn btn-primary-icon pull-left fa fa-question pg-alertify-icon-button',
                   attrs: {
                     name: 'dialog_help',
                     type: 'button',
                     label: gettext('Help'),
+                    'aria-label': gettext('Help'),
                     url: url_for('help.static', {
                       'filename': 'editgrid.html',
                     }),
@@ -128,7 +129,7 @@ let FilterDialog = {
               '      <div class="pr-2"> ' +
               '        <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i> ' +
               '      </div> ' +
-              '      <div class="alert-text"></div> ' +
+              '      <div class="alert-text" role="alert"></div> ' +
               '    </div> ' +
               '  </div> ' +
               '</div>').appendTo($container);
@@ -138,7 +139,7 @@ let FilterDialog = {
                 `<div id="show_filter_progress" class="pg-sp-container sql-editor-busy-fetching d-none">
                   <div class="pg-sp-content">
                       <div class="row"><div class="col-12 pg-sp-icon sql-editor-busy-icon"></div></div>
-                      <div class="row"><div class="col-12 pg-sp-text sql-editor-busy-text">${gettext('Loading data...')}</div></div>
+                      <div class="row"><div class="col-12 pg-sp-text sql-editor-busy-text">` + gettext('Loading data...') + `</div></div>
                   </div>
               </div>`
               ).appendTo($container);
@@ -229,9 +230,9 @@ let FilterDialog = {
                     self.showFilterProgress[0]
                   ).addClass('d-none');
 
-                  let response = result.data.data;
+                  let filterResponse = result.data.data;
 
-                  if (response.status) {
+                  if (filterResponse.status) {
                     setTimeout(
                       function() {
                         self.close(); // Close the dialog now
@@ -242,7 +243,7 @@ let FilterDialog = {
                   } else {
                     Alertify.alert(
                       gettext('Validation Error'),
-                      response.result
+                      filterResponse.result
                     );
                   }
 

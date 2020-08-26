@@ -2,17 +2,17 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.synonym', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs',
+  'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs',
   'pgadmin.node.schema.dir/child', 'pgadmin.node.schema.dir/schema_child_tree_node',
   'pgadmin.browser.collection',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, alertify,
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, alertify,
   schemaChild, schemaChildTreeNode) {
 
   if (!pgBrowser.Nodes['coll-synonym']) {
@@ -69,7 +69,7 @@ define('pgadmin.node.synonym', [
         isNew: function() {
           return !this.fetchFromServer;
         },
-        idAttribute: 'name',
+        idAttribute: 'oid',
         // Default values!
         initialize: function(attrs, args) {
           var isNew = (_.size(attrs) === 0);
@@ -92,16 +92,19 @@ define('pgadmin.node.synonym', [
         schema: [{
           id: 'name', label: gettext('Name'), cell: 'string',
           type: 'text', mode: ['properties', 'create', 'edit'],
-          disabled: 'inSchemaWithModelCheck',
+          disabled: 'inSchema', readonly: function(m) { return !m.isNew(); },
+        },{
+          id: 'oid', label: gettext('OID'), cell: 'string',
+          type: 'text', mode: ['properties'],
         },{
           id: 'owner', label: gettext('Owner'), cell: 'string',
           type: 'text', mode: ['properties', 'create', 'edit'],
-          disabled: true , control: 'node-list-by-name',
+          readonly: true , control: 'node-list-by-name',
           node: 'role', visible: false,
         },{
           id: 'schema', label: gettext('Schema'), cell: 'string',
           type: 'text', mode: ['properties', 'create', 'edit'],
-          disabled: function(m) { return !m.isNew(); }, node: 'schema',
+          readonly: function(m) { return !m.isNew(); }, node: 'schema',
           control: 'node-list-by-name', cache_node: 'database',
           cache_level: 'database',
         },{
@@ -147,14 +150,13 @@ define('pgadmin.node.synonym', [
           },
         },{
           id: 'synobjname', label: gettext('Target object'), cell: 'string',
-          type: 'text', disabled: 'inSchema', group: gettext('Definition'),
+          type: 'text', group: gettext('Definition'),
           deps: ['targettype', 'synobjschema'],
           control: 'node-ajax-options',
           options: function(control) {
             var trgTyp = control.model.get('targettype');
             var trgSchema = control.model.get('synobjschema');
             var res = [];
-
             var node = control.field.get('schema_node'),
               _url = node.generate_url.apply(
                 node, [
@@ -179,11 +181,22 @@ define('pgadmin.node.synonym', [
               });
             return res;
           },
+          disabled: function(m) {
+            if (this.node_info &&  'catalog' in this.node_info) {
+              return true;
+            }
+            // Check the changed attributes if targettype or synobjschema
+            // is changed then reset the target object
+            if ('changed' in m && !('name' in m.changed) &&
+               ('targettype' in m.changed || 'synobjschema' in m.changed)) {
+              m.set('synobjname', undefined);
+            }
+
+            return false;
+          },
         },{
-          id: 'is_public_synonym', label: gettext('Public synonym?'),
-          disabled: true, type: 'switch', mode: ['properties'], cell: 'switch',
-          options: { onText: gettext('Yes'), offText: gettext('No'), onColor: 'success',
-            offColor: 'primary', size: 'mini'},
+          id: 'is_sys_obj', label: gettext('System synonym?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },
         ],
         validate: function() {
@@ -212,19 +225,6 @@ define('pgadmin.node.synonym', [
             return true;
           }
           return false;
-        },
-        // We will check if we are under schema node & in 'create' mode
-        inSchemaWithModelCheck: function(m) {
-          if(this.node_info &&  'schema' in this.node_info)
-          {
-            // We will disbale control if it's in 'edit' mode
-            if (m.isNew()) {
-              return false;
-            } else {
-              return true;
-            }
-          }
-          return true;
         },
       }),
       canCreate: function(itemData, item, data) {

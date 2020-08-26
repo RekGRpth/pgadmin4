@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -22,15 +22,12 @@ from pgadmin.browser.server_groups.servers.databases.schemas.utils import \
 from pgadmin.browser.server_groups.servers.databases.utils import \
     parse_sec_labels_from_db
 from pgadmin.browser.utils import PGChildNodeView
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.compile_template_name import compile_template_path
 from pgadmin.utils.driver import get_driver
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 class DomainModule(SchemaChildModule):
@@ -52,8 +49,8 @@ class DomainModule(SchemaChildModule):
         initialized.
     """
 
-    NODE_TYPE = 'domain'
-    COLLECTION_LABEL = gettext("Domains")
+    _NODE_TYPE = 'domain'
+    _COLLECTION_LABEL = gettext("Domains")
 
     def __init__(self, *args, **kwargs):
         super(DomainModule, self).__init__(*args, **kwargs)
@@ -73,13 +70,13 @@ class DomainModule(SchemaChildModule):
         Load the module script for domain, when schema node is
         initialized.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
 
 blueprint = DomainModule(__name__)
 
 
-class DomainView(PGChildNodeView, DataTypeReader):
+class DomainView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
     """
     class DomainView
 
@@ -138,9 +135,14 @@ class DomainView(PGChildNodeView, DataTypeReader):
 
     * types(gid, sid, did, scid, fnid=None):
       - Returns Data Types.
+
+    * compare(**kwargs):
+      - This function will compare the domain nodes from two different
+        schemas.
     """
 
     node_type = blueprint.node_type
+    node_label = "Domain"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -169,8 +171,70 @@ class DomainView(PGChildNodeView, DataTypeReader):
         'get_collations': [
             {'get': 'get_collations'},
             {'get': 'get_collations'}
-        ]
+        ],
+        'compare': [{'get': 'compare'}, {'get': 'compare'}]
     })
+
+    keys_to_ignore = ['oid', 'basensp', 'conoid', 'nspname', 'oid-2']
+
+    @staticmethod
+    def _get_req_data(kwargs):
+        """
+        Get req data from request.
+        :param kwargs: kwargs.
+        :return: if any error return error, else return req.
+        """
+        if request.data:
+            req = json.loads(request.data, encoding='utf-8')
+        else:
+            req = request.args or request.form
+
+        if 'doid' not in kwargs:
+            required_args = [
+                'name',
+                'basetype'
+            ]
+
+            for arg in required_args:
+                if arg not in req or req[arg] == '':
+                    return req, True, make_json_response(
+                        status=410,
+                        success=0,
+                        errormsg=gettext(
+                            "Could not find the required parameter ({})."
+                        ).format(arg),
+                    )
+        return req, False, ''
+
+    @staticmethod
+    def _get_data(req):
+        """
+        Get data from request and update required values.
+        :param req: request object.
+        :return: data.
+        """
+        data = {}
+        list_params = []
+        if request.method == 'GET':
+            list_params = ['constraints', 'seclabels']
+
+        for key in req:
+            if (
+                key in list_params and req[key] != '' and
+                req[key] is not None
+            ):
+                # Coverts string into python list as expected.
+                data[key] = json.loads(req[key], encoding='utf-8')
+            elif key == 'typnotnull':
+                if req[key] == 'true' or req[key] is True:
+                    data[key] = True
+                elif req[key] == 'false' or req[key] is False:
+                    data[key] = False
+                else:
+                    data[key] = ''
+            else:
+                data[key] = req[key]
+        return data
 
     def validate_request(f):
         """
@@ -189,50 +253,12 @@ class DomainView(PGChildNodeView, DataTypeReader):
         @wraps(f)
         def wrap(self, **kwargs):
 
-            data = {}
-            if request.data:
-                req = json.loads(request.data, encoding='utf-8')
-            else:
-                req = request.args or request.form
-
-            if 'doid' not in kwargs:
-                required_args = [
-                    'name',
-                    'basetype'
-                ]
-
-                for arg in required_args:
-                    if arg not in req or req[arg] == '':
-                        return make_json_response(
-                            status=410,
-                            success=0,
-                            errormsg=gettext(
-                                "Could not find the required parameter (%s)." %
-                                arg
-                            )
-                        )
+            req, is_error, errmsg = DomainView._get_req_data(kwargs)
+            if is_error:
+                return errmsg
 
             try:
-                list_params = []
-                if request.method == 'GET':
-                    list_params = ['constraints', 'seclabels']
-
-                for key in req:
-                    if (
-                        key in list_params and req[key] != '' and
-                        req[key] is not None
-                    ):
-                        # Coverts string into python list as expected.
-                        data[key] = json.loads(req[key], encoding='utf-8')
-                    elif key == 'typnotnull':
-                        if req[key] == 'true' or req[key] is True:
-                            data[key] = True
-                        elif req[key] == 'false' or req[key] is False:
-                            data[key] = False
-                        else:
-                            data[key] = ''
-                    else:
-                        data[key] = req[key]
+                data = DomainView._get_data(req)
 
             except Exception as e:
                 return internal_server_error(errormsg=str(e))
@@ -257,6 +283,10 @@ class DomainView(PGChildNodeView, DataTypeReader):
             # Get database connection
             self.conn = self.manager.connection(did=kwargs['did'])
             self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             # we will set template path for sql scripts
             self.template_path = compile_template_path(
@@ -281,7 +311,7 @@ class DomainView(PGChildNodeView, DataTypeReader):
             scid: Schema Id
         """
 
-        SQL = render_template("/".join([self.template_path, 'node.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODE_SQL]),
                               scid=scid)
         status, res = self.conn.execute_dict(SQL)
 
@@ -305,7 +335,7 @@ class DomainView(PGChildNodeView, DataTypeReader):
         """
 
         res = []
-        SQL = render_template("/".join([self.template_path, 'node.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODE_SQL]),
                               scid=scid)
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
@@ -338,7 +368,7 @@ class DomainView(PGChildNodeView, DataTypeReader):
             doid: Domain Id
         """
 
-        SQL = render_template("/".join([self.template_path, 'node.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODE_SQL]),
                               doid=doid)
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
@@ -355,7 +385,7 @@ class DomainView(PGChildNodeView, DataTypeReader):
                 status=200
             )
 
-        return gone(gettext("Could not find the specified domain."))
+        return gone(self.not_found_error_msg())
 
     @check_precondition
     def properties(self, gid, sid, did, scid, doid):
@@ -369,15 +399,32 @@ class DomainView(PGChildNodeView, DataTypeReader):
             scid: Schema Id
             doid: Domain Id
         """
+        status, res = self._fetch_properties(did, scid, doid)
+        if not status:
+            return res
 
-        SQL = render_template("/".join([self.template_path, 'properties.sql']),
+        return ajax_response(
+            response=res,
+            status=200
+        )
+
+    def _fetch_properties(self, did, scid, doid):
+        """
+        This function is used to fecth the properties of specified object.
+        :param did:
+        :param scid:
+        :param doid:
+        :return:
+        """
+        SQL = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               scid=scid, doid=doid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(gettext("""
+            return False, gone(gettext("""
 Could not find the domain in the database.
 It may have been removed by another user or moved to another schema.
 """))
@@ -389,11 +436,11 @@ It may have been removed by another user or moved to another schema.
 
         # Get Domain Constraints
         SQL = render_template("/".join([self.template_path,
-                                        'get_constraints.sql']),
+                                        self._GET_CONSTRAINTS_SQL]),
                               doid=doid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         data['constraints'] = res['rows']
 
@@ -406,10 +453,7 @@ It may have been removed by another user or moved to another schema.
         if doid <= self.manager.db_info[did]['datlastsysoid']:
             data['sysdomain'] = True
 
-        return ajax_response(
-            response=data,
-            status=200
-        )
+        return True, data
 
     def _parse_type(self, basetype):
         """
@@ -529,7 +573,7 @@ AND relkind != 'c'))"""
         data = self.request
         SQL, name = self.get_sql(gid, sid, data, scid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         status, res = self.conn.execute_scalar(SQL)
@@ -539,7 +583,7 @@ AND relkind != 'c'))"""
         # We need oid to to add object in tree at browser, below sql will
         # gives the same
         SQL = render_template("/".join([self.template_path,
-                                        'get_oid.sql']),
+                                        self._OID_SQL]),
                               basensp=data['basensp'],
                               name=data['name'])
         status, doid = self.conn.execute_scalar(SQL)
@@ -548,7 +592,7 @@ AND relkind != 'c'))"""
 
         # Get updated schema oid
         SQL = render_template("/".join([self.template_path,
-                                        'get_oid.sql']),
+                                        self._OID_SQL]),
                               doid=doid)
         status, scid = self.conn.execute_scalar(SQL)
         if not status:
@@ -564,7 +608,7 @@ AND relkind != 'c'))"""
         )
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, doid=None):
+    def delete(self, gid, sid, did, scid, doid=None, only_sql=False):
         """
         Drops the Domain object.
 
@@ -574,6 +618,7 @@ AND relkind != 'c'))"""
             did: Database Id
             scid: Schema Id
             doid: Domain Id
+            only_sql: Return only sql if True
         """
         if doid is None:
             data = request.form if request.form else json.loads(
@@ -582,15 +627,11 @@ AND relkind != 'c'))"""
         else:
             data = {'ids': [doid]}
 
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation(only_sql)
 
         for doid in data['ids']:
             SQL = render_template("/".join([self.template_path,
-                                            'delete.sql']),
+                                            self._DELETE_SQL]),
                                   scid=scid, doid=doid)
             status, res = self.conn.execute_2darray(SQL)
             if not status:
@@ -603,17 +644,20 @@ AND relkind != 'c'))"""
                     errormsg=gettext(
                         'Error: Object not found.'
                     ),
-                    info=gettext(
-                        'The specified domain could not be found.\n'
-                    )
+                    info=self.not_found_error_msg()
                 )
 
             name = res['rows'][0]['name']
             basensp = res['rows'][0]['basensp']
 
             SQL = render_template("/".join([self.template_path,
-                                            'delete.sql']),
+                                            self._DELETE_SQL]),
                                   name=name, basensp=basensp, cascade=cascade)
+
+            # Used for schema diff tool
+            if only_sql:
+                return SQL
+
             status, res = self.conn.execute_scalar(SQL)
             if not status:
                 return internal_server_error(errormsg=res)
@@ -639,7 +683,7 @@ AND relkind != 'c'))"""
 
         SQL, name = self.get_sql(gid, sid, self.request, scid, doid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         status, res = self.conn.execute_scalar(SQL)
@@ -648,7 +692,7 @@ AND relkind != 'c'))"""
 
         # Get Schema Id
         SQL = render_template("/".join([self.template_path,
-                                        'get_oid.sql']),
+                                        self._OID_SQL]),
                               doid=doid)
         status, scid = self.conn.execute_scalar(SQL)
         if not status:
@@ -664,7 +708,7 @@ AND relkind != 'c'))"""
         )
 
     @check_precondition
-    def sql(self, gid, sid, did, scid, doid=None):
+    def sql(self, gid, sid, did, scid, doid=None, **kwargs):
         """
         Returns the SQL for the Domain object.
 
@@ -674,18 +718,18 @@ AND relkind != 'c'))"""
             did: Database Id
             scid: Schema Id
             doid: Domain Id
+            json_resp: True then return json response
         """
+        json_resp = kwargs.get('json_resp', True)
 
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               scid=scid, doid=doid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(
-                gettext("Could not find the specified domain.")
-            )
+            return gone(self.not_found_error_msg())
 
         data = res['rows'][0]
 
@@ -694,7 +738,7 @@ AND relkind != 'c'))"""
 
         # Get Domain Constraints
         SQL = render_template("/".join([self.template_path,
-                                        'get_constraints.sql']),
+                                        self._GET_CONSTRAINTS_SQL]),
                               doid=doid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
@@ -707,14 +751,17 @@ AND relkind != 'c'))"""
             data.update(parse_sec_labels_from_db(data['seclabels']))
 
         SQL = render_template("/".join([self.template_path,
-                                        'create.sql']), data=data)
+                                        self._CREATE_SQL]), data=data)
 
-        sql_header = u"""-- DOMAIN: {0}
+        sql_header = u"""-- DOMAIN: {0}.{1}\n\n""".format(
+            data['basensp'], data['name'])
 
--- DROP DOMAIN {0};
-
+        sql_header += """-- DROP DOMAIN {0};\n
 """.format(self.qtIdent(self.conn, data['basensp'], data['name']))
         SQL = sql_header + SQL
+
+        if not json_resp:
+            return SQL.strip('\n')
 
         return ajax_response(response=SQL.strip('\n'))
 
@@ -744,7 +791,7 @@ AND relkind != 'c'))"""
         try:
             SQL, name = self.get_sql(gid, sid, self.request, scid, doid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
             if SQL == '':
                 SQL = "--modified SQL"
@@ -756,7 +803,27 @@ AND relkind != 'c'))"""
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
-    def get_sql(self, gid, sid, data, scid, doid=None):
+    def check_domain_type(self, data, old_data, is_schema_diff):
+        """
+        Check domain type
+        :return:
+        """
+        # If fulltype or basetype or collname is changed while comparing
+        # two schemas then we need to drop domain and recreate it
+        if 'fulltype' in data or 'basetype' in data or 'collname' in data:
+            SQL = render_template(
+                "/".join([self.template_path, 'domain_schema_diff.sql']),
+                data=data, o_data=old_data)
+        else:
+            if is_schema_diff:
+                data['is_schema_diff'] = True
+
+            SQL = render_template(
+                "/".join([self.template_path, 'update.sql']),
+                data=data, o_data=old_data)
+        return SQL, data
+
+    def get_sql(self, gid, sid, data, scid, doid=None, is_schema_diff=False):
         """
         Generates the SQL statements to create/update the Domain.
 
@@ -766,26 +833,25 @@ AND relkind != 'c'))"""
             did: Database Id
             scid: Schema Id
             doid: Domain Id
+            is_schema_diff: True is function gets called from schema diff
         """
 
         if doid is not None:
             SQL = render_template("/".join([self.template_path,
-                                            'properties.sql']),
+                                            self._PROPERTIES_SQL]),
                                   scid=scid, doid=doid)
             status, res = self.conn.execute_dict(SQL)
 
             if not status:
                 return False, internal_server_error(errormsg=res)
             if len(res['rows']) == 0:
-                return gone(
-                    gettext("Could not find the specified domain.")
-                )
+                return gone(self.not_found_error_msg())
 
             old_data = res['rows'][0]
 
             # Get Domain Constraints
             SQL = render_template("/".join([self.template_path,
-                                            'get_constraints.sql']),
+                                            self._GET_CONSTRAINTS_SQL]),
                                   doid=doid)
             status, res = self.conn.execute_dict(SQL)
             if not status:
@@ -797,14 +863,12 @@ AND relkind != 'c'))"""
 
             old_data['constraints'] = con_data
 
-            SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
-                data=data, o_data=old_data)
+            SQL, data = self.check_domain_type(data, old_data, is_schema_diff)
             return SQL.strip('\n'), data['name'] if 'name' in data else \
                 old_data['name']
         else:
             SQL = render_template("/".join([self.template_path,
-                                            'create.sql']),
+                                            self._CREATE_SQL]),
                                   data=data)
             return SQL.strip('\n'), data['name']
 
@@ -846,5 +910,59 @@ AND relkind != 'c'))"""
             status=200
         )
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid):
+        """
+        This function will fetch the list of all the domains for
+        specified schema id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :return:
+        """
+        res = dict()
+        SQL = render_template("/".join([self.template_path,
+                                        self._NODE_SQL]), scid=scid)
+        status, rset = self.conn.execute_2darray(SQL)
+        if not status:
+            return internal_server_error(errormsg=res)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(did, scid, row['oid'])
+
+            if status:
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_sql(gid=gid, sid=sid, scid=scid,
+                                     data=data, doid=oid,
+                                     is_schema_diff=True)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, doid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, doid=oid,
+                               json_resp=False)
+        return sql
+
+
+SchemaDiffRegistry(blueprint.node_type, DomainView)
 DomainView.register_node_view(blueprint)

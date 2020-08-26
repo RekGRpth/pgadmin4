@@ -2,17 +2,12 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
-import sys
 
-if sys.version_info < (3, 3):
-    from mock import MagicMock
-else:
-    from unittest.mock import MagicMock
-
+from unittest.mock import MagicMock
 from pgadmin.browser.server_groups.servers.tablespaces import TablespaceModule
 from pgadmin.utils.route import BaseTestGenerator
 
@@ -49,5 +44,5 @@ class BackendSupportedTestCase(BaseTestGenerator):
         manager.sversion = self.manager['sversion']
         manager.server_type = self.manager['server_type']
         self.assertEquals(
-            self.expected_result, module.BackendSupported(manager)
+            self.expected_result, module.backend_supported(manager)
         )

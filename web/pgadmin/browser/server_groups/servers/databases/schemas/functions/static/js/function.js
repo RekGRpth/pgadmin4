@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -58,6 +58,9 @@ define('pgadmin.node.function', [
     },{
       id: 'argmode', label: gettext('Mode'), type: 'options',
       control: 'node-ajax-options', cellHeaderClasses:'width_percent_20',
+      cell: 'node-ajax-options', select2: {
+        allowClear: false,
+      },
       options:[
         {'label': 'IN', 'value': 'IN'},
         {'label': 'OUT', 'value': 'OUT'},
@@ -178,6 +181,7 @@ define('pgadmin.node.function', [
           procost: undefined, /* Estimated execution Cost */
           prorows: undefined, /* Estimated number of rows */
           proleakproof: undefined,
+          prosupportfunc: undefined, /* Support function */
           arguments: [],
           prosrc: undefined,
           prosrc_c: undefined,
@@ -221,21 +225,19 @@ define('pgadmin.node.function', [
           type: 'text', group: gettext('Definition'), mode: ['properties'],
         },{
           id: 'proargs', label: gettext('Arguments'), cell: 'string',
-          type: 'text', group: gettext('Definition'), mode: ['properties', 'edit'],
-          disabled: 'isDisabled',
+          type: 'text', group: gettext('Definition'), mode: ['properties'],
         },{
           id: 'proargtypenames', label: gettext('Signature arguments'), cell:
           'string', type: 'text', group: gettext('Definition'), mode: ['properties'],
-          disabled: 'isDisabled',
         },{
           id: 'prorettypename', label: gettext('Return type'), cell: 'string',
           control: 'node-ajax-options', type: 'text', group: gettext('Definition'),
-          url: 'get_types', disabled: 'isDisabled', first_empty: true,
+          url: 'get_types', readonly: 'isReadonly', first_empty: true,
           mode: ['create'], visible: 'isVisible',
         },{
           id: 'prorettypename', label: gettext('Return type'), cell: 'string',
           type: 'text', group: gettext('Definition'),
-          mode: ['properties', 'edit'], disabled: 'isDisabled', visible: 'isVisible',
+          mode: ['properties', 'edit'], readonly: 'isReadonly', visible: 'isVisible',
         },  {
           id: 'lanname', label: gettext('Language'), cell: 'string',
           control: 'node-ajax-options', type: 'text', group: gettext('Definition'),
@@ -243,8 +245,9 @@ define('pgadmin.node.function', [
         },{
           id: 'prosrc', label: gettext('Code'), cell: 'string',
           type: 'text', mode: ['properties', 'create', 'edit'],
-          group: gettext('Definition'), deps: ['lanname'],
-          control: Backform.SqlFieldControl,
+          group: gettext('Code'), deps: ['lanname'],
+          tabPanelCodeClass: 'sql-code-control',
+          control: Backform.SqlCodeControl,
           extraClasses:['custom_height_css_class'],
           visible: function(m) {
             if (m.get('lanname') == 'c') {
@@ -303,21 +306,27 @@ define('pgadmin.node.function', [
           select2: {allowClear: false},
         },{
           id: 'procost', label: gettext('Estimated cost'), group: gettext('Options'),
-          cell:'string', type: 'text', disabled: 'isDisabled', deps: ['lanname'],
+          cell:'string', type: 'text', readonly: 'isReadonly', deps: ['lanname'],
         },{
           id: 'prorows', label: gettext('Estimated rows'), type: 'text',
-          deps: ['proretset'], visible: 'isVisible', disabled: 'isDisabled',
+          deps: ['proretset'], visible: 'isVisible', readonly: 'isReadonly',
           group: gettext('Options'),
         },{
           id: 'proleakproof', label: gettext('Leak proof?'),
           group: gettext('Options'), cell:'boolean', type: 'switch', min_version: 90200,
           disabled: 'isDisabled', deps: ['lanname'],
         },{
+          id: 'prosupportfunc', label: gettext('Support function'),
+          type: 'text', disabled: 'isDisabled',
+          group: gettext('Options'), visible: 'isVisible',
+          control: 'node-ajax-options', url: 'get_support_functions',
+          cache_node: 'function', min_version: 120000,
+        },{
           id: 'proacl', label: gettext('Privileges'), type: 'text',
           mode: ['properties'], group: gettext('Security'),
         },{
           id: 'arguments', label: gettext('Arguments'), cell: 'string',
-          group: gettext('Arguments'), type: 'collection', canAdd: function(m){
+          group: gettext('Definition'), type: 'collection', canAdd: function(m){
             return m.isNew();
           },
           canDelete: true, model: ArgumentModel, mode: ['create', 'edit'],
@@ -358,7 +367,7 @@ define('pgadmin.node.function', [
 
           if (_.isUndefined(this.get('name')) || String(this.get('name')).replace(/^\s+|\s+$/g, '') == '') {
             err['name'] = gettext('Name cannot be empty.');
-            errmsg = errmsg || err['name'];
+            errmsg = err['name'];
           }
 
           if (_.isUndefined(this.get('funcowner')) || String(this.get('funcowner')).replace(/^\s+|\s+$/g, '') == '') {
@@ -424,16 +433,26 @@ define('pgadmin.node.function', [
           if (this.name == 'sysproc') { return false; }
           return true;
         },
-        isDisabled: function(m) {
+        isDisabled: function() {
           if(this.node_info && 'catalog' in this.node_info) {
             return true;
           }
+          if(this.name === 'prosupportfunc'){
+            var item = pgAdmin.Browser.tree.selected();
+            if(pgAdmin.Browser.Nodes['function'].getTreeNodeHierarchy(item).server.user.is_superuser)
+              return false;
+            return true;
+          } else {
+            return false;
+          }
+        },
+        isReadonly: function(m) {
           switch(this.name){
           case 'proargs':
           case 'proargtypenames':
-          case 'prorettypename':
           case 'proretset':
           case 'proiswindow':
+          case 'prorettypename':
             return !m.isNew();
           case 'prorows':
             if(m.get('proretset') == true) {

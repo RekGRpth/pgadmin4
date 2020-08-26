@@ -8,6 +8,15 @@ pgAdmin may be deployed as a web application by configuring the app to run in
 server mode and then deploying it either behind a webserver running as a reverse
 proxy, or using the WSGI interface.
 
+When deployed in server mode, there are two notable differences for users:
+
+* Users must login before they can use pgAdmin. An initial superuser account
+  is created when server mode is initialised, and this user can add additional
+  superusers and non-superusers as required.
+* File storage is restricted to a virtual root directory for each individual
+  user under the directory configured using the ``STORAGE_DIR`` configuration
+  parameter. Users do not have access to the complete filesystem of the server.
+
 The following instructions demonstrate how pgAdmin may be run as a WSGI 
 application under ``Apache HTTPD``, using ``mod_wsgi``, standalone using ``uWSGI``
 or ``Gunicorn``, or under ``NGINX`` using using ``uWSGI`` or ``Gunicorn``.
@@ -59,24 +68,7 @@ In order to configure pgAdmin to run in server mode, it may be necessary to
 configure the Python code to run in multi-user mode, and then to configure the
 web server to find and execute the code.
 
-Note that there are multiple configuration files that are read at startup by
-pgAdmin. These are as follows:
-
-* ``config.py``: This is the main configuration file, and should not be modified.
-  It can be used as a reference for configuration settings, that may be overridden
-  in one of the following files.
-
-* ``config_distro.py``: This file is read after ``config.py`` and is intended for
-  packagers to change any settings that are required for their pgAdmin distribution.
-  This may typically include certain paths and file locations. This file is optional,
-  and may be created by packagers in the same directory as ``config.py`` if
-  needed.
-
-* ``config_local.py``: This file is read after ``config_distro.py`` and is intended
-  for end users to change any default or packaging specific settings that they may
-  wish to adjust to meet local preferences or standards. This file is optional,
-  and may be created by administrators in the same directory as ``config.py`` if
-  needed.
+See :ref:`config_py` for more information on configuration settings.
 
 Python
 ------
@@ -116,6 +108,12 @@ In order to configure the Python code, follow these steps:
    .. code-block:: bash
 
        # chown www-data:www-data /var/lib/pgadmin4/pgadmin4.db
+
+Hosting
+*******
+
+There are many possible ways to host pgAdmin in server mode. Some examples are
+given below:
 
 Apache HTTPD Configuration (Windows)
 ------------------------------------

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -50,15 +50,15 @@ class DriverRegistry(ABCMeta):
     registry = None
     drivers = dict()
 
-    def __init__(cls, name, bases, d):
+    def __init__(self, name, bases, d):
 
         # Register this type of driver, based on the module name
         # Avoid registering the BaseDriver itself
 
         if name != 'BaseDriver':
-            DriverRegistry.registry[_decorate_cls_name(d['__module__'])] = cls
+            DriverRegistry.registry[_decorate_cls_name(d['__module__'])] = self
 
-        ABCMeta.__init__(cls, name, bases, d)
+        ABCMeta.__init__(self, name, bases, d)
 
     @classmethod
     def create(cls, name, **kwargs):
@@ -85,4 +85,4 @@ class DriverRegistry(ABCMeta):
         from werkzeug.utils import find_modules
 
         for module_name in find_modules(__package__, True):
-            module = import_module(module_name)
+            import_module(module_name)

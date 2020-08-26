@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -72,6 +72,7 @@ define('pgadmin.node.fts_parser', [
         idAttribute: 'oid',
         defaults: {
           name: undefined,          // Fts parser name
+          is_sys_obj: undefined,  // Is system object
           description: undefined,   // Comment on parser
           schema: undefined,        // Schema name to which parser belongs
           prsstart: undefined,      // Start function for fts parser
@@ -95,42 +96,45 @@ define('pgadmin.node.fts_parser', [
           type: 'text', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          editable: false, type: 'text', disabled: true, mode:['properties'],
+          editable: false, type: 'text', mode:['properties'],
         },{
           id: 'schema', label: gettext('Schema'), cell: 'string',
           type: 'text', mode: ['create','edit'], node: 'schema',
           control: 'node-list-by-id', cache_node: 'database',
           cache_level: 'database',
         },{
+          id: 'is_sys_obj', label: gettext('System FTS parser?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
+        },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'prsstart', label: gettext('Start function'),
-          type: 'text', disabled: function(m) { return !m.isNew(); },
+          type: 'text', readonly: function(m) { return !m.isNew(); },
           control: 'node-ajax-options', url: 'start_functions',
           group: gettext('Definition'), cache_level: 'database',
           cache_node: 'schema',
         },{
           id: 'prstoken', label: gettext('Get next token function'),
-          type: 'text', disabled: function(m) { return !m.isNew(); },
+          type: 'text', readonly: function(m) { return !m.isNew(); },
           control: 'node-ajax-options', url: 'token_functions',
           group: gettext('Definition'), cache_level: 'database',
           cache_node: 'schema',
         },{
           id: 'prsend', label: gettext('End function'),
-          type: 'text', disabled: function(m) { return !m.isNew(); },
+          type: 'text', readonly: function(m) { return !m.isNew(); },
           control: 'node-ajax-options', url: 'end_functions',
           group: gettext('Definition'), cache_level: 'database',
           cache_node: 'schema',
         },{
           id: 'prslextype', label: gettext('Lextypes function'),
-          type: 'text', disabled: function(m) { return !m.isNew(); },
+          type: 'text', readonly: function(m) { return !m.isNew(); },
           control: 'node-ajax-options', url: 'lextype_functions',
           group: gettext('Definition'), cache_level: 'database',
           cache_node: 'schema',
         },{
           id: 'prsheadline', label: gettext('Headline function'),
-          type: 'text', disabled: function(m) { return !m.isNew(); },
+          type: 'text', readonly: function(m) { return !m.isNew(); },
           control: 'node-ajax-options', url: 'headline_functions',
           group: gettext('Definition'), cache_level: 'database',
           cache_node: 'schema',

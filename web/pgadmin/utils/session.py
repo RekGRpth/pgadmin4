@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -28,20 +28,14 @@ from uuid import uuid4
 from threading import Lock
 from flask import current_app, request, flash, redirect
 from flask_login import login_url
-from pgadmin.utils.ajax import make_json_response
 
-try:
-    from cPickle import dump, load
-except ImportError:
-    from pickle import dump, load
-
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
+from pickle import dump, load
+from collections import OrderedDict
 
 from flask.sessions import SessionInterface, SessionMixin
 from werkzeug.datastructures import CallbackDict
+
+from pgadmin.utils.ajax import make_json_response
 
 
 def _calc_hmac(body, secret):
@@ -74,12 +68,7 @@ class ManagedSession(CallbackDict, SessionMixin):
 
     def sign(self, secret):
         if not self.hmac_digest:
-            if hasattr(string, 'lowercase'):
-                population = string.lowercase
-            # If script is running under python3
-            elif hasattr(string, 'ascii_lowercase'):
-                population = string.ascii_lowercase
-            population += string.digits
+            population = string.ascii_lowercase + string.digits
 
             self.randval = ''.join(random.sample(population, 20))
             self.hmac_digest = _calc_hmac(
@@ -109,11 +98,11 @@ class SessionManager(object):
 
 
 class CachingSessionManager(SessionManager):
-    def __init__(self, parent, num_to_store, skip_paths=[]):
+    def __init__(self, parent, num_to_store, skip_paths=None):
         self.parent = parent
         self.num_to_store = num_to_store
         self._cache = OrderedDict()
-        self.skip_paths = skip_paths
+        self.skip_paths = [] if skip_paths is None else skip_paths
 
     def _normalize(self):
         if len(self._cache) > self.num_to_store:
@@ -193,13 +182,13 @@ class CachingSessionManager(SessionManager):
 
 class FileBackedSessionManager(SessionManager):
 
-    def __init__(self, path, secret, disk_write_delay, skip_paths=[]):
+    def __init__(self, path, secret, disk_write_delay, skip_paths=None):
         self.path = path
         self.secret = secret
         self.disk_write_delay = disk_write_delay
         if not os.path.exists(self.path):
             os.makedirs(self.path)
-        self.skip_paths = skip_paths
+        self.skip_paths = [] if skip_paths is None else skip_paths
 
     def exists(self, sid):
         fname = os.path.join(self.path, sid)
@@ -225,7 +214,7 @@ class FileBackedSessionManager(SessionManager):
 
         # touch the file
         with open(fname, 'wb'):
-            pass
+            return ManagedSession(sid=sid)
 
         return ManagedSession(sid=sid)
 
@@ -263,11 +252,10 @@ class FileBackedSessionManager(SessionManager):
         current_time = time.time()
         if not session.hmac_digest:
             session.sign(self.secret)
-        elif not session.force_write:
-            if session.last_write is not None and \
-                (current_time - float(session.last_write)) < \
-                    self.disk_write_delay:
-                return
+        elif not session.force_write and session.last_write is not None and \
+            (current_time - float(session.last_write)) < \
+                self.disk_write_delay:
+            return
 
         session.last_write = current_time
         session.force_write = False
@@ -352,7 +340,7 @@ def pga_unauthorised():
         else:
             login_message = lm.login_message
 
-    if not lm.login_view or request.is_xhr:
+    if not lm.login_view:
         # Only 401 is not enough to distinguish pgAdmin login is required.
         # There are other cases when we return 401. For eg. wrong password
         # supplied while connecting to server.
@@ -382,14 +370,11 @@ def cleanup_session_files():
     iterate_session_files = False
 
     global LAST_CHECK_SESSION_FILES
-    if LAST_CHECK_SESSION_FILES is None:
+    if LAST_CHECK_SESSION_FILES is None or \
+        datetime.datetime.now() >= LAST_CHECK_SESSION_FILES + \
+            datetime.timedelta(hours=config.CHECK_SESSION_FILES_INTERVAL):
         iterate_session_files = True
         LAST_CHECK_SESSION_FILES = datetime.datetime.now()
-    else:
-        if datetime.datetime.now() >= LAST_CHECK_SESSION_FILES + \
-                datetime.timedelta(hours=config.CHECK_SESSION_FILES_INTERVAL):
-            iterate_session_files = True
-            LAST_CHECK_SESSION_FILES = datetime.datetime.now()
 
     if iterate_session_files:
         for root, dirs, files in os.walk(
@@ -408,6 +393,6 @@ def cleanup_session_files():
                     current_app.permanent_session_lifetime + \
                     datetime.timedelta(days=1)
 
-                if file_expiration_time <= datetime.datetime.now():
-                    if os.path.exists(absolute_file_name):
-                        os.unlink(absolute_file_name)
+                if file_expiration_time <= datetime.datetime.now() and \
+                        os.path.exists(absolute_file_name):
+                    os.unlink(absolute_file_name)

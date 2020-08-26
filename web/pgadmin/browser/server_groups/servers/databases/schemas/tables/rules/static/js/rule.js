@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -57,20 +57,13 @@ define('pgadmin.node.rule', [
       hasDepends: true,
       canDrop: function(itemData, item){
         SchemaChildTreeNode.isTreeItemOfChildOfSchema.apply(this, [itemData, item]);
-        if(_.has(itemData, 'label') && itemData.label === '_RETURN')
-          return false;
-        else {
-          return true;
-        }
+        return (!_.has(itemData, 'label') || itemData.label !== '_RETURN');
       },
       canDropCascade: function(itemData, item){
         SchemaChildTreeNode.isTreeItemOfChildOfSchema.apply(this, [itemData, item]);
-        if(_.has(itemData, 'label') && itemData.label === '_RETURN')
-          return false;
-        else {
-          return true;
-        }
+        return (!_.has(itemData, 'label') || itemData.label !== '_RETURN');
       },
+      url_jump_after_node: 'schema',
       Init: function() {
 
         /* Avoid mulitple registration of menus */
@@ -133,9 +126,7 @@ define('pgadmin.node.rule', [
             if (m && m.get('name') == '_RETURN') {
               return true;
             }
-            if (m.isNew()) {
-              return false;
-            } else if (m.node_info.server.version >= 90400) {
+            if (m.isNew && m.isNew() || m.node_info && m.node_info.server.version >= 90400) {
               return false;
             }
             return true;
@@ -143,7 +134,7 @@ define('pgadmin.node.rule', [
         },
         {
           id: 'oid', label: gettext('OID'),
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
         },
         {
           id: 'schema', label:'',
@@ -168,10 +159,10 @@ define('pgadmin.node.rule', [
             allowClear: false,
           },
           options:[
-            {label: 'Select', value: 'Select'},
-            {label: 'Insert', value: 'Insert'},
-            {label: 'Update', value: 'Update'},
-            {label: 'Delete', value: 'Delete'},
+            {label: 'SELECT', value: 'SELECT'},
+            {label: 'INSERT', value: 'INSERT'},
+            {label: 'UPDATE', value: 'UPDATE'},
+            {label: 'DELETE', value: 'DELETE'},
           ],
         },
         {
@@ -180,13 +171,15 @@ define('pgadmin.node.rule', [
         },
         {
           id: 'condition', label: gettext('Condition'),
-          type: 'text', group: gettext('Definition'),
-          control: Backform.SqlFieldControl,
+          type: 'text', group: gettext('Condition'),
+          tabPanelCodeClass: 'sql-code-control',
+          control: Backform.SqlCodeControl,
         },
         {
           id: 'statements', label: gettext('Commands'),
-          type: 'text', group: gettext('Definition'),
-          control: Backform.SqlFieldControl,
+          type: 'text', group: gettext('Commands'),
+          tabPanelCodeClass: 'sql-code-control',
+          control: Backform.SqlCodeControl,
         },
         {
           id: 'system_rule', label: gettext('System rule?'),
@@ -210,7 +203,7 @@ define('pgadmin.node.rule', [
             String(field_name).replace(/^\s+|\s+$/g, '') === '')
           {
             err['name'] = gettext('Please specify name.');
-            errmsg = errmsg || err['name'];
+            errmsg = err['name'];
             this.errorModel.set('name', errmsg);
             return errmsg;
           }
@@ -243,14 +236,9 @@ define('pgadmin.node.rule', [
             //Check if we are not child of rule
             var prev_i = t.hasParent(i) ? t.parent(i) : null,
               prev_j = t.hasParent(prev_i) ? t.parent(prev_i) : null,
-              prev_e = prev_j ? t.itemData(prev_j) : null,
               prev_k = t.hasParent(prev_j) ? t.parent(prev_j) : null,
               prev_f = prev_k ? t.itemData(prev_k) : null;
-            if( prev_f._type == 'catalog') {
-              return false;
-            } else {
-              return true;
-            }
+            return (_.isNull(prev_f) || prev_f._type != 'catalog');
           }
 
           /**
@@ -260,12 +248,8 @@ define('pgadmin.node.rule', [
           else if('view' == d._type || 'table' == d._type){
             prev_i = t.hasParent(i) ? t.parent(i) : null;
             prev_j = t.hasParent(prev_i) ? t.parent(prev_i) : null;
-            prev_e = prev_j ? t.itemData(prev_j) : null;
-            if(prev_e._type == 'schema') {
-              return true;
-            }else{
-              return false;
-            }
+            var prev_e = prev_j ? t.itemData(prev_j) : null;
+            return (!_.isNull(prev_e) && prev_e._type == 'schema');
           }
           i = t.hasParent(i) ? t.parent(i) : null;
           d = i ? t.itemData(i) : null;

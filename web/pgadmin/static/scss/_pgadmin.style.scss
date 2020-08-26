@@ -1,6 +1,3 @@
-.pgadmin-control-group {
-  min-width: 34px;
-}
 .control-label {
   margin: 0px;
   display: inline-block;
@@ -90,6 +87,7 @@
 
 .panel-link-heading:hover {
   text-decoration: none;
+  color: inherit;
 }
 
 .nav .open > a, .nav .open > a:hover, .nav .open > a:focus {
@@ -97,7 +95,7 @@
 }
 
 #navbar-user {
-  font-size: $navbar-user-font-size;
+  font-size: 0.9em;
 }
 
 
@@ -143,18 +141,11 @@
 
 .pg-navbar {
   font-size: $navbar-font-size;
-  background-color: $navbar-color-bg;
+  background-color: $navbar-bg;
   padding-left: 0rem;
   padding-right: 0.5rem;
   & .nav-item .nav-link{
     line-height: 1;
-  }
-
-  .pg-navbar-brand-arrow {
-    border: $navbar-height/2 solid $navbar-brand-arrow-bg;
-    border-right-color: transparent;
-    border-bottom-color: transparent;
-    border-top-color: transparent;
   }
 }
 
@@ -192,7 +183,7 @@
     &.pg-prop-btn-group-below {
       text-align: right;
       padding: $footer-padding;
-      background: $color-bg-theme;
+      background: $header-bg;
       border-top: $panel-border;
     }
   }
@@ -291,11 +282,24 @@
 
 /* Message panel shown on browser tabs */
 .pg-panel-message {
-    margin-top: 25px !important;
     width: 80%;
     margin: 0 auto;
+    margin-top: 25px !important;
     position: relative;
     text-align: center;
+
+    &:before {
+        font-family: $font-family-icon;
+        content: "\f05a" !important;
+        font-size: 1rem;
+        margin-right: 0.5rem;
+        font-weight: 900;
+    }
+
+    &.pg-panel-error:before {
+        content: "\f06a" !important;
+        font-weight: 900;
+    }
 }
 
 .pgadmin-control {
@@ -307,8 +311,15 @@
 
 
 .pgadmin-control-group {
-    margin: 0rem 0rem $form-group-margin-bottom 0rem;
-    padding: 0rem;
+  margin: 0rem 0rem $form-group-margin-bottom 0rem;
+  padding: 0rem;
+  min-width: 34px;
+
+  &.sql, &.sqltab {
+    margin: 0px;
+    padding: 0px;
+    height: 100%;
+  }
 }
 
 .pgadmin-controls {
@@ -359,7 +370,7 @@
   display: block;
   text-align: left;
   cursor: pointer;
-  background-color: $color-bg;
+  background-color: $badge-header-bg;
   padding: 7px;
   font-size: inherit;
   border-bottom: $panel-border;
@@ -372,7 +383,6 @@
     border-radius: $card-border-radius;
   }
 }
-
 .obj_properties .badge .caret {
   display: inline-block;
   margin-left: 2px;
@@ -385,6 +395,7 @@
 	content: "\f078";
 	font-size: 0.7rem;
 	margin-left: 0rem;
+	font-weight: 900;
 }
 
 .obj_properties .collapsed .caret::before {
@@ -392,6 +403,7 @@
 	content: "\f054";
 	font-size: 0.7rem;
 	border: none;
+	font-weight: 900;
 }
 
 .obj_properties table td {
@@ -408,9 +420,9 @@
   padding: 0rem;
   border: $panel-border;
   border-radius: $card-border-radius;
-  background-color: $color-bg-theme;
+  background-color: $color-bg;
   fieldset.inline-fieldset {
-    background: $color-bg-theme;
+    background: $color-bg;
   }
 }
 
@@ -510,17 +522,23 @@ fieldset.inline-fieldset > div {
   padding: 15px;
 }
 
-.pgadmin-control-group{
-  &.sql, &.sqltab {
+.tab-pane.sql-code-control {
+  & .pgadmin-control-group{
     margin: 0px;
     padding: 0px;
     height: 100%;
   }
 }
 
-.pgadmin-controls input[type="checkbox"]{
+.pgadmin-controls input[type=checkbox]{
   margin-left: 0 !important;
   margin-top: 10px !important;
+}
+
+/* custom-control-label is used for checkbox */
+.pgadmin-controls .custom-control-label{
+  margin-left: 0 !important;
+  margin-top: 5px !important;
 }
 
 .pgadmin-controls.sql_field_layout {
@@ -540,7 +558,8 @@ fieldset.inline-fieldset > div {
 
 .dashboard-tab-container,
 .pg-panel-statistics-container,
-.pg-panel-depends-container,
+.pg-panel-dependencies-container,
+.pg-panel-dependents-container,
 .pg-prop-coll-container, {
     width: 100%;
     overflow: auto;
@@ -553,7 +572,7 @@ fieldset.inline-fieldset > div {
     left: 0px;
     right: 0px;
     top : 0px;
-    background-color: $color-bg-theme;
+    background-color: $color-bg;
 }
 
 /* Overrides/fixes for pgAdmin specific styling */
@@ -567,7 +586,7 @@ fieldset.inline-fieldset > div {
 }
 
 .icon-fa::before {
-    font: normal normal normal 14px/1 FontAwesome;
+    font: normal normal normal 14px/1 $font-family-icon;
     text-rendering: auto;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -623,6 +642,10 @@ fieldset.inline-fieldset > div {
     height: 100%;
   }
 
+  & .btn-secondary:focus {
+    box-shadow: $input-btn-focus-box-shadow;
+  }
+
   & .input-group {
     & .input-group-text {
       background: $input-bg;
@@ -645,24 +668,21 @@ fieldset.inline-fieldset > div {
   outline: none;
 }
 
-input[type="checkbox"]:focus,
-a:focus {
-    &.navbar-brand, &.dropdown-item {
-        outline: none !important;
+input[type="checkbox"],
+select,
+a {
+    &:focus {
+      &.navbar-brand, &.dropdown-item {
+          outline: none !important;
+      }
+      outline: 2px solid $input-focus-border-color !important;
     }
-    outline: $input-focus-border-color auto 5px !important;
 }
 
 div.rolmembership {
     margin-top: 15px;
 }
 
-.inline-tab-panel {
-    float: left; width: 100%;
-    background-color: $color-primary-fg;
-    border: 1px solid $border-color;
-    border-radius: $card-border-radius;
-}
 
 .inline-tab-panel > ul.nav-tabs > li:first-child > a,
 .inline-tab-panel > ul.nav-tabs > li:first-child > a:active,
@@ -674,12 +694,15 @@ div.rolmembership {
 
 .inline-tab-panel > ul.tab-content {
   padding-left: 5px; padding-right: 5px; border-color: $color-gray-lighter;
-  border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;
   border-width: 0px 1px 1px 1px; border-bottom-right-radius: 5px;
   border-bottom-left-radius: 5px; border-style: solid solid;
 }
 
 .inline-tab-panel  {
+  float: left; width: 100%;
+  background-color: $header-bg;
+  border: 1px solid $border-color;
+  border-radius: $card-border-radius;
   & > .tab-content {
     padding: 0px;
     margin: 0px;
@@ -690,10 +713,6 @@ div.rolmembership {
   &.inline-tab-panel-padded > .tab-content {
     padding: 0.5rem;
   }
-}
-
-.inline-tab-panel > .tab-content > div.tab-pane {
-  padding: 0px;
 }
 
 .inline-tab-panel > ul.tab-content > div.tab-pane {
@@ -709,6 +728,7 @@ div.rolmembership {
 }
 
 .inline-tab-panel > .tab-content > div.tab-pane {
+  padding: 0px;
   & > .pgadmin-control-group {
     & > div.subnode {
       border: none !important;
@@ -725,7 +745,7 @@ table tr th {
   & button {
     background: none;
     border: none;
-    color: $color-fg-theme;
+    color: $color-fg;
     padding: 0;
   }
   & button:focus {
@@ -747,13 +767,20 @@ table tr td {
     td.edit-cell:focus,
     td.delete-cell:focus,
     td.string-cell:focus {
-      border: 2px solid $input-focus-border-color !important;;
+      border: 2px solid $input-focus-border-color !important;
     }
   }
 }
 
-.privilege_label{
-  font-size: 10px!important;
+.privilege-checkbox{
+    & .custom-control-label {
+        font-size: 0.7rem;
+        line-height: 1.7;
+        &:before, &:after {
+            height: 0.8rem;
+            width: 0.8rem;
+        }
+    }
 }
 
 span.button-label {
@@ -828,22 +855,24 @@ body {
 
 .multi-checkbox .check.checked:after {
   content: "\2713";
+  font-weight: 900;
 }
 
 .multi-checkbox .check.partial:after {
   content: "\003F";
+  font-weight: 900;
 }
 
 .pg-el-container {
-  background-color: $color-gray-lighter;
+  background-color: $negative-bg;
 }
 
 .nav-tabs {
-  background-color: $color-bg-theme;
+  background-color: $header-bg;
 }
 
 .editor-toolbar {
-  background: $sql-gutters-bg;
+  background: $editor-toolbar-bg;
   padding: 0.05rem 0.25rem;
 }
 
@@ -851,8 +880,8 @@ body {
 table.table-noouter-border {
   border: none !important;
 
-  tbody tr:last-of-type{
-    & td {
+  & > tbody > tr:last-of-type{
+    &  > td {
       border-bottom: $table-border-width solid transparent;
     }
   }
@@ -862,6 +891,14 @@ table.table-bottom-border {
   tbody tr:last-of-type{
     & td, & th {
       border-bottom: $panel-border;
+    }
+  }
+}
+
+table.table-right-border {
+  tr {
+    & td:last-of-type, & th:last-of-type {
+      border-right: $panel-border;
     }
   }
 }
@@ -883,6 +920,7 @@ table.table-empty-rows{
   font-size: 0.6rem;
   line-height: 2;
   border-style: none;
+  font-weight: 900;
 }
 
 .login_page {
@@ -919,6 +957,16 @@ table.table-empty-rows{
   }
 }
 
+.login_banner {
+    position: fixed;
+    width: 80%;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    z-index: 100;
+}
+
 .change_pass {
   background-color: $color-gray-light;
   height: 100%;
@@ -929,7 +977,7 @@ table.table-empty-rows{
     padding-bottom: 1.0rem;
   }
   & .panel-body {
-    padding-botttom: 0.8rem;
+    padding-bottom: 0.8rem;
   }
 
   & .btn-change-pass {
@@ -948,18 +996,6 @@ table.table-empty-rows{
     background: url("data:image/svg+xml,%3C%3Fxml version='1.0' encoding='utf-8'%3F%3E%3C!-- Generator: Adobe Illustrator 22.1.0, SVG Export Plug-In . SVG Version: 6.00 Build 0) --%3E%3Csvg version='1.1' id='Layer_1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' x='0px' y='0px' viewBox='0 0 42 42' style='enable-background:new 0 0 42 42;' xml:space='preserve'%3E%3Cstyle type='text/css'%3E .st0%7Bstroke:%23000000;stroke-width:3.3022;%7D .st1%7Bfill:%23336791;%7D .st2%7Bfill:none;stroke:%23FFFFFF;stroke-width:1.1007;stroke-linecap:round;stroke-linejoin:round;%7D .st3%7Bfill:none;stroke:%23FFFFFF;stroke-width:1.1007;stroke-linecap:round;stroke-linejoin:bevel;%7D .st4%7Bfill:%23FFFFFF;stroke:%23FFFFFF;stroke-width:0.3669;%7D .st5%7Bfill:%23FFFFFF;stroke:%23FFFFFF;stroke-width:0.1835;%7D .st6%7Bfill:none;stroke:%23FFFFFF;stroke-width:0.2649;stroke-linecap:round;stroke-linejoin:round;%7D%0A%3C/style%3E%3Cg id='orginal'%3E%3C/g%3E%3Cg id='Layer_x0020_3'%3E%3Cpath class='st0' d='M31.3,30c0.3-2.1,0.2-2.4,1.7-2.1l0.4,0c1.2,0.1,2.8-0.2,3.7-0.6c2-0.9,3.1-2.4,1.2-2 c-4.4,0.9-4.7-0.6-4.7-0.6c4.7-7,6.7-15.8,5-18c-4.6-5.9-12.6-3.1-12.7-3l0,0c-0.9-0.2-1.9-0.3-3-0.3c-2,0-3.5,0.5-4.7,1.4 c0,0-14.3-5.9-13.6,7.4c0.1,2.8,4,21.3,8.7,15.7c1.7-2,3.3-3.8,3.3-3.8c0.8,0.5,1.8,0.8,2.8,0.7l0.1-0.1c0,0.3,0,0.5,0,0.8 c-1.2,1.3-0.8,1.6-3.2,2.1c-2.4,0.5-1,1.4-0.1,1.6c1.1,0.3,3.7,0.7,5.5-1.8l-0.1,0.3c0.5,0.4,0.4,2.7,0.5,4.4 c0.1,1.7,0.2,3.2,0.5,4.1c0.3,0.9,0.7,3.3,3.9,2.6C29.1,38.3,31.1,37.5,31.3,30'/%3E%3Cpath class='st1' d='M38.3,25.3c-4.4,0.9-4.7-0.6-4.7-0.6c4.7-7,6.7-15.8,5-18c-4.6-5.9-12.6-3.1-12.7-3l0,0 c-0.9-0.2-1.9-0.3-3-0.3c-2,0-3.5,0.5-4.7,1.4c0,0-14.3-5.9-13.6,7.4c0.1,2.8,4,21.3,8.7,15.7c1.7-2,3.3-3.8,3.3-3.8 c0.8,0.5,1.8,0.8,2.8,0.7l0.1-0.1c0,0.3,0,0.5,0,0.8c-1.2,1.3-0.8,1.6-3.2,2.1c-2.4,0.5-1,1.4-0.1,1.6c1.1,0.3,3.7,0.7,5.5-1.8 l-0.1,0.3c0.5,0.4,0.8,2.4,0.7,4.3c-0.1,1.9-0.1,3.2,0.3,4.2c0.4,1,0.7,3.3,3.9,2.6c2.6-0.6,4-2,4.2-4.5c0.1-1.7,0.4-1.5,0.5-3 l0.2-0.7c0.3-2.3,0-3.1,1.7-2.8l0.4,0c1.2,0.1,2.8-0.2,3.7-0.6C39,26.4,40.2,24.9,38.3,25.3L38.3,25.3z'/%3E%3Cpath class='st2' d='M21.8,26.6c-0.1,4.4,0,8.8,0.5,9.8c0.4,1.1,1.3,3.2,4.5,2.5c2.6-0.6,3.6-1.7,4-4.1c0.3-1.8,0.9-6.7,1-7.7'/%3E%3Cpath class='st2' d='M18,4.7c0,0-14.3-5.8-13.6,7.4c0.1,2.8,4,21.3,8.7,15.7c1.7-2,3.2-3.7,3.2-3.7'/%3E%3Cpath class='st2' d='M25.7,3.6c-0.5,0.2,7.9-3.1,12.7,3c1.7,2.2-0.3,11-5,18'/%3E%3Cpath class='st3' d='M33.5,24.6c0,0,0.3,1.5,4.7,0.6c1.9-0.4,0.8,1.1-1.2,2c-1.6,0.8-5.3,0.9-5.3-0.1 C31.6,24.5,33.6,25.3,33.5,24.6c-0.1-0.6-1.1-1.2-1.7-2.7c-0.5-1.3-7.3-11.2,1.9-9.7c0.3-0.1-2.4-8.7-11-8.9 c-8.6-0.1-8.3,10.6-8.3,10.6'/%3E%3Cpath class='st2' d='M19.4,25.6c-1.2,1.3-0.8,1.6-3.2,2.1c-2.4,0.5-1,1.4-0.1,1.6c1.1,0.3,3.7,0.7,5.5-1.8c0.5-0.8,0-2-0.7-2.3 C20.5,25.1,20,24.9,19.4,25.6L19.4,25.6z'/%3E%3Cpath class='st2' d='M19.3,25.5c-0.1-0.8,0.3-1.7,0.7-2.8c0.6-1.6,2-3.3,0.9-8.5c-0.8-3.9-6.5-0.8-6.5-0.3c0,0.5,0.3,2.7-0.1,5.2 c-0.5,3.3,2.1,6,5,5.7'/%3E%3Cpath class='st4' d='M18,13.8c0,0.2,0.3,0.7,0.8,0.7c0.5,0.1,0.9-0.3,0.9-0.5c0-0.2-0.3-0.4-0.8-0.4C18.4,13.6,18,13.7,18,13.8 L18,13.8z'/%3E%3Cpath class='st5' d='M32,13.5c0,0.2-0.3,0.7-0.8,0.7c-0.5,0.1-0.9-0.3-0.9-0.5c0-0.2,0.3-0.4,0.8-0.4C31.6,13.2,32,13.3,32,13.5 L32,13.5z'/%3E%3Cpath class='st2' d='M33.7,12.2c0.1,1.4-0.3,2.4-0.4,3.9c-0.1,2.2,1,4.7-0.6,7.2'/%3E%3Cpath class='st6' d='M2.7,6.6'/%3E%3C/g%3E%3C/svg%3E%0A") 0 0 no-repeat;
     background-size: 28px 28px;
   }
-}
-.icon-delete_multiple_cascade {
-  display: inline-block;
-  align-content: center;
-  vertical-align: middle;
-  height: 17px;
-  width: 22px;
-  background-image: url(/static/img/drop_cascade.svg) !important;
-  background-size: 25px !important;
-  background-repeat: no-repeat;
-  background-position-x: center;
-  background-position-y: center;
 }
 
 .pgadmin-controls-radio-none {
@@ -1012,4 +1048,76 @@ table.table-empty-rows{
   border: $input-border-width solid $input-focus-border-color;
   border-radius: $input-border-radius;
   padding: $input-btn-padding-y $input-btn-padding-x;
+}
+
+::placeholder {
+  color: $input-placeholder-color;
+}
+
+.pg-font-icon {
+  &:before {
+    font-style: normal;
+    font-weight: normal;
+    font-stretch: normal;
+    font-size: 100%;
+    line-height: 1;
+    vertical-align: middle;
+  }
+}
+
+textarea {
+    color: $input-color;
+    background-color: $input-bg;
+}
+
+/* Webkit customizations */
+
+::-webkit-scrollbar, ::-webkit-scrollbar-corner {
+    width: $scrollbar-width;
+    height: $scrollbar-width;
+    background-color: rgba($scrollbar-base-color, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+    border: 0.25rem solid transparent;
+    border-radius: $border-radius*2;
+    background-clip: content-box;
+    background-color: rgba($scrollbar-base-color, 0.7);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: $scrollbar-base-color;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: $color-primary-light-fg;
+  -webkit-box-shadow: 0 0 0px 1000px $color-primary-light inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Left side has a check icon, right side corrected */
+.btn-radiomodern {
+    padding-right: 1.75*$input-btn-padding-x !important;
+    &.disabled {
+      pointer-events: none !important;
+    }
+}
+
+.fa {
+  font-weight: 600 !important;
+}
+.pull-right{
+  float:right;
+}
+
+.pull-left{
+  float:left
 }

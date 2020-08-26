@@ -2,20 +2,20 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.server', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore', 'backbone',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.server.supported_servers', 'pgadmin.user_management.current_user',
   'pgadmin.alertifyjs', 'pgadmin.backform',
   'sources/browser/server_groups/servers/model_validation',
   'pgadmin.browser.server.privilege',
 ], function(
-  gettext, url_for, $, _, Backbone, S, pgAdmin, pgBrowser,
+  gettext, url_for, $, _, Backbone, pgAdmin, pgBrowser,
   supported_servers, current_user, Alertify, Backform,
   modelValidation
 ) {
@@ -39,11 +39,10 @@ define('pgadmin.node.server', [
       }],
       validate: function() {
         this.errorModel.clear();
-
         if (_.isUndefined(this.get('label')) ||
           _.isNull(this.get('label')) ||
             String(this.get('label')).replace(/^\s+|\s+$/g, '') == '') {
-          var errmsg = gettext('Label must be specified.');
+          var errmsg = gettext('Security label must be specified.');
           this.errorModel.set('label', errmsg);
           return errmsg;
         }
@@ -58,13 +57,14 @@ define('pgadmin.node.server', [
       dialogHelp: url_for('help.static', {'filename': 'server_dialog.html'}),
       label: gettext('Server'),
       canDrop: true,
+      dropAsRemove: true,
+      dropPriority: 5,
       hasStatistics: true,
       hasCollectiveStatistics: true,
       can_expand: function(d) {
         return d && d.connected;
       },
       Init: function() {
-
         /* Avoid multiple registration of same menus */
         if (this.initialized)
           return;
@@ -90,12 +90,12 @@ define('pgadmin.node.server', [
           name: 'disconnect_server', node: 'server', module: this,
           applies: ['object', 'context'], callback: 'disconnect_server',
           category: 'drop', priority: 5, label: gettext('Disconnect Server'),
-          icon: 'fa fa-chain-broken', enable : 'is_connected',
+          icon: 'fa fa-unlink', enable : 'is_connected',
         },{
           name: 'reload_configuration', node: 'server', module: this,
           applies: ['tools', 'context'], callback: 'reload_configuration',
           category: 'reload', priority: 6, label: gettext('Reload Configuration'),
-          icon: 'fa fa-repeat', enable : 'enable_reload_config',
+          icon: 'fa fa-redo-alt', enable : 'enable_reload_config',
         },{
           name: 'restore_point', node: 'server', module: this,
           applies: ['tools', 'context'], callback: 'restore_point',
@@ -199,10 +199,9 @@ define('pgadmin.node.server', [
             i = input.item || t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d)
-            return false;
-
-          connect_to_server(obj, d, t, i, false);
+          if (d) {
+            connect_to_server(obj, d, t, i, false);
+          }
           return false;
         },
         /* Disconnect the server */
@@ -213,62 +212,58 @@ define('pgadmin.node.server', [
             i = 'item' in input ? input.item : t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d)
-            return false;
+          if (d) {
+            notify = notify || _.isUndefined(notify) || _.isNull(notify);
 
-          notify = notify || _.isUndefined(notify) || _.isNull(notify);
-
-          var disconnect = function() {
-            $.ajax({
-              url: obj.generate_url(i, 'connect', d, true),
-              type:'DELETE',
-            })
-              .done(function(res) {
-                if (res.success == 1) {
-                  Alertify.success(res.info);
-                  d = t.itemData(i);
-                  t.removeIcon(i);
-                  d.connected = false;
-                  d.icon = 'icon-server-not-connected';
-                  t.addIcon(i, {icon: d.icon});
-                  obj.callbacks.refresh.apply(obj, [null, i]);
-                  if (pgBrowser.serverInfo && d._id in pgBrowser.serverInfo) {
-                    delete pgBrowser.serverInfo[d._id];
-                  }
-                  pgBrowser.enable_disable_menus(i);
-                  // Trigger server disconnect event
-                  pgBrowser.Events.trigger(
-                    'pgadmin:server:disconnect',
-                    {item: i, data: d}, false
-                  );
-                }
-                else {
-                  try {
-                    Alertify.error(res.errormsg);
-                  } catch (e) {
-                    console.warn(e.stack || e);
-                  }
-                  t.unload(i);
-                }
+            var disconnect = function() {
+              $.ajax({
+                url: obj.generate_url(i, 'connect', d, true),
+                type:'DELETE',
               })
-              .fail(function(xhr, status, error) {
-                Alertify.pgRespErrorNotify(xhr, error);
-                t.unload(i);
-              });
-          };
+                .done(function(res) {
+                  if (res.success == 1) {
+                    Alertify.success(res.info);
+                    d = t.itemData(i);
+                    t.removeIcon(i);
+                    d.connected = false;
+                    d.icon = 'icon-server-not-connected';
+                    t.addIcon(i, {icon: d.icon});
+                    obj.callbacks.refresh.apply(obj, [null, i]);
+                    if (pgBrowser.serverInfo && d._id in pgBrowser.serverInfo) {
+                      delete pgBrowser.serverInfo[d._id];
+                    }
+                    pgBrowser.enable_disable_menus(i);
+                    // Trigger server disconnect event
+                    pgBrowser.Events.trigger(
+                      'pgadmin:server:disconnect',
+                      {item: i, data: d}, false
+                    );
+                  }
+                  else {
+                    try {
+                      Alertify.error(res.errormsg);
+                    } catch (e) {
+                      console.warn(e.stack || e);
+                    }
+                    t.unload(i);
+                  }
+                })
+                .fail(function(xhr, status, error) {
+                  Alertify.pgRespErrorNotify(xhr, error);
+                  t.unload(i);
+                });
+            };
 
-          if (notify) {
-            Alertify.confirm(
-              gettext('Disconnect server'),
-              gettext(
-                'Are you sure you want to disconnect the server %(server)s?',
-                {server: d.label}
-              ),
-              function() { disconnect(); },
-              function() { return true;}
-            );
-          } else {
-            disconnect();
+            if (notify) {
+              Alertify.confirm(
+                gettext('Disconnect server'),
+                gettext('Are you sure you want to disconnect the server %s?', d.label),
+                function() { disconnect(); },
+                function() { return true;}
+              );
+            } else {
+              disconnect();
+            }
           }
 
           return false;
@@ -295,6 +290,10 @@ define('pgadmin.node.server', [
 
           // Call added method of node.js
           pgAdmin.Browser.Node.callbacks.added.apply(this, arguments);
+
+          if(data.was_connected) {
+            fetch_connection_status(this, data, pgBrowser.tree, item);
+          }
           return true;
         },
         /* Reload configuration */
@@ -305,34 +304,31 @@ define('pgadmin.node.server', [
             i = input.item || t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d)
-            return false;
-
-          Alertify.confirm(
-            gettext('Reload server configuration'),
-            S(
-              gettext('Are you sure you want to reload the server configuration on %s?')
-            ).sprintf(d.label).value(),
-            function() {
-              $.ajax({
-                url: obj.generate_url(i, 'reload', d, true),
-                method:'GET',
-              })
-                .done(function(res) {
-                  if (res.data.status) {
-                    Alertify.success(res.data.result);
-                  }
-                  else {
-                    Alertify.error(res.data.result);
-                  }
+          if (d) {
+            Alertify.confirm(
+              gettext('Reload server configuration'),
+              gettext('Are you sure you want to reload the server configuration on %s?', d.label),
+              function() {
+                $.ajax({
+                  url: obj.generate_url(i, 'reload', d, true),
+                  method:'GET',
                 })
-                .fail(function(xhr, status, error) {
-                  Alertify.pgRespErrorNotify(xhr, error);
-                  t.unload(i);
-                });
-            },
-            function() { return true; }
-          );
+                  .done(function(res) {
+                    if (res.data.status) {
+                      Alertify.success(res.data.result);
+                    }
+                    else {
+                      Alertify.error(res.data.result);
+                    }
+                  })
+                  .fail(function(xhr, status, error) {
+                    Alertify.pgRespErrorNotify(xhr, error);
+                    t.unload(i);
+                  });
+              },
+              function() { return true; }
+            );
+          }
 
           return false;
         },
@@ -388,174 +384,173 @@ define('pgadmin.node.server', [
             is_pgpass_file_used = false,
             check_pgpass_url = obj.generate_url(i, 'check_pgpass', d, true);
 
-          if (!d)
-            return false;
-
-          if(!Alertify.changeServerPassword) {
-            var newPasswordModel = Backbone.Model.extend({
-                defaults: {
-                  user_name: undefined,
-                  password: undefined,
-                  newPassword: undefined,
-                  confirmPassword: undefined,
-                },
-                validate: function() {
-                  return null;
-                },
-              }),
-              passwordChangeFields = [{
-                name: 'user_name', label: gettext('User'),
-                type: 'text', disabled: true, control: 'input',
-              },{
-                name: 'password', label: gettext('Current Password'),
-                type: 'password', disabled: function() { return is_pgpass_file_used; },
-                control: 'input', required: true,
-              },{
-                name: 'newPassword', label: gettext('New Password'),
-                type: 'password', disabled: false, control: 'input',
-                required: true,
-              },{
-                name: 'confirmPassword', label: gettext('Confirm Password'),
-                type: 'password', disabled: false, control: 'input',
-                required: true,
-              }];
+          if (d) {
+            if(!Alertify.changeServerPassword) {
+              var newPasswordModel = Backbone.Model.extend({
+                  defaults: {
+                    user_name: undefined,
+                    password: undefined,
+                    newPassword: undefined,
+                    confirmPassword: undefined,
+                  },
+                  validate: function() {
+                    return null;
+                  },
+                }),
+                passwordChangeFields = [{
+                  name: 'user_name', label: gettext('User'),
+                  type: 'text', readonly: true, control: 'input',
+                },{
+                  name: 'password', label: gettext('Current Password'),
+                  type: 'password', disabled: function() { return is_pgpass_file_used; },
+                  control: 'input', required: true,
+                },{
+                  name: 'newPassword', label: gettext('New Password'),
+                  type: 'password', disabled: false, control: 'input',
+                  required: true,
+                },{
+                  name: 'confirmPassword', label: gettext('Confirm Password'),
+                  type: 'password', disabled: false, control: 'input',
+                  required: true,
+                }];
 
 
-            Alertify.dialog('changeServerPassword' ,function factory() {
-              return {
-                main: function(params) {
-                  var title = gettext('Change Password ');
-                  this.set('title', title);
-                  this.user_name = params.user.name;
-                },
-                setup:function() {
-                  return {
-                    buttons: [{
-                      text: gettext('Cancel'), key: 27,
-                      className: 'btn btn-secondary fa fa-times pg-alertify-button', attrs: {name: 'cancel'},
-                    },{
-                      text: gettext('OK'), key: 13, className: 'btn btn-primary fa fa-check pg-alertify-button',
-                      attrs: {name:'submit'},
-                    }],
-                    // Set options for dialog
-                    options: {
-                      padding : !1,
-                      overflow: !1,
-                      modal:false,
-                      resizable: true,
-                      maximizable: true,
-                      pinnable: false,
-                      closableByDimmer: false,
+              Alertify.dialog('changeServerPassword' ,function factory() {
+                return {
+                  main: function(params) {
+                    var title = gettext('Change Password');
+                    this.set('title', title);
+                    this.user_name = params.user.name;
+                  },
+                  setup:function() {
+                    return {
+                      buttons: [{
+                        text: gettext('Cancel'), key: 27,
+                        className: 'btn btn-secondary fa fa-times pg-alertify-button', attrs: {name: 'cancel'},
+                      },{
+                        text: gettext('OK'), key: 13, className: 'btn btn-primary fa fa-check pg-alertify-button',
+                        attrs: {name:'submit'},
+                      }],
+                      // Set options for dialog
+                      options: {
+                        padding : !1,
+                        overflow: !1,
+                        modal:false,
+                        resizable: true,
+                        maximizable: true,
+                        pinnable: false,
+                        closableByDimmer: false,
+                      },
+                    };
+                  },
+                  hooks: {
+                    // triggered when the dialog is closed
+                    onclose: function() {
+                      if (this.view) {
+                        this.view.remove({data: true, internal: true, silent: true});
+                      }
                     },
-                  };
-                },
-                hooks: {
-                  // triggered when the dialog is closed
-                  onclose: function() {
-                    if (this.view) {
-                      this.view.remove({data: true, internal: true, silent: true});
+                  },
+                  prepare: function() {
+                    var self = this;
+                    // Disable Ok button until user provides input
+                    this.__internal.buttons[1].element.disabled = true;
+
+                    var $container = $('<div class=\'change_password\'></div>'),
+                      newpasswordmodel = new newPasswordModel(
+                        {'user_name': self.user_name}
+                      ),
+                      view = this.view = new Backform.Form({
+                        el: $container,
+                        model: newpasswordmodel,
+                        fields: passwordChangeFields,
+                      });
+
+                    view.render();
+
+                    this.elements.content.appendChild($container.get(0));
+
+                    // Listen to model & if filename is provided then enable Backup button
+                    this.view.model.on('change', function() {
+                      var that = this,
+                        password = this.get('password'),
+                        newPassword = this.get('newPassword'),
+                        confirmPassword = this.get('confirmPassword');
+
+                      // Only check password field if pgpass file is not available
+                      if ((!is_pgpass_file_used &&
+                        (_.isUndefined(password) || _.isNull(password) || password == '')) ||
+                          _.isUndefined(newPassword) || _.isNull(newPassword) || newPassword == '' ||
+                          _.isUndefined(confirmPassword) || _.isNull(confirmPassword) || confirmPassword == '') {
+                        self.__internal.buttons[1].element.disabled = true;
+                      } else if (newPassword != confirmPassword) {
+                        self.__internal.buttons[1].element.disabled = true;
+
+                        this.errorTimeout && clearTimeout(this.errorTimeout);
+                        this.errorTimeout = setTimeout(function() {
+                          that.errorModel.set('confirmPassword', gettext('Passwords do not match.'));
+                        } ,400);
+                      }else {
+                        that.errorModel.clear();
+                        self.__internal.buttons[1].element.disabled = false;
+                      }
+                    });
+                  },
+                  // Callback functions when click on the buttons of the Alertify dialogs
+                  callback: function(e) {
+                    if (e.button.element.name == 'submit') {
+                      var self = this,
+                        alertArgs =  this.view.model.toJSON();
+
+                      e.cancel = true;
+
+                      $.ajax({
+                        url: url,
+                        method:'POST',
+                        data:{'data': JSON.stringify(alertArgs) },
+                      })
+                        .done(function(res) {
+                          if (res.success) {
+                          // Notify user to update pgpass file
+                            if(is_pgpass_file_used) {
+                              Alertify.alert(
+                                gettext('Change Password'),
+                                gettext('Please make sure to disconnect the server'
+                                + ' and update the new password in the pgpass file'
+                                  + ' before performing any other operation')
+                              );
+                            }
+
+                            Alertify.success(res.info);
+                            self.close();
+                          } else {
+                            Alertify.error(res.errormsg);
+                          }
+                        })
+                        .fail(function(xhr, status, error) {
+                          Alertify.pgRespErrorNotify(xhr, error);
+                        });
                     }
                   },
-                },
-                prepare: function() {
-                  var self = this;
-                  // Disable Ok button until user provides input
-                  this.__internal.buttons[1].element.disabled = true;
+                };
+              });
+            }
 
-                  var $container = $('<div class=\'change_password\'></div>'),
-                    newpasswordmodel = new newPasswordModel(
-                      {'user_name': self.user_name}
-                    ),
-                    view = this.view = new Backform.Form({
-                      el: $container,
-                      model: newpasswordmodel,
-                      fields: passwordChangeFields,
-                    });
-
-                  view.render();
-
-                  this.elements.content.appendChild($container.get(0));
-
-                  // Listen to model & if filename is provided then enable Backup button
-                  this.view.model.on('change', function() {
-                    var that = this,
-                      password = this.get('password'),
-                      newPassword = this.get('newPassword'),
-                      confirmPassword = this.get('confirmPassword');
-
-                    // Only check password field if pgpass file is not available
-                    if ((!is_pgpass_file_used &&
-                      (_.isUndefined(password) || _.isNull(password) || password == '')) ||
-                        _.isUndefined(newPassword) || _.isNull(newPassword) || newPassword == '' ||
-                        _.isUndefined(confirmPassword) || _.isNull(confirmPassword) || confirmPassword == '') {
-                      self.__internal.buttons[1].element.disabled = true;
-                    } else if (newPassword != confirmPassword) {
-                      self.__internal.buttons[1].element.disabled = true;
-
-                      this.errorTimeout && clearTimeout(this.errorTimeout);
-                      this.errorTimeout = setTimeout(function() {
-                        that.errorModel.set('confirmPassword', gettext('Passwords do not match.'));
-                      } ,400);
-                    }else {
-                      that.errorModel.clear();
-                      self.__internal.buttons[1].element.disabled = false;
-                    }
-                  });
-                },
-                // Callback functions when click on the buttons of the Alertify dialogs
-                callback: function(e) {
-                  if (e.button.element.name == 'submit') {
-                    var self = this,
-                      args =  this.view.model.toJSON();
-
-                    e.cancel = true;
-
-                    $.ajax({
-                      url: url,
-                      method:'POST',
-                      data:{'data': JSON.stringify(args) },
-                    })
-                      .done(function(res) {
-                        if (res.success) {
-                        // Notify user to update pgpass file
-                          if(is_pgpass_file_used) {
-                            Alertify.alert(
-                              gettext('Change Password'),
-                              gettext('Please make sure to disconnect the server'
-                              + ' and update the new password in the pgpass file'
-                                + ' before performing any other operation')
-                            );
-                          }
-
-                          Alertify.success(res.info);
-                          self.close();
-                        } else {
-                          Alertify.error(res.errormsg);
-                        }
-                      })
-                      .fail(function(xhr, status, error) {
-                        Alertify.pgRespErrorNotify(xhr, error);
-                      });
-                  }
-                },
-              };
-            });
-          }
-
-          // Call to check if server is using pgpass file or not
-          $.ajax({
-            url: check_pgpass_url,
-            method:'GET',
-          })
-            .done(function(res) {
-              if (res.success && res.data.is_pgpass) {
-                is_pgpass_file_used = true;
-              }
-              Alertify.changeServerPassword(d).resizeTo('40%','52%');
+            // Call to check if server is using pgpass file or not
+            $.ajax({
+              url: check_pgpass_url,
+              method:'GET',
             })
-            .fail(function(xhr, status, error) {
-              Alertify.pgRespErrorNotify(xhr, error);
-            });
+              .done(function(res) {
+                if (res.success && res.data.is_pgpass) {
+                  is_pgpass_file_used = true;
+                }
+                Alertify.changeServerPassword(d).resizeTo('40%','52%');
+              })
+              .fail(function(xhr, status, error) {
+                Alertify.pgRespErrorNotify(xhr, error);
+              });
+          }
 
           return false;
         },
@@ -638,34 +633,31 @@ define('pgadmin.node.server', [
             i = input.item || t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d)
-            return false;
-
-          Alertify.confirm(
-            gettext('Clear saved password'),
-            S(
-              gettext('Are you sure you want to clear the saved password for server %s?')
-            ).sprintf(d.label).value(),
-            function() {
-              $.ajax({
-                url: obj.generate_url(i, 'clear_saved_password', d, true),
-                method:'PUT',
-              })
-                .done(function(res) {
-                  if (res.success == 1) {
-                    Alertify.success(res.info);
-                    t.itemData(i).is_password_saved=res.data.is_password_saved;
-                  }
-                  else {
-                    Alertify.error(res.info);
-                  }
+          if (d) {
+            Alertify.confirm(
+              gettext('Clear saved password'),
+              gettext('Are you sure you want to clear the saved password for server %s?', d.label),
+              function() {
+                $.ajax({
+                  url: obj.generate_url(i, 'clear_saved_password', d, true),
+                  method:'PUT',
                 })
-                .fail(function(xhr, status, error) {
-                  Alertify.pgRespErrorNotify(xhr, error);
-                });
-            },
-            function() { return true; }
-          );
+                  .done(function(res) {
+                    if (res.success == 1) {
+                      Alertify.success(res.info);
+                      t.itemData(i).is_password_saved=res.data.is_password_saved;
+                    }
+                    else {
+                      Alertify.error(res.info);
+                    }
+                  })
+                  .fail(function(xhr, status, error) {
+                    Alertify.pgRespErrorNotify(xhr, error);
+                  });
+              },
+              function() { return true; }
+            );
+          }
 
           return false;
         },
@@ -678,34 +670,31 @@ define('pgadmin.node.server', [
             i = input.item || t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d)
-            return false;
-
-          Alertify.confirm(
-            gettext('Clear SSH Tunnel password'),
-            S(
-              gettext('Are you sure you want to clear the saved password of SSH Tunnel for server %s?')
-            ).sprintf(d.label).value(),
-            function() {
-              $.ajax({
-                url: obj.generate_url(i, 'clear_sshtunnel_password', d, true),
-                method:'PUT',
-              })
-                .done(function(res) {
-                  if (res.success == 1) {
-                    Alertify.success(res.info);
-                    t.itemData(i).is_tunnel_password_saved=res.data.is_tunnel_password_saved;
-                  }
-                  else {
-                    Alertify.error(res.info);
-                  }
+          if (d) {
+            Alertify.confirm(
+              gettext('Clear SSH Tunnel password'),
+              gettext('Are you sure you want to clear the saved password of SSH Tunnel for server %s?', d.label),
+              function() {
+                $.ajax({
+                  url: obj.generate_url(i, 'clear_sshtunnel_password', d, true),
+                  method:'PUT',
                 })
-                .fail(function(xhr, status, error) {
-                  Alertify.pgRespErrorNotify(xhr, error);
-                });
-            },
-            function() { return true; }
-          );
+                  .done(function(res) {
+                    if (res.success == 1) {
+                      Alertify.success(res.info);
+                      t.itemData(i).is_tunnel_password_saved=res.data.is_tunnel_password_saved;
+                    }
+                    else {
+                      Alertify.error(res.info);
+                    }
+                  })
+                  .fail(function(xhr, status, error) {
+                    Alertify.pgRespErrorNotify(xhr, error);
+                  });
+              },
+              function() { return true; }
+            );
+          }
 
           return false;
         },
@@ -741,7 +730,7 @@ define('pgadmin.node.server', [
           tunnel_password: undefined,
           tunnel_authentication: 0,
           save_tunnel_password: false,
-          connect_timeout: 0,
+          connect_timeout: 10,
         },
         // Default values!
         initialize: function(attrs, args) {
@@ -788,18 +777,72 @@ define('pgadmin.node.server', [
           mode: ['properties', 'edit', 'create'],
         },{
           id: 'host', label: gettext('Host name/address'), type: 'text', group: gettext('Connection'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
+          mode: ['properties', 'edit', 'create'],
+          control: Backform.InputControl.extend({
+            onChange: function() {
+              Backform.InputControl.prototype.onChange.apply(this, arguments);
+              if (!this.model || !this.model.changed) {
+                this.model.inform_text = undefined;
+                return;
+              }
+
+              if(this.model.origSessAttrs.host != this.model.changed.host && !this.model.isNew() && this.model.get('connected'))
+              {
+                this.model.inform_text = gettext(
+                  'To apply changes to the connection configuration, please disconnect from the server and then reconnect.'
+                );
+              } else {
+                this.model.inform_text = undefined;
+              }
+            },
+          }),
         },{
           id: 'port', label: gettext('Port'), type: 'int', group: gettext('Connection'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected', min: 1, max: 65535,
+          mode: ['properties', 'edit', 'create'], min: 1, max: 65535,
+          control: Backform.InputControl.extend({
+            onChange: function() {
+              Backform.InputControl.prototype.onChange.apply(this, arguments);
+              if (!this.model || !this.model.changed) {
+                this.model.inform_text = undefined;
+                return;
+              }
+
+              if(this.model.origSessAttrs.port != this.model.changed.port && !this.model.isNew() && this.model.get('connected'))
+              {
+                this.model.inform_text = gettext(
+                  'To apply changes to the connection configuration, please disconnect from the server and then reconnect.'
+                );
+              } else {
+                this.model.inform_text = undefined;
+              }
+            },
+          }),
         },{
           id: 'db', label: gettext('Maintenance database'), type: 'text', group: gettext('Connection'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
+          mode: ['properties', 'edit', 'create'], readonly: 'isConnected',
         },{
           id: 'username', label: gettext('Username'), type: 'text', group: gettext('Connection'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
+          mode: ['properties', 'edit', 'create'],
+          control: Backform.InputControl.extend({
+            onChange: function() {
+              Backform.InputControl.prototype.onChange.apply(this, arguments);
+              if (!this.model || !this.model.changed) {
+                this.model.inform_text = undefined;
+                return;
+              }
+
+              if(this.model.origSessAttrs.username != this.model.changed.username && !this.model.isNew() && this.model.get('connected'))
+              {
+                this.model.inform_text = gettext(
+                  'To apply changes to the connection configuration, please disconnect from the server and then reconnect.'
+                );
+              } else {
+                this.model.inform_text = undefined;
+              }
+            },
+          }),
         },{
-          id: 'password', label: gettext('Password'), type: 'password',
+          id: 'password', label: gettext('Password'), type: 'password', maxlength: '2000',
           group: gettext('Connection'), control: 'input', mode: ['create'], deps: ['connect_now'],
           visible: function(model) {
             return model.get('connect_now') && model.isNew();
@@ -818,9 +861,17 @@ define('pgadmin.node.server', [
           },
         },{
           id: 'role', label: gettext('Role'), type: 'text', group: gettext('Connection'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
+          mode: ['properties', 'edit', 'create'], readonly: 'isConnected',
         },{
-          id: 'sslmode', label: gettext('SSL mode'), type: 'options', group: gettext('SSL'),
+          id: 'service', label: gettext('Service'), type: 'text',
+          mode: ['properties', 'edit', 'create'], readonly: 'isConnected',
+          group: gettext('Connection'),
+        },{
+          id: 'sslmode', label: gettext('SSL mode'), control: 'select2', group: gettext('SSL'),
+          select2: {
+            allowClear: false,
+            minimumResultsForSearch: Infinity,
+          },
           mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
           'options': [
             {label: gettext('Allow'), value: 'allow'},
@@ -833,32 +884,32 @@ define('pgadmin.node.server', [
         },{
           id: 'sslcert', label: gettext('Client certificate'), type: 'text',
           group: gettext('SSL'), mode: ['edit', 'create'],
-          disabled: 'isSSL', control: Backform.FileControl,
+          disabled: 'isSSL', readonly: 'isConnected', control: Backform.FileControl,
           dialog_type: 'select_file', supp_types: ['*'],
           deps: ['sslmode'],
         },{
           id: 'sslkey', label: gettext('Client certificate key'), type: 'text',
           group: gettext('SSL'), mode: ['edit', 'create'],
-          disabled: 'isSSL', control: Backform.FileControl,
+          disabled: 'isSSL', readonly: 'isConnected', control: Backform.FileControl,
           dialog_type: 'select_file', supp_types: ['*'],
           deps: ['sslmode'],
         },{
           id: 'sslrootcert', label: gettext('Root certificate'), type: 'text',
           group: gettext('SSL'), mode: ['edit', 'create'],
-          disabled: 'isSSL', control: Backform.FileControl,
+          disabled: 'isSSL', readonly: 'isConnected', control: Backform.FileControl,
           dialog_type: 'select_file', supp_types: ['*'],
           deps: ['sslmode'],
         },{
           id: 'sslcrl', label: gettext('Certificate revocation list'), type: 'text',
           group: gettext('SSL'), mode: ['edit', 'create'],
-          disabled: 'isSSL', control: Backform.FileControl,
+          disabled: 'isSSL', readonly: 'isConnected', control: Backform.FileControl,
           dialog_type: 'select_file', supp_types: ['*'],
           deps: ['sslmode'],
         },{
           id: 'sslcompression', label: gettext('SSL compression?'), type: 'switch',
           mode: ['edit', 'create'], group: gettext('SSL'),
           'options': {'size': 'mini'},
-          deps: ['sslmode'], disabled: 'isSSL',
+          deps: ['sslmode'], disabled: 'isSSL', readonly: 'isConnected',
         },{
           id: 'sslcert', label: gettext('Client certificate'), type: 'text',
           group: gettext('SSL'), mode: ['properties'],
@@ -912,26 +963,30 @@ define('pgadmin.node.server', [
               return true;
             }
 
-            return model.get('connected');
+            return false;
           },
+          readonly: 'isConnected',
         },{
           id: 'tunnel_host', label: gettext('Tunnel host'), type: 'text', group: gettext('SSH Tunnel'),
           mode: ['properties', 'edit', 'create'], deps: ['use_ssh_tunnel'],
           disabled: function(model) {
-            return !model.get('use_ssh_tunnel') || model.get('connected');
+            return !model.get('use_ssh_tunnel');
           },
+          readonly: 'isConnected',
         },{
           id: 'tunnel_port', label: gettext('Tunnel port'), type: 'int', group: gettext('SSH Tunnel'),
           mode: ['properties', 'edit', 'create'], deps: ['use_ssh_tunnel'], max: 65535,
           disabled: function(model) {
-            return !model.get('use_ssh_tunnel') || model.get('connected');
+            return !model.get('use_ssh_tunnel');
           },
+          readonly: 'isConnected',
         },{
           id: 'tunnel_username', label: gettext('Username'), type: 'text', group: gettext('SSH Tunnel'),
           mode: ['properties', 'edit', 'create'], deps: ['use_ssh_tunnel'],
           disabled: function(model) {
-            return !model.get('use_ssh_tunnel') || model.get('connected');
+            return !model.get('use_ssh_tunnel');
           },
+          readonly: 'isConnected',
         },{
           id: 'tunnel_authentication', label: gettext('Authentication'), type: 'switch',
           mode: ['properties', 'edit', 'create'], group: gettext('SSH Tunnel'),
@@ -939,11 +994,12 @@ define('pgadmin.node.server', [
             'offText':  gettext('Password'), 'size': 'mini', width: '90'},
           deps: ['use_ssh_tunnel'],
           disabled: function(model) {
-            return !model.get('use_ssh_tunnel') || model.get('connected');
+            return !model.get('use_ssh_tunnel');
           },
+          readonly: 'isConnected',
         }, {
           id: 'tunnel_identity_file', label: gettext('Identity file'), type: 'text',
-          group: gettext('SSH Tunnel'), mode: ['edit', 'create'],
+          group: gettext('SSH Tunnel'), mode: ['properties', 'edit', 'create'],
           control: Backform.FileControl, dialog_type: 'select_file', supp_types: ['*'],
           deps: ['tunnel_authentication', 'use_ssh_tunnel'],
           disabled: function(model) {
@@ -956,15 +1012,13 @@ define('pgadmin.node.server', [
             return !model.get('tunnel_authentication') || !model.get('use_ssh_tunnel');
           },
         },{
-          id: 'tunnel_identity_file', label: gettext('Identity file'), type: 'text',
-          group: gettext('SSH Tunnel'), mode: ['properties'],
-        },{
           id: 'tunnel_password', label: gettext('Password'), type: 'password',
           group: gettext('SSH Tunnel'), control: 'input', mode: ['create'],
           deps: ['use_ssh_tunnel'],
           disabled: function(model) {
-            return !model.get('use_ssh_tunnel') || model.get('connected');
+            return !model.get('use_ssh_tunnel');
           },
+          readonly: 'isConnected',
         }, {
           id: 'save_tunnel_password', controlLabel: gettext('Save password?'),
           type: 'checkbox', group: gettext('SSH Tunnel'), mode: ['create'],
@@ -980,15 +1034,15 @@ define('pgadmin.node.server', [
           },
         }, {
           id: 'hostaddr', label: gettext('Host address'), type: 'text', group: gettext('Advanced'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
+          mode: ['properties', 'edit', 'create'], readonly: 'isConnected',
         },{
           id: 'db_res', label: gettext('DB restriction'), type: 'select2', group: gettext('Advanced'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected', select2: {multiple: true, allowClear: false,
+          mode: ['properties', 'edit', 'create'], readonly: 'isConnected', select2: {multiple: true, allowClear: false,
             tags: true, tokenSeparators: [','], first_empty: false, selectOnClose: true, emptyOptions: true},
         },{
           id: 'passfile', label: gettext('Password file'), type: 'text',
           group: gettext('Advanced'), mode: ['edit', 'create'],
-          disabled: 'isConnectedWithValidLib', control: Backform.FileControl,
+          disabled: 'isValidLib', readonly: 'isConnected', control: Backform.FileControl,
           dialog_type: 'select_file', supp_types: ['*'],
         },{
           id: 'passfile', label: gettext('Password file'), type: 'text',
@@ -998,13 +1052,9 @@ define('pgadmin.node.server', [
             return !_.isUndefined(passfile) && !_.isNull(passfile);
           },
         },{
-          id: 'service', label: gettext('Service'), type: 'text',
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
-          group: gettext('Connection'),
-        },{
           id: 'connect_timeout', label: gettext('Connection timeout (seconds)'),
           type: 'int', group: gettext('Advanced'),
-          mode: ['properties', 'edit', 'create'], disabled: 'isConnected',
+          mode: ['properties', 'edit', 'create'], readonly: 'isConnected',
           min: 0,
         }],
         validate: function() {
@@ -1033,16 +1083,9 @@ define('pgadmin.node.server', [
         },
         isSSL: function(model) {
           var ssl_mode = model.get('sslmode');
-          // If server is not connected and have required SSL option
-          if(model.get('connected')) {
-            return true;
-          }
           return _.indexOf(SSL_MODES, ssl_mode) == -1;
         },
-        isConnectedWithValidLib: function(model) {
-          if(model.get('connected')) {
-            return true;
-          }
+        isValidLib: function() {
           // older version of libpq do not support 'passfile' parameter in
           // connect method, valid libpq must have version >= 100000
           return pgBrowser.utils.pg_libpq_version < 100000;
@@ -1137,41 +1180,50 @@ define('pgadmin.node.server', [
             }, 100);
           });
         },
-        onSuccess = function(res, node, data, tree, item, _wasConnected) {
+        onSuccess = function(res, node, _data, _tree, _item, _wasConnected) {
           if (res && res.data) {
             if (typeof res.data.icon == 'string') {
-              tree.removeIcon(item);
-              data.icon = res.data.icon;
-              tree.addIcon(item, {icon: data.icon});
+              _tree.removeIcon(_item);
+              _data.icon = res.data.icon;
+              _tree.addIcon(_item, {icon: _data.icon});
             }
 
-            _.extend(data, res.data);
-            data.is_connecting = false;
+            _.extend(_data, res.data);
+            _data.is_connecting = false;
 
             var serverInfo = pgBrowser.serverInfo =
               pgBrowser.serverInfo || {};
-            serverInfo[data._id] = _.extend({}, data);
+            serverInfo[_data._id] = _.extend({}, _data);
 
-            Alertify.success(res.info);
-            obj.trigger('connected', obj, item, data);
+            if (_data.version < 90500) {
+              Alertify.warning(gettext('You have connected to a server version that is older ' +
+                'than is supported by pgAdmin. This may cause pgAdmin to break in strange and ' +
+                'unpredictable ways. Or a plague of frogs. Either way, you have been warned!') +
+                '<br /><br />' +
+                res.info, 0);
+            } else {
+              Alertify.success(res.info);
+            }
+
+            obj.trigger('connected', obj, _item, _data);
 
             // Generate the event that server is connected
             pgBrowser.Events.trigger(
-              'pgadmin:server:connected', data._id, item, data
+              'pgadmin:server:connected', _data._id, _item, _data
             );
             // Generate the event that database is connected
             pgBrowser.Events.trigger(
-              'pgadmin:database:connected', data._id, data.db, item, data
+              'pgadmin:database:connected', _data._id, _data.db, _item, _data
             );
 
             // We're not reconnecting
             if (!_wasConnected) {
-              tree.setInode(item);
-              tree.deselect(item);
+              _tree.setInode(_item);
+              _tree.deselect(_item);
 
               setTimeout(function() {
-                tree.select(item);
-                tree.open(item);
+                _tree.select(_item);
+                _tree.open(_item);
               }, 10);
             } else {
               // We just need to refresh the tree now.
@@ -1187,14 +1239,14 @@ define('pgadmin.node.server', [
         Alertify.dialog('dlgServerPass', function factory() {
           return {
             main: function(
-              title, message, node, data, tree, item,
+              title, message, node, _data, _tree, _item,
               _status, _onSuccess, _onFailure, _onCancel
             ) {
               this.set('title', title);
               this.message = message;
-              this.tree = tree;
-              this.nodeData = data;
-              this.nodeItem = item;
+              this.tree = _tree;
+              this.nodeData = _data;
+              this.nodeItem = _item;
               this.node= node;
               this.connected = _status;
               this.onSuccess = _onSuccess || onSuccess;
@@ -1282,7 +1334,14 @@ define('pgadmin.node.server', [
         }
       };
 
+      /* Wait till the existing request completes */
+      if(data.is_connecting) {
+        return;
+      }
       data.is_connecting = true;
+      tree.setLeaf(item);
+      tree.removeIcon(item);
+      tree.addIcon(item, {icon: 'icon-server-connecting'});
       var url = obj.generate_url(item, 'connect', data, true);
       $.post(url)
         .done(function(res) {
@@ -1296,6 +1355,40 @@ define('pgadmin.node.server', [
           return onFailure(
             xhr, status, error, obj, data, tree, item, wasConnected
           );
+        })
+        .always(function(){
+          data.is_connecting = false;
+        });
+    };
+    var fetch_connection_status = function(obj, data, tree, item) {
+      var url = obj.generate_url(item, 'connect', data, true);
+
+      tree.setLeaf(item);
+      tree.removeIcon(item);
+      tree.addIcon(item, {icon: 'icon-server-connecting'});
+      $.get(url)
+        .done(function(res) {
+          tree.setInode(item);
+          if (res && res.data) {
+            if (typeof res.data.icon == 'string') {
+              tree.removeIcon(item);
+              data.icon = res.data.icon;
+              tree.addIcon(item, {icon: data.icon});
+            }
+            _.extend(data, res.data);
+
+            var serverInfo = pgBrowser.serverInfo = pgBrowser.serverInfo || {};
+            serverInfo[data._id] = _.extend({}, data);
+
+            if(data.errmsg) {
+              Alertify.error(data.errmsg);
+            }
+          }
+        })
+        .fail(function(xhr, status, error) {
+          tree.setInode(item);
+          tree.addIcon(item, {icon: 'icon-server-not-connected'});
+          Alertify.pgRespErrorNotify(xhr, error);
         });
     };
   }

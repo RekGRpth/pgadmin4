@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.user_mapping', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.backform', 'pgadmin.browser.collection',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, Backform) {
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, Backform) {
 
   // Extend the browser's node model class to create a Options model
   var OptionsModel = pgAdmin.Browser.Node.Model.extend({
@@ -39,7 +39,7 @@ define('pgadmin.node.user_mapping', [
       if (_.isUndefined(this.get('umoption')) ||
             _.isNull(this.get('umoption')) ||
             String(this.get('umoption')).replace(/^\s+|\s+$/g, '') == '') {
-        var msg = 'Please enter an option name';
+        var msg = gettext('Please enter an option name.');
         this.errorModel.set('umoption', msg);
         return msg;
       } else {
@@ -108,6 +108,7 @@ define('pgadmin.node.user_mapping', [
         idAttribute: 'um_oid',
         defaults: {
           name: undefined,
+          is_sys_obj: undefined,
           um_options: [],
         },
 
@@ -146,7 +147,10 @@ define('pgadmin.node.user_mapping', [
           },
         },{
           id: 'um_oid', label: gettext('OID'), cell: 'string',
-          type: 'text', disabled: true, mode: ['properties'],
+          type: 'text', mode: ['properties'],
+        }, {
+          id: 'is_sys_obj', label: gettext('System user mapping?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'umoptions', label: gettext('Options'), type: 'collection', group: gettext('Options'),
           model: OptionsModel, control: 'unique-col-collection', mode: ['create', 'edit'],

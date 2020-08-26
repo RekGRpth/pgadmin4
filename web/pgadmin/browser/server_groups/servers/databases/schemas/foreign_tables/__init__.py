@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -27,15 +27,12 @@ from pgadmin.browser.server_groups.servers.databases.utils import \
 from pgadmin.browser.server_groups.servers.utils import parse_priv_from_db, \
     parse_priv_to_db
 from pgadmin.browser.utils import PGChildNodeView
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.compile_template_name import compile_template_path
 from pgadmin.utils.driver import get_driver
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 class ForeignTableModule(SchemaChildModule):
@@ -59,8 +56,8 @@ class ForeignTableModule(SchemaChildModule):
       - Load the module script for Foreign Table, when schema node is
         initialized.
     """
-    NODE_TYPE = 'foreign_table'
-    COLLECTION_LABEL = gettext("Foreign Tables")
+    _NODE_TYPE = 'foreign_table'
+    _COLLECTION_LABEL = gettext("Foreign Tables")
 
     def __init__(self, *args, **kwargs):
         super(ForeignTableModule, self).__init__(*args, **kwargs)
@@ -87,13 +84,14 @@ class ForeignTableModule(SchemaChildModule):
         Load the module script for foreign table, when the
         schema node is initialized.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
 
 blueprint = ForeignTableModule(__name__)
 
 
-class ForeignTableView(PGChildNodeView, DataTypeReader):
+class ForeignTableView(PGChildNodeView, DataTypeReader,
+                       SchemaDiffObjectCompare):
     """
     class ForeignTableView(PGChildNodeView)
 
@@ -174,9 +172,13 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
     * delete_sql(gid, sid, did, scid, foid):
       - Returns sql for Script
 
+    * compare(**kwargs):
+      - This function will compare the foreign table nodes from two different
+        schemas.
     """
 
     node_type = blueprint.node_type
+    node_label = "Foreign Table"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -213,8 +215,12 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         'select_sql': [{'get': 'select_sql'}],
         'insert_sql': [{'get': 'insert_sql'}],
         'update_sql': [{'get': 'update_sql'}],
-        'delete_sql': [{'get': 'delete_sql'}]
+        'delete_sql': [{'get': 'delete_sql'}],
+        'compare': [{'get': 'compare'}, {'get': 'compare'}]
     })
+
+    keys_to_ignore = ['oid', 'basensp', 'oid-2', 'attnum', 'strftoptions',
+                      'relacl']
 
     def validate_request(f):
         """
@@ -250,9 +256,8 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                             status=410,
                             success=0,
                             errormsg=gettext(
-                                "Could not find the required parameter (%s)." %
-                                arg
-                            )
+                                "Could not find the required parameter ({})."
+                            ).format(arg)
                         )
 
             try:
@@ -288,7 +293,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                                 # as we need Table names to generate the SQL.
                                 SQL = render_template(
                                     "/".join([self.template_path,
-                                              'get_tables.sql']),
+                                              self._GET_TABLES_SQL]),
                                     attrelid=inherits)
                                 status, res = self.conn.execute_dict(SQL)
 
@@ -301,9 +306,12 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                                     data[key] = []
 
                     elif key == 'typnotnull':
-                        data[key] = True if (req[key] == 'true' or req[key]
-                                             is True) else False if \
-                            (req[key] == 'false' or req[key]) is False else ''
+                        if req[key] == 'true' or req[key] is True:
+                            data[key] = True
+                        elif req[key] == 'false' or req[key] is False:
+                            data[key] = False
+                        else:
+                            data[key] = ''
                     else:
                         data[key] = req[key]
 
@@ -331,6 +339,10 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             # Get database connection
             self.conn = self.manager.connection(did=kwargs['did'])
             self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             # Set template path for sql scripts depending
             # on the server version.
@@ -355,7 +367,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             did: Database Id
             scid: Schema Id
         """
-        SQL = render_template("/".join([self.template_path, 'node.sql']),
+        SQL = render_template("/".join([self.template_path, self._NODE_SQL]),
                               scid=scid)
         status, res = self.conn.execute_dict(SQL)
 
@@ -380,7 +392,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
 
         res = []
         SQL = render_template("/".join([self.template_path,
-                                        'node.sql']), scid=scid)
+                                        self._NODE_SQL]), scid=scid)
         status, rset = self.conn.execute_2darray(SQL)
 
         if not status:
@@ -414,7 +426,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         """
 
         SQL = render_template("/".join([self.template_path,
-                                        'node.sql']), foid=foid)
+                                        self._NODE_SQL]), foid=foid)
         status, rset = self.conn.execute_2darray(SQL)
 
         if not status:
@@ -431,9 +443,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                 status=200
             )
 
-        return gone(gettext(
-            'Could not find the specified foreign table.'
-        ))
+        return gone(self.not_found_error_msg())
 
     @check_precondition
     def properties(self, gid, sid, did, scid, foid):
@@ -447,11 +457,11 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             scid: Schema Id
             foid: Foreign Table Id
         """
-        data = self._fetch_properties(gid, sid, did, scid, foid)
-        if data is False:
-            return gone(
-                gettext("Could not find the foreign table on the server.")
-            )
+        status, data = self._fetch_properties(gid, sid, did, scid, foid)
+        if not status:
+            return data
+        if not data:
+            return gone(self.not_found_error_msg())
 
         return ajax_response(
             response=data,
@@ -569,7 +579,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         res = []
         try:
             SQL = render_template("/".join(
-                [self.template_path, 'get_tables.sql']),
+                [self.template_path, self._GET_TABLES_SQL]),
                 foid=foid, server_type=self.manager.server_type,
                 show_sys_objects=self.blueprint.show_system_objects)
             status, rset = self.conn.execute_dict(SQL)
@@ -657,9 +667,10 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         """
         try:
             # Get SQL to create Foreign Table
-            SQL, name = self.get_sql(gid, sid, did, scid, self.request)
+            SQL, name = self.get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                     data=self.request)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             status, res = self.conn.execute_scalar(SQL)
@@ -670,7 +681,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             basensp = self.request['basensp'] if ('basensp' in self.request) \
                 else None
             SQL = render_template("/".join([self.template_path,
-                                            'get_oid.sql']),
+                                            self._OID_SQL]),
                                   basensp=basensp,
                                   name=self.request['name'])
             status, res = self.conn.execute_2darray(SQL)
@@ -692,7 +703,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             return internal_server_error(errormsg=str(e))
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, foid=None):
+    def delete(self, gid, sid, did, scid, foid=None, only_sql=False):
         """
         Drops the Foreign Table.
 
@@ -702,6 +713,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             did: Database Id
             scid: Schema Id
             foid: Foreign Table Id
+            only_sql: Return only sql if True
         """
         if foid is None:
             data = request.form if request.form else json.loads(
@@ -710,41 +722,39 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         else:
             data = {'ids': [foid]}
 
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation()
 
         try:
             for foid in data['ids']:
                 # Fetch Name and Schema Name to delete the foreign table.
                 SQL = render_template("/".join([self.template_path,
-                                                'delete.sql']), scid=scid,
+                                                self._DELETE_SQL]), scid=scid,
                                       foid=foid)
                 status, res = self.conn.execute_2darray(SQL)
                 if not status:
                     return internal_server_error(errormsg=res)
-
-                if not res['rows']:
+                elif not res['rows']:
                     return make_json_response(
                         success=0,
                         errormsg=gettext(
                             'Error: Object not found.'
                         ),
-                        info=gettext(
-                            'The specified foreign table could not be found.\n'
-                        )
+                        info=self.not_found_error_msg()
                     )
 
                 name = res['rows'][0]['name']
                 basensp = res['rows'][0]['basensp']
 
                 SQL = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       name=name,
                                       basensp=basensp,
                                       cascade=cascade)
+
+                # Used for schema diff tool
+                if only_sql:
+                    return SQL
+
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
                     return internal_server_error(errormsg=res)
@@ -772,9 +782,10 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         """
 
         try:
-            SQL, name = self.get_sql(gid, sid, did, scid, self.request, foid)
+            SQL, name = self.get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                     data=self.request, foid=foid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             SQL = SQL.strip('\n').strip(' ')
@@ -783,7 +794,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                 return internal_server_error(errormsg=res)
 
             SQL = render_template("/".join([self.template_path,
-                                            'get_oid.sql']),
+                                            self._OID_SQL]),
                                   foid=foid)
             status, res = self.conn.execute_2darray(SQL)
             if not status:
@@ -803,7 +814,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             return internal_server_error(errormsg=str(e))
 
     @check_precondition
-    def sql(self, gid, sid, did, scid, foid=None):
+    def sql(self, gid, sid, did, scid, foid=None, **kwargs):
         """
         Returns the SQL for the Foreign Table object.
 
@@ -813,12 +824,16 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             did: Database Id
             scid: Schema Id
             foid: Foreign Table Id
+            json_resp: True then return json response
         """
-        data = self._fetch_properties(gid, sid, did, scid, foid, inherits=True)
-        if data is False:
-            return gone(
-                gettext("Could not find the foreign table on the server.")
-            )
+        json_resp = kwargs.get('json_resp', True)
+
+        status, data = self._fetch_properties(gid, sid, did, scid, foid,
+                                              inherits=True)
+        if not status:
+            return data
+        if not data:
+            return gone(self.not_found_error_msg())
 
         col_data = []
         for c in data['columns']:
@@ -827,12 +842,22 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
 
         data['columns'] = col_data
 
+        # Parse Privileges
+        if 'acl' in data:
+            data['acl'] = parse_priv_to_db(data['acl'],
+                                           ["a", "r", "w", "x"])
+
         SQL = render_template("/".join([self.template_path,
-                                        'create.sql']), data=data, is_sql=True)
+                                        self._CREATE_SQL]),
+                              data=data, is_sql=True)
 
-        sql_header = u"""-- FOREIGN TABLE: {0}
+        if not json_resp:
+            return SQL.strip('\n')
 
--- DROP FOREIGN TABLE {0};
+        sql_header = u"""-- FOREIGN TABLE: {0}.{1}\n\n""".format(
+            data['basensp'], data['name'])
+
+        sql_header += """-- DROP FOREIGN TABLE {0};
 
 """.format(self.qtIdent(self.conn, data['basensp'], data['name']))
 
@@ -859,9 +884,10 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             SQL statements to create/update the Foreign Table.
         """
         try:
-            SQL, name = self.get_sql(gid, sid, did, scid, self.request, foid)
+            SQL, name = self.get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                     data=self.request, foid=foid)
             # Most probably this is due to error
-            if not isinstance(SQL, (str, unicode)):
+            if not isinstance(SQL, str):
                 return SQL
 
             if SQL == '':
@@ -874,90 +900,148 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
-    def get_sql(self, gid, sid, did, scid, data, foid=None):
+    @staticmethod
+    def _parse_privileges(data):
         """
-        Genrates the SQL statements to create/update the Foreign Table.
+        Parser privilege data as per type.
+        :param data: Data.
+        :return:
+        """
+        if 'acl' in data and 'added' in data['acl']:
+            data['acl']['added'] = parse_priv_to_db(data['acl']['added'],
+                                                    ["a", "r", "w", "x"])
+        if 'acl' in data and 'changed' in data['acl']:
+            data['acl']['changed'] = parse_priv_to_db(
+                data['acl']['changed'], ["a", "r", "w", "x"])
+        if 'acl' in data and 'deleted' in data['acl']:
+            data['acl']['deleted'] = parse_priv_to_db(
+                data['acl']['deleted'], ["a", "r", "w", "x"])
+
+    @staticmethod
+    def _check_old_col_ops(old_col_frmt_options, option, col):
+        """
+        check old column options.
+        :param old_col_frmt_options: old column option data.
+        :param option: option data.
+        :param col: column data.
+        :return:
+        """
+        if (
+            option['option'] in old_col_frmt_options and
+            option['value'] != old_col_frmt_options[option['option']]
+        ):
+            col['coloptions_updated']['changed'].append(option)
+        elif option['option'] not in old_col_frmt_options:
+            col['coloptions_updated']['added'].append(option)
+        if option['option'] in old_col_frmt_options:
+            del old_col_frmt_options[option['option']]
+
+    @staticmethod
+    def _parse_column_options(data):
+        """
+        Parse columns data.
+        :param data: Data.
+        :return:
+        """
+        for c in data['columns']['changed']:
+            old_col_options = c['attfdwoptions'] = []
+            if 'attfdwoptions' in c and c['attfdwoptions']:
+                old_col_options = c['attfdwoptions']
+
+            old_col_frmt_options = {}
+
+            for o in old_col_options:
+                col_opt = o.split("=")
+                old_col_frmt_options[col_opt[0]] = col_opt[1]
+
+            c['coloptions_updated'] = {'added': [],
+                                       'changed': [],
+                                       'deleted': []}
+
+            if 'coloptions' in c and len(c['coloptions']) > 0:
+                for o in c['coloptions']:
+                    ForeignTableView._check_old_col_ops(old_col_frmt_options,
+                                                        o, c)
+
+            for o in old_col_frmt_options:
+                c['coloptions_updated']['deleted'].append(
+                    {'option': o})
+
+    def _format_columns_data(self, data, old_data):
+        """
+        Format columns.
+        :param data: data.
+        :param old_data: old data for compare.
+        :return:
+        """
+        col_data = {}
+        # Prepare dict of columns with key = column's attnum
+        # Will use this in the update template when any column is
+        # changed, to identify the columns.
+        for c in old_data['columns']:
+            col_data[c['attnum']] = c
+
+        old_data['columns'] = col_data
+
+        if 'columns' in data and 'added' in data['columns']:
+            data['columns']['added'] = self._format_columns(
+                data['columns']['added'])
+
+        if 'columns' in data and 'changed' in data['columns']:
+            data['columns']['changed'] = self._format_columns(
+                data['columns']['changed'])
+
+            # Parse Column Options
+            ForeignTableView._parse_column_options(data)
+
+    def get_sql(self, **kwargs):
+        """
+        Generates the SQL statements to create/update the Foreign Table.
 
         Args:
-            gid: Server Group Id
-            sid: Server Id
-            did: Database Id
-            scid: Schema Id
-            foid: Foreign Table Id
+            kwargs: Server Group Id
         """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        data = kwargs.get('data')
+        foid = kwargs.get('foid', None)
+        is_schema_diff = kwargs.get('is_schema_diff', False)
+
         if foid is not None:
-            old_data = self._fetch_properties(gid, sid, did, scid, foid,
-                                              inherits=True)
-            if old_data is False:
-                return gone(
-                    gettext("Could not find the foreign table on the server.")
-                )
+            status, old_data = self._fetch_properties(gid, sid, did, scid,
+                                                      foid, inherits=True)
+            if not status:
+                return old_data
+            elif not old_data:
+                return gone(self.not_found_error_msg())
 
-            # Prepare dict of columns with key = column's attnum
-            # Will use this in the update template when any column is
-            # changed, to identify the columns.
-            col_data = {}
-            for c in old_data['columns']:
-                col_data[c['attnum']] = c
+            if is_schema_diff:
+                data['is_schema_diff'] = True
+                old_data['columns_for_schema_diff'] = old_data['columns']
 
-            old_data['columns'] = col_data
-
-            if 'columns' in data and 'added' in data['columns']:
-                data['columns']['added'] = self._format_columns(
-                    data['columns']['added'])
-
-            if 'columns' in data and 'changed' in data['columns']:
-                data['columns']['changed'] = self._format_columns(
-                    data['columns']['changed'])
-
-                # Parse Column Options
-                for c in data['columns']['changed']:
-                    old_col_options = c['attfdwoptions'] = []
-                    if 'attfdwoptions' in c and c['attfdwoptions']:
-                        old_col_options = c['attfdwoptions']
-
-                    old_col_frmt_options = {}
-
-                    for o in old_col_options:
-                        col_opt = o.split("=")
-                        old_col_frmt_options[col_opt[0]] = col_opt[1]
-
-                    c['coloptions_updated'] = {'added': [],
-                                               'changed': [],
-                                               'deleted': []}
-
-                    if 'coloptions' in c and len(c['coloptions']) > 0:
-                        for o in c['coloptions']:
-                            if (
-                                o['option'] in old_col_frmt_options and
-                                o['value'] != old_col_frmt_options[o['option']]
-                            ):
-                                c['coloptions_updated']['changed'].append(o)
-                            elif o['option'] not in old_col_frmt_options:
-                                c['coloptions_updated']['added'].append(o)
-                            if o['option'] in old_col_frmt_options:
-                                del old_col_frmt_options[o['option']]
-
-                    for o in old_col_frmt_options:
-                        c['coloptions_updated']['deleted'].append(
-                            {'option': o})
+            self._format_columns_data(data, old_data)
 
             # Parse Privileges
-            if 'acl' in data and 'added' in data['acl']:
-                data['acl']['added'] = parse_priv_to_db(data['acl']['added'],
-                                                        ["a", "r", "w", "x"])
-            if 'acl' in data and 'changed' in data['acl']:
-                data['acl']['changed'] = parse_priv_to_db(
-                    data['acl']['changed'], ["a", "r", "w", "x"])
-            if 'acl' in data and 'deleted' in data['acl']:
-                data['acl']['deleted'] = parse_priv_to_db(
-                    data['acl']['deleted'], ["a", "r", "w", "x"])
+            ForeignTableView._parse_privileges(data)
 
-            SQL = render_template(
-                "/".join([self.template_path, 'update.sql']),
-                data=data, o_data=old_data
-            )
-            return SQL, data['name'] if 'name' in data else old_data['name']
+            # If ftsrvname is changed while comparing two schemas
+            # then we need to drop foreign table and recreate it
+            if is_schema_diff and 'ftsrvname' in data:
+                # Modify the data required to recreate the foreign table.
+                self.modify_data_for_schema_diff(data, old_data)
+
+                sql = render_template(
+                    "/".join([self.template_path,
+                              'foreign_table_schema_diff.sql']),
+                    data=data, o_data=old_data)
+            else:
+                sql = render_template(
+                    "/".join([self.template_path, self._UPDATE_SQL]),
+                    data=data, o_data=old_data
+                )
+            return sql, data['name'] if 'name' in data else old_data['name']
         else:
             data['columns'] = self._format_columns(data['columns'])
 
@@ -966,9 +1050,9 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                 data['acl'] = parse_priv_to_db(data['acl'],
                                                ["a", "r", "w", "x"])
 
-            SQL = render_template("/".join([self.template_path,
-                                            'create.sql']), data=data)
-            return SQL, data['name']
+            sql = render_template("/".join([self.template_path,
+                                            self._CREATE_SQL]), data=data)
+            return sql, data['name']
 
     @check_precondition
     def dependents(self, gid, sid, did, scid, foid):
@@ -1041,25 +1125,28 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         Returns:
 
         """
-        SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._PROPERTIES_SQL]),
                               scid=scid, foid=foid)
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return False
+            return True, False
 
         data = res['rows'][0]
+        data['is_sys_obj'] = (
+            data['oid'] <= self.datlastsysoid)
 
         if self.manager.version >= 90200:
             # Fetch privileges
-            SQL = render_template("/".join([self.template_path, 'acl.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._ACL_SQL]),
                                   foid=foid)
-            status, aclres = self.conn.execute_dict(SQL)
+            status, aclres = self.conn.execute_dict(sql)
             if not status:
-                return internal_server_error(errormsg=aclres)
+                return False, internal_server_error(errormsg=aclres)
 
             # Get Formatted Privileges
             data.update(self._format_proacl_from_db(aclres['rows']))
@@ -1073,24 +1160,40 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             data.update({'strftoptions': data['ftoptions']})
             data.update(self._parse_variables_from_db(data['ftoptions']))
 
-        SQL = render_template("/".join([self.template_path,
-                                        'get_constraints.sql']), foid=foid)
-        status, cons = self.conn.execute_dict(SQL)
+        sql = render_template("/".join([self.template_path,
+                                        self._GET_CONSTRAINTS_SQL]), foid=foid)
+        status, cons = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=cons)
+            return False, internal_server_error(errormsg=cons)
 
         if cons and 'rows' in cons:
             data['constraints'] = cons['rows']
 
-        SQL = render_template("/".join([self.template_path,
-                                        'get_columns.sql']), foid=foid)
-        status, cols = self.conn.execute_dict(SQL)
+        sql = render_template("/".join([self.template_path,
+                                        self._GET_COLUMNS_SQL]), foid=foid)
+        status, cols = self.conn.execute_dict(sql)
         if not status:
-            return internal_server_error(errormsg=cols)
+            return False, internal_server_error(errormsg=cols)
 
-        # The Length and the precision of the Datatype should be separated.
-        # The Format we getting from database is: numeric(1,1)
-        # So, we need to separate it as Length: 1, Precision: 1
+        self._get_datatype_precision(cols)
+
+        if cols and 'rows' in cols:
+            data['columns'] = cols['rows']
+
+        # Get Inherited table names from their OID
+        is_error, errmsg = self._get_inherited_table_name(data, inherits)
+        if is_error:
+            return False, internal_server_error(errormsg=errmsg)
+
+        return True, data
+
+    def _get_datatype_precision(self, cols):
+        """
+        The Length and the precision of the Datatype should be separated.
+        The Format we getting from database is: numeric(1,1)
+        So, we need to separate it as Length: 1, Precision: 1
+        :param cols: list of columns.
+        """
         for c in cols['rows']:
             if c['fulltype'] != '' and c['fulltype'].find("(") > 0:
                 substr = self.extract_type_length_precision(c)
@@ -1107,28 +1210,30 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
                 att_opt = self._parse_variables_from_db(c['attfdwoptions'])
                 c['coloptions'] = att_opt['ftoptions']
 
-        if cols and 'rows' in cols:
-            data['columns'] = cols['rows']
+    def _get_inherited_table_name(self, data, inherits):
+        """
+        Get inherited table name.
+        :param data: Data.
+        :param inherits: flag which is used If True then inherited table
+        will be fetched from database.
+        """
+        if inherits and 'inherits' in data and data['inherits']:
+            inherits = tuple([int(x) for x in data['inherits']])
+            if len(inherits) == 1:
+                inherits = "(" + str(inherits[0]) + ")"
 
-        # Get Inherited table names from their OID
-        if inherits:
-            if 'inherits' in data and data['inherits']:
-                inherits = tuple([int(x) for x in data['inherits']])
-                if len(inherits) == 1:
-                    inherits = "(" + str(inherits[0]) + ")"
+            sql = render_template("/".join([self.template_path,
+                                            self._GET_TABLES_SQL]),
+                                  attrelid=inherits)
+            status, res = self.conn.execute_dict(sql)
 
-                SQL = render_template("/".join([self.template_path,
-                                                'get_tables.sql']),
-                                      attrelid=inherits)
-                status, res = self.conn.execute_dict(SQL)
+            if not status:
+                return True, res
 
-                if not status:
-                    return internal_server_error(errormsg=res)
+            if 'inherits' in res['rows'][0]:
+                data['inherits'] = res['rows'][0]['inherits']
 
-                if 'inherits' in res['rows'][0]:
-                    data['inherits'] = res['rows'][0]['inherits']
-
-        return data
+        return False, ''
 
     @staticmethod
     def convert_precision_to_int(typlen):
@@ -1217,11 +1322,11 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         Returns:
             SELECT Script sql for the object
         """
-        data = self._fetch_properties(gid, sid, did, scid, foid)
-        if data is False:
-            return gone(
-                gettext("Could not find the foreign table on the server.")
-            )
+        status, data = self._fetch_properties(gid, sid, did, scid, foid)
+        if not status:
+            return data
+        if not data:
+            return gone(self.not_found_error_msg())
 
         columns = []
         for c in data['columns']:
@@ -1254,11 +1359,11 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         Returns:
             INSERT Script sql for the object
         """
-        data = self._fetch_properties(gid, sid, did, scid, foid)
-        if data is False:
-            return gone(
-                gettext("Could not find the foreign table on the server.")
-            )
+        status, data = self._fetch_properties(gid, sid, did, scid, foid)
+        if not status:
+            return data
+        if not data:
+            return gone(self.not_found_error_msg())
 
         columns = []
         values = []
@@ -1296,11 +1401,11 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         Returns:
             UPDATE Script sql for the object
         """
-        data = self._fetch_properties(gid, sid, did, scid, foid)
-        if data is False:
-            return gone(
-                gettext("Could not find the foreign table on the server.")
-            )
+        status, data = self._fetch_properties(gid, sid, did, scid, foid)
+        if not status:
+            return data
+        if not data:
+            return gone(self.not_found_error_msg())
 
         columns = []
 
@@ -1327,7 +1432,7 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
         return ajax_response(response=sql)
 
     @check_precondition
-    def delete_sql(self, gid, sid, did, scid, foid):
+    def delete_sql(self, gid, sid, did, scid, foid, only_sql=False):
         """
         DELETE script sql for the object
 
@@ -1337,21 +1442,172 @@ class ForeignTableView(PGChildNodeView, DataTypeReader):
             did: Database Id
             scid: Schema Id
             foid: Foreign Table Id
+            only_sql: Return only sql if True
 
         Returns:
             DELETE Script sql for the object
         """
-        data = self._fetch_properties(gid, sid, did, scid, foid)
-        if data is False:
-            return gone(
-                gettext("Could not find the foreign table on the server.")
-            )
+        status, data = self._fetch_properties(gid, sid, did, scid, foid)
+        if not status:
+            return data
+        if not data:
+            return gone(self.not_found_error_msg())
 
         sql = u"DELETE FROM {0}\n\tWHERE <condition>;".format(
             self.qtIdent(self.conn, data['basensp'], data['name'])
         )
 
+        # Used for schema diff tool
+        if only_sql:
+            return sql
+
         return ajax_response(response=sql)
 
+    @staticmethod
+    def _check_const_for_obj_compare(data):
+        """
+        Check for constraint in fetched objects for compare.
+        :param data: Data.
+        """
+        if 'constraints' in data and data['constraints'] is not None \
+                and len(data['constraints']) > 0:
+            for item in data['constraints']:
+                if 'conoid' in item:
+                    item.pop('conoid')
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid):
+        """
+        This function will fetch the list of all the foreign tables for
+        specified schema id.
+
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :return:
+        """
+        res = dict()
+        SQL = render_template("/".join([self.template_path,
+                                        self._NODE_SQL]), scid=scid)
+        status, rset = self.conn.execute_2darray(SQL)
+        if not status:
+            return internal_server_error(errormsg=res)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(0, sid, did, scid,
+                                                  row['oid'])
+            if status:
+                ForeignTableView._check_const_for_obj_compare(data)
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                     data=data, foid=oid,
+                                     is_schema_diff=True)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, foid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, foid=oid,
+                               json_resp=False)
+        return sql
+
+    @staticmethod
+    def _modify_column_data(data, tmp_columns):
+        """
+        Modifies data for column.
+        :param data: Data for columns.
+        :param tmp_columns: tmp_columns list.
+        """
+        if 'added' in data['columns']:
+            for item in data['columns']['added']:
+                tmp_columns.append(item)
+        if 'changed' in data['columns']:
+            for item in data['columns']['changed']:
+                tmp_columns.append(item)
+        if 'deleted' in data['columns']:
+            for item in data['columns']['deleted']:
+                tmp_columns.remove(item)
+
+    @staticmethod
+    def _modify_constraints_data(data):
+        """
+        Modifies data for constraints.
+        :param data: Data for constraints.
+        :return: tmp_constraints list.
+        """
+        tmp_constraints = []
+        if 'added' in data['constraints']:
+            for item in data['constraints']['added']:
+                tmp_constraints.append(item)
+        if 'changed' in data['constraints']:
+            for item in data['constraints']['changed']:
+                tmp_constraints.append(item)
+
+        return tmp_constraints
+
+    @staticmethod
+    def _modify_options_data(data, tmp_ftoptions):
+        """
+        Modifies data for options.
+        :param data: Data for options.
+        :param tmp_ftoptions: tmp_ftoptions list.
+        """
+        if 'added' in data['ftoptions']:
+            for item in data['ftoptions']['added']:
+                tmp_ftoptions.append(item)
+        if 'changed' in data['ftoptions']:
+            for item in data['ftoptions']['changed']:
+                tmp_ftoptions.append(item)
+        if 'deleted' in data['ftoptions']:
+            for item in data['ftoptions']['deleted']:
+                tmp_ftoptions.remove(item)
+
+    def modify_data_for_schema_diff(self, data, old_data):
+        """
+        This function modifies the data for columns, constraints, options
+        etc...
+        :param data:
+        :return:
+        """
+        tmp_columns = []
+        if 'columns_for_schema_diff' in old_data:
+            tmp_columns = old_data['columns_for_schema_diff']
+
+        if 'columns' in data:
+            ForeignTableView._modify_column_data(data, tmp_columns)
+
+        data['columns'] = tmp_columns
+
+        if 'constraints' in data:
+            tmp_constraints = ForeignTableView._modify_constraints_data(data)
+            data['constraints'] = tmp_constraints
+
+        tmp_ftoptions = []
+        if 'ftoptions' in old_data:
+            tmp_ftoptions = old_data['ftoptions']
+        if 'ftoptions' in data:
+            ForeignTableView._modify_options_data(data, tmp_ftoptions)
+
+        data['ftoptions'] = tmp_ftoptions
+
+
+SchemaDiffRegistry(blueprint.node_type, ForeignTableView)
 ForeignTableView.register_node_view(blueprint)

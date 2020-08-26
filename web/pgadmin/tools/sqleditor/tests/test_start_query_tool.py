@@ -2,19 +2,14 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
-import sys
 
 from pgadmin.utils.route import BaseTestGenerator
 from pgadmin.tools.sqleditor import StartRunningQuery
-
-if sys.version_info < (3, 3):
-    from mock import patch, ANY
-else:
-    from unittest.mock import patch, ANY
+from unittest.mock import patch, ANY
 
 
 class StartQueryTool(BaseTestGenerator):

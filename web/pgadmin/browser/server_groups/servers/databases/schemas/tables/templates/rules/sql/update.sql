@@ -5,26 +5,30 @@
 {% set rule_name = o_data.name %}
 {% endif %}
 {% if data.name and data.name != o_data.name %}
-ALTER RULE {{ conn|qtIdent(o_data.name) }} ON {{ conn|qtIdent(o_data.schema, o_data.view) }} RENAME TO {{ conn|qtIdent(data.name) }};{{ '\r\r' }}
+ALTER RULE {{ conn|qtIdent(o_data.name) }} ON {{ conn|qtIdent(o_data.schema, o_data.view) }} RENAME TO {{ conn|qtIdent(data.name) }};
+
 {% endif %}
-{% if data.event or data.do_instead is defined or data.condition or data.statements %}
+{% if data.event is defined or data.do_instead is defined or data.condition is defined or data.statements is defined %}
 CREATE OR REPLACE RULE {{ conn|qtIdent(rule_name) }} AS
     ON {% if data.event and data.event != o_data.event %}{{ data.event|upper }}{% else %}{{ o_data.event|upper }}{% endif %}
  TO {{ conn|qtIdent(o_data.schema, o_data.view) }}
 {% if data.condition and o_data.condition != data.condition %}
-    WHERE {{ data.condition }}
+    WHERE ({{ data.condition }})
 {% elif data.condition is not defined and o_data.condition %}
-    WHERE {{ o_data.condition }}
+    WHERE ({{ o_data.condition }})
 {% endif %}
-    DO {% if (('do_instead' not in data and o_data.do_instead in ['true', True]) or (data.do_instead in ['true', True])) %}{{ 'INSTEAD' }}{% endif %}
-{% if data.statements and data.statements != o_data.statements %}
-
-{{ data.statements.rstrip(';') }};
-{% elif data.statements is not defined and o_data.statements %}
-
-{{ o_data.statements.rstrip(';') }};
-{% else %}
+    DO{% if (('do_instead' not in data and o_data.do_instead in ['true', True]) or (data.do_instead in ['true', True])) %}{{ ' INSTEAD' }}{% endif %}
+{% if data.statements is defined %}
+{% if data.statements.strip() in ['', 'NOTHING'] %}
  NOTHING;
+{% else %}
+
+({{ data.statements.rstrip(';') }});
+{% endif %}
+{% elif o_data.statements.strip() in ['', 'NOTHING'] %}
+ NOTHING;
+{% else %}
+({{ o_data.statements.rstrip(';') }});
 {% endif %}
 
 {% endif %}

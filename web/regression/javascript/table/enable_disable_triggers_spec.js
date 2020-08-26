@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -59,7 +59,7 @@ describe('#enableTriggers', () => {
 
   describe('a node is selected', () => {
     describe('node as no data', () => {
-      it('does not send the request to the backend', () => {
+      it('does not send the request to the backend', (done) => {
         tree.selectNode([{id: 'table-no-data'}]);
 
         networkMock.onAny('.*').reply(200, () => {
@@ -67,6 +67,7 @@ describe('#enableTriggers', () => {
 
         setTimeout(() => {
           expect(enableTriggers(tree, alertify, generateUrlSpy, {})).toEqual(false);
+          done();
         }, 0);
       });
     });
@@ -105,7 +106,7 @@ describe('#enableTriggers', () => {
         it('call backend with the correct parameters', (done) => {
           enableTriggers(tree, alertify, generateUrlSpy, {item: [{id: 'table1'}]});
           setTimeout(() => {
-            expect(networkMockCalledWith.data).toEqual(JSON.stringify({enable: 'true'}));
+            expect(networkMockCalledWith.data).toEqual(JSON.stringify({is_enable_trigger: 'O'}));
             done();
           }, 0);
         });
@@ -186,7 +187,7 @@ describe('#disableTriggers', () => {
 
   describe('a node is selected', () => {
     describe('node as no data', () => {
-      it('does not send the request to the backend', () => {
+      it('does not send the request to the backend', (done) => {
         tree.selectNode([{id: 'table-no-data'}]);
 
         networkMock.onAny('.*').reply(200, () => {
@@ -194,6 +195,7 @@ describe('#disableTriggers', () => {
 
         setTimeout(() => {
           expect(disableTriggers(tree, alertify, generateUrlSpy, {})).toEqual(false);
+          done();
         }, 0);
       });
     });
@@ -232,7 +234,7 @@ describe('#disableTriggers', () => {
         it('call backend with the correct parameters', (done) => {
           disableTriggers(tree, alertify, generateUrlSpy, {item: [{id: 'table1'}]});
           setTimeout(() => {
-            expect(networkMockCalledWith.data).toEqual(JSON.stringify({enable: 'false'}));
+            expect(networkMockCalledWith.data).toEqual(JSON.stringify({is_enable_trigger: 'D'}));
             done();
           }, 0);
         });

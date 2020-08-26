@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -22,6 +22,7 @@ from pgadmin.utils.ajax import make_json_response, bad_request
 
 from config import PG_DEFAULT_DRIVER
 from pgadmin.model import Server
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 
 MODULE_NAME = 'import_export'
 
@@ -81,7 +82,7 @@ class IEMessage(IProcessDesc):
         if _storage:
             _storage = _storage.replace('\\', '/')
 
-        def cmdArg(x):
+        def cmd_arg(x):
             if x:
                 x = x.replace('\\', '\\\\')
                 x = x.replace('"', '\\"')
@@ -97,12 +98,12 @@ class IEMessage(IProcessDesc):
                     replace_next = True
                 self._cmd += ' ' + arg
             elif replace_next:
-                arg = cmdArg(arg)
+                arg = cmd_arg(arg)
                 if _storage is not None:
                     arg = arg.replace(_storage, '<STORAGE_DIR>')
                 self._cmd += ' "' + arg + '"'
             else:
-                self._cmd += cmdArg(arg)
+                self._cmd += cmd_arg(arg)
 
     @property
     def message(self):
@@ -169,7 +170,7 @@ def script():
     return Response(
         response=render_template("import_export/js/import_export.js", _=_),
         status=200,
-        mimetype="application/javascript"
+        mimetype=MIMETYPE_APP_JS
     )
 
 
@@ -192,12 +193,60 @@ def filename_with_file_manager_path(_file, _present=False):
     if not _present:
         # Touch the file to get the short path of the file on windows.
         with open(_file, 'a'):
-            pass
+            return fs_short_path(_file)
     else:
         if not os.path.isfile(_file):
             return None
 
     return fs_short_path(_file)
+
+
+def _get_ignored_column_list(data, driver, conn):
+    """
+    Get list of ignored columns for import/export.
+    :param data: Data.
+    :param driver: PG Driver.
+    :param conn: Connection.
+    :return: return ignored column list.
+    """
+    icols = None
+
+    if data['icolumns']:
+        ignore_cols = data['icolumns']
+
+        # format the ignore column list required as per copy command
+        # requirement
+        if ignore_cols and len(ignore_cols) > 0:
+            icols = ", ".join([
+                driver.qtIdent(conn, col)
+                for col in ignore_cols])
+    return icols
+
+
+def _get_required_column_list(data, driver, conn):
+    """
+    Get list of required columns for import/export.
+    :param data: Data.
+    :param driver: PG Driver.
+    :param conn: Connection.
+    :return: return required column list.
+    """
+    cols = None
+
+    # format the column import/export list required as per copy command
+    # requirement
+    if data['columns']:
+        columns = data['columns']
+        if columns and len(columns) > 0:
+            for col in columns:
+                if cols:
+                    cols += ', '
+                else:
+                    cols = '('
+                cols += driver.qtIdent(conn, col)
+            cols += ')'
+
+    return cols
 
 
 @blueprint.route('/job/<int:sid>', methods=['POST'], endpoint="create_job")
@@ -263,35 +312,9 @@ def create_import_export_job(sid):
     else:
         return bad_request(errormsg=_('Please specify a valid file'))
 
-    cols = None
-    icols = None
-
-    if data['icolumns']:
-        ignore_cols = data['icolumns']
-
-        # format the ignore column list required as per copy command
-        # requirement
-        if ignore_cols and len(ignore_cols) > 0:
-            for col in ignore_cols:
-                if icols:
-                    icols += ', '
-                else:
-                    icols = '('
-                icols += driver.qtIdent(conn, col)
-            icols += ')'
-
-    # format the column import/export list required as per copy command
-    # requirement
-    if data['columns']:
-        columns = data['columns']
-        if columns and len(columns) > 0:
-            for col in columns:
-                if cols:
-                    cols += ', '
-                else:
-                    cols = '('
-                cols += driver.qtIdent(conn, col)
-            cols += ')'
+    # Get required and ignored column list
+    icols = _get_ignored_column_list(data, driver, conn)
+    cols = _get_required_column_list(data, driver, conn)
 
     # Create the COPY FROM/TO  from template
     query = render_template(

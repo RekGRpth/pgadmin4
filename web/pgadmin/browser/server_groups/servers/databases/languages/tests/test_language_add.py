@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import json
 import uuid
@@ -18,16 +17,20 @@ from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
 from regression.python_test_utils import test_utils as utils
 from . import utils as language_utils
+from unittest.mock import patch
 
 
 class LanguagesAddTestCase(BaseTestGenerator):
     skip_on_database = ['gpdb']
-    scenarios = [
-        ('Language add test case', dict(url='/browser/language/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('create_language',
+                                         language_utils.test_cases)
 
     def setUp(self):
         super(LanguagesAddTestCase, self).setUp()
+        db_user = self.server['username']
+        self.data = self.test_data
+        self.data['name'] = "language_%s" % str(uuid.uuid4())[1:8]
+        self.data['lanowner'] = db_user
         self.server_data = parent_node_dict["database"][-1]
         self.server_id = self.server_data["server_id"]
         self.db_id = self.server_data['db_id']
@@ -42,41 +45,49 @@ class LanguagesAddTestCase(BaseTestGenerator):
     def runTest(self):
         """This function will add language under test database."""
 
-        db_user = self.server['username']
+        actual_status_code = ''
+        expected_status_code = ''
+        if self.is_positive_test:
+            response = self.create_language()
+            actual_status_code = response.status_code
+            expected_output = language_utils.verify_language(self)
+            expected_status_code = self.expected_data["status_code"]
+            self.assertDictEqual(expected_output, self.data)
+        else:
+            if hasattr(self, "missing_name"):
+                del self.data["name"]
+                response = self.create_language()
+                actual_status_code = response.status_code
+                expected_status_code = self.expected_data["status_code"]
+            if hasattr(self, "missing_lang_pack"):
+                with patch(self.mock_data["function_name"],
+                           return_value=eval(self.mock_data["return_value"])):
+                    response = self.create_language()
+                    actual_status_code = response.status_code
+                    expected_status_code = self.expected_data["status_code"]
 
-        self.data = {
-            "lanacl": [],
-            "laninl": "btint2sortsupport",
-            "lanowner": db_user,
-            "lanproc": "plpgsql_call_handler",
-            "lanval": "fmgr_c_validator",
-            "name": "language_%s" % str(uuid.uuid4())[1:8],
-            "seclabels": [],
-            "template_list": [
-                "plperl",
-                "plperlu",
-                "plpython2u",
-                "plpython3u",
-                "plpythonu",
-                "pltcl",
-                "pltclu"
-            ],
-            "trusted": "true"
-        }
+            if hasattr(self, "error_in_properties"):
+                with patch(self.mock_data["function_name"],
+                           side_effect=[eval(self.mock_data["return_value"])]):
+                    response = self.create_language()
+                    actual_status_code = response.status_code
+                    expected_status_code = self.expected_data["status_code"]
+        self.assertEquals(actual_status_code, expected_status_code)
 
-        response = self.tester.post(
+    def create_language(self):
+        """This function will add language under test database."""
+        return self.tester.post(
             self.url + str(utils.SERVER_GROUP) + '/' +
             str(self.server_id) + '/' + str(self.db_id) + '/',
             data=json.dumps(self.data),
             content_type='html/json')
 
-        self.assertEquals(response.status_code, 200)
-
     def tearDown(self):
         """This function delete added language and
         disconnect the test database."""
 
-        language_utils.delete_language(
-            self.server, self.db_name, self.data['name']
-        )
-        database_utils.disconnect_database(self, self.server_id, self.db_id)
+        if self.is_positive_test or hasattr(self, "error_in_properties"):
+            language_utils.delete_language(
+                self.server, self.db_name, self.data['name'])
+            database_utils.disconnect_database(self, self.server_id,
+                                               self.db_id)

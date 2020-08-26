@@ -2,65 +2,81 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 // LogWindow.cpp - Log viewer window
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "pgAdmin4.h"
 #include "LogWindow.h"
 #include "ui_LogWindow.h"
 
+#include <QStandardPaths>
 #include <QTime>
 
 #include <stdio.h>
 
-LogWindow::LogWindow(QWidget *parent, QString logFile) :
-    QDialog(parent),
-    ui(new Ui::LogWindow),
-    m_logFile(logFile)
+LogWindow::LogWindow(QWidget *parent) :
+    QDialog(parent)
 {
+    initLogWindow();
+}
+
+void LogWindow::initLogWindow()
+{
+    ui = new Ui::LogWindow;
     ui->setupUi(this);
 }
 
-
-LogWindow::~LogWindow()
+void LogWindow::LoadLog()
 {
-    delete ui;
+    int startupLines;
+    int serverLines;
+
+    ui->lblStatus->setText(tr("Loading logfiles..."));
+
+    ui->lblStartupLog->setText(tr("Startup Log (%1):").arg(g_startupLogFile));
+    ui->lblServerLog->setText(tr("Server Log (%1):").arg(g_serverLogFile));
+
+    startupLines = this->readLog(g_startupLogFile, ui->textStartupLog);
+    serverLines = this->readLog(g_serverLogFile, ui->textServerLog);
+
+    ui->lblStatus->setText(QString(tr("Loaded startup log (%1 lines) and server log (%2 lines).")).arg(startupLines).arg(serverLines));
 }
 
 
 void LogWindow::reload()
 {
-    this->ReadLog();
+    this->LoadLog();
 }
 
 
 // Read the logfile
-void LogWindow::ReadLog()
+int LogWindow::readLog(QString logFile, QPlainTextEdit *logWidget)
 {
     FILE *log;
     char *buffer;
     long len = 0;
-    int i, lines = 0;
+    int i;
+    int lines = 0;
 
     // Look busy!
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    ui->lblStatus->setText(tr("Loading logfile..."));
     this->setDisabled(true);
     QCoreApplication::processEvents( QEventLoop::AllEvents, 100 );
 
-    ui->textLog->clear();
+    logWidget->clear();
 
     // Attempt to open the file
-    log = fopen(m_logFile.toUtf8().data(), "r");
+    log = fopen(logFile.toUtf8().data(), "r");
     if (log == Q_NULLPTR)
     {
-            ui->textLog->setPlainText(QString(tr("The log file (%1) could not be opened.")).arg(m_logFile));
+            logWidget->setPlainText(QString(tr("The log file (%1) could not be opened.")).arg(g_serverLogFile));
             this->setDisabled(false);
             QApplication::restoreOverrideCursor();
-            return;
+            return 0;
     }
 
     // Get the file size, and read the data
@@ -70,20 +86,18 @@ void LogWindow::ReadLog()
     buffer = static_cast<char *>(malloc((len + 1) * sizeof(char)));
 
     for (i = 0; i < len; i++) {
-        if (fread(buffer + i, 1, 1, log) > 0)
-        {
-            if (buffer[i] == '\n')
-                lines++;
-        }
+        if (fread(buffer + i, 1, 1, log) > 0 && buffer[i] == '\n')
+            lines++;
     }
 
     buffer[i] = 0;
 
     fclose(log);
-    ui->textLog->setPlainText(buffer);
+    logWidget->setPlainText(buffer);
 
     // And... relax
-    ui->lblStatus->setText(QString(tr("Loaded logfile (%1 lines).")).arg(lines));
     this->setDisabled(false);
     QApplication::restoreOverrideCursor();
+
+    return lines;
 }

@@ -50,14 +50,65 @@ ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
     SET TABLESPACE {{conn|qtIdent(data.spcname)}};
 
 {% endif %}
+
+
 {#####################################################}
-{## change fillfactore settings ##}
+{## Enable Row Level Security Policy on table ##}
+{#####################################################}
+{% if data.rlspolicy %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    ENABLE ROW LEVEL SECURITY;
+{% elif  data.rlspolicy is defined and data.rlspolicy != o_data.rlspolicy%}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    DISABLE ROW LEVEL SECURITY;
+
+{% endif %}
+
+{#####################################################}
+{## Force Enable Row Level Security Policy on table ##}
+{#####################################################}
+{% if data.forcerlspolicy %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    FORCE ROW LEVEL SECURITY;
+{% elif  data.forcerlspolicy is defined and data.forcerlspolicy != o_data.forcerlspolicy%}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    NO FORCE ROW LEVEL SECURITY;
+{% endif %}
+
+{#####################################################}
+{## change fillfactor settings ##}
 {#####################################################}
 {% if data.fillfactor and data.fillfactor != o_data.fillfactor %}
 ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
     SET (FILLFACTOR={{data.fillfactor}});
+{% elif (data.fillfactor == '' or data.fillfactor == None) and data.fillfactor != o_data.fillfactor %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    RESET (FILLFACTOR);
 
 {% endif %}
+
+{## change parallel_workers settings ##}
+{#####################################################}
+{% if (data.parallel_workers == '' or data.parallel_workers == None) and data.parallel_workers != o_data.parallel_workers %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    RESET (parallel_workers);
+{% elif data.parallel_workers is defined and data.parallel_workers != o_data.parallel_workers %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    SET (parallel_workers={{data.parallel_workers}});
+
+{% endif %}
+
+{## change toast_tuple_target settings ##}
+{#####################################################}
+{% if (data.toast_tuple_target == '' or data.toast_tuple_target == None) and data.toast_tuple_target != o_data.toast_tuple_target %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    RESET (toast_tuple_target);
+{% elif data.toast_tuple_target is defined and data.toast_tuple_target != o_data.toast_tuple_target %}
+ALTER TABLE {{conn|qtIdent(data.schema, data.name)}}
+    SET (toast_tuple_target={{data.toast_tuple_target}});
+
+{% endif %}
+
 {###############################}
 {## Table AutoVacuum settings ##}
 {###############################}
@@ -81,14 +132,14 @@ ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} RESET (
     autovacuum_freeze_table_age
 );
 {% else %}
-{% if data.autovacuum_enabled is defined or has_vacuum_set %}
+{% if (data.autovacuum_enabled in ('t', 'f') and data.autovacuum_enabled != o_data.autovacuum_enabled) or has_vacuum_set %}
 ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} SET (
-{% if data.autovacuum_enabled is defined and data.autovacuum_enabled != o_data.autovacuum_enabled %}
-    autovacuum_enabled = {% if data.autovacuum_enabled %}true{% else %}false{% endif %}{% if has_vacuum_set %},
+{% if data.autovacuum_enabled in ('t', 'f') and data.autovacuum_enabled != o_data.autovacuum_enabled %}
+    autovacuum_enabled = {% if data.autovacuum_enabled == 't' %}true{% else %}false{% endif %}{% if has_vacuum_set %},
 {% endif %}
 {% endif %}
 {% if has_vacuum_set %}
-{% for opt in data.vacuum_table.set_values %}{% if opt.name and opt.value %}
+{% for opt in data.vacuum_table.set_values %}{% if opt.name and opt.value is defined %}
     {{opt.name}} = {{opt.value}}{% if not loop.last %},
 {% endif %}
 {% endif %}
@@ -97,13 +148,19 @@ ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} SET (
 
 );
 {% endif %}
-{% if has_vacuum_reset %}
+{% if (data.autovacuum_enabled == 'x' and data.autovacuum_enabled != o_data.autovacuum_enabled) or has_vacuum_reset %}
 ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} RESET (
+{% if data.autovacuum_enabled =='x' and data.autovacuum_enabled != o_data.autovacuum_enabled %}
+    autovacuum_enabled{% if has_vacuum_reset %},
+{% endif %}
+{% endif %}
+{% if has_vacuum_reset %}
 {% for opt in data.vacuum_table.reset_values %}{% if opt.name %}
     {{opt.name}}{% if not loop.last %},
 {% endif %}
 {% endif %}
 {% endfor %}
+{% endif %}
 
 );
 {% endif %}
@@ -131,14 +188,14 @@ ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} RESET (
     toast.autovacuum_analyze_scale_factor
 );
 {% else %}
-{% if data.toast_autovacuum_enabled is defined or has_vacuum_toast_set %}
+{% if (data.toast_autovacuum_enabled in ('t', 'f') and data.toast_autovacuum_enabled != o_data.toast_autovacuum_enabled) or has_vacuum_toast_set %}
 ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} SET (
-{% if data.toast_autovacuum_enabled is defined and data.toast_autovacuum_enabled != o_data.toast_autovacuum_enabled %}
-    toast.autovacuum_enabled = {% if data.toast_autovacuum_enabled %}true{% else %}false{% endif %}{% if has_vacuum_toast_set %},
+{% if data.toast_autovacuum_enabled in ('t', 'f') and data.toast_autovacuum_enabled != o_data.toast_autovacuum_enabled %}
+    toast.autovacuum_enabled = {% if data.toast_autovacuum_enabled == 't' %}true{% else %}false{% endif %}{% if has_vacuum_toast_set %},
 {% endif %}
 {% endif %}
 {% if has_vacuum_toast_set %}
-{% for opt in data.vacuum_toast.set_values %}{% if opt.name and opt.value %}
+{% for opt in data.vacuum_toast.set_values %}{% if opt.name and opt.value is defined %}
     toast.{{opt.name}} = {{opt.value}}{% if not loop.last %},
 {% endif %}
 {% endif %}
@@ -147,13 +204,19 @@ ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} SET (
 
 );
 {% endif %}
-{% if has_vacuum_toast_reset %}
+{% if (data.toast_autovacuum_enabled == 'x' and data.toast_autovacuum_enabled != o_data.toast_autovacuum_enabled) or has_vacuum_toast_reset %}
 ALTER TABLE {{conn|qtIdent(data.schema, data.name)}} RESET (
+{% if data.toast_autovacuum_enabled == 'x' and data.toast_autovacuum_enabled != o_data.toast_autovacuum_enabled %}
+    toast.autovacuum_enabled{% if has_vacuum_toast_reset %},
+{% endif %}
+{% endif %}
+{% if has_vacuum_toast_reset %}
 {% for opt in data.vacuum_toast.reset_values %}{% if opt.name %}
     toast.{{opt.name}}{% if not loop.last %},
 {% endif %}
 {% endif %}
 {% endfor %}
+{% endif %}
 
 );
 {% endif %}

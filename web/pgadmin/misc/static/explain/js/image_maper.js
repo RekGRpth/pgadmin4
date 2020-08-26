@@ -2,12 +2,11 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
-import S from 'underscore.string';
 /*
  * A map which is used to fetch the image to be drawn and
  * text which will appear below it
@@ -57,6 +56,10 @@ let imageMapper = {
   'Gather': {
     'image': 'ex_gather_motion.svg',
     'image_text': 'Gather',
+  },
+  'Gather Merge': {
+    'image': 'ex_gather_merge.svg',
+    'image_text': 'Gather Merge',
   },
   'Group': {
     'image': 'ex_group.svg',
@@ -167,6 +170,10 @@ let imageMapper = {
       };
     }
   },
+  'Named Tuplestore Scan': {
+    'image': 'ex_named_tuplestore_scan.svg',
+    'image_text': 'Named Tuplestore Scan',
+  },
   'Nested Loop': function(data) {
     switch (data['Join Type']) {
     case 'Anti':
@@ -185,6 +192,10 @@ let imageMapper = {
         'image_text': 'Nested Loop ' + data['Join Type'] + ' Join',
       };
     }
+  },
+  'ProjectSet': {
+    'image': 'ex_projectset.svg',
+    'image_text': 'ProjectSet',
   },
   'Recursive Union': {
     'image': 'ex_recursive_union.svg',
@@ -211,7 +222,7 @@ let imageMapper = {
       command = data['Command'];
 
     if (strategy == 'Hashed') {
-      if (S.startsWith(command, 'Intersect')) {
+      if (command.startsWith('Intersect')) {
         if (command == 'Intersect All')
           return {
             'image': 'ex_hash_setop_intersect_all.svg',
@@ -221,7 +232,7 @@ let imageMapper = {
           'image': 'ex_hash_setop_intersect.svg',
           'image_text': 'Hashed Intersect',
         };
-      } else if (S.startsWith(command, 'Except')) {
+      } else if (command.startsWith('Except')) {
         if (command == 'Except All')
           return {
             'image': 'ex_hash_setop_except_all.svg',
@@ -259,6 +270,10 @@ let imageMapper = {
   'Tid Scan': {
     'image': 'ex_tid_scan.svg',
     'image_text': 'Tid Scan',
+  },
+  'Table Function Scan': {
+    'image': 'ex_table_func_scan.svg',
+    'image_text': 'Table Function Scan',
   },
   'Unique': {
     'image': 'ex_unique.svg',

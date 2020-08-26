@@ -9,7 +9,7 @@ kbd,
 pre,
 samp,
 .CodeMirror pre {
-  font-family: $font-family-editor;
+  font-family: $font-family-editor !important;
 }
 
 .sql-editor-grid-container {
@@ -49,5 +49,7 @@ samp,
 
 .pg-toolbar-btn {
   margin-left: 0.25rem;
-  border: $input-btn-border-width solid $btn-secondary-border;
+  border-style: solid;
+  border-width: 1px;
+  font-size: 1.15em;
 }

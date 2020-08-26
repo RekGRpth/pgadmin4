@@ -2,23 +2,19 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
 import os
-import sys
-
 from pgadmin.utils.driver import DriverRegistry
 from regression.python_test_utils.template_helper import file_as_template
 
-DriverRegistry.load_drivers()
 from pgadmin.utils.route import BaseTestGenerator
 from regression.python_test_utils import test_utils
 
-if sys.version_info[0] >= 3:
-    long = int
+DriverRegistry.load_drivers()
 
 
 class TestColumnForeignKeyGetConstraintCols(BaseTestGenerator):

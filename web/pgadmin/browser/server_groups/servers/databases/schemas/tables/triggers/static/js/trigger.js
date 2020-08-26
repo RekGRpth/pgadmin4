@@ -2,19 +2,19 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.trigger', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.backform', 'pgadmin.alertifyjs',
   'pgadmin.node.schema.dir/schema_child_tree_node',
   'pgadmin.browser.collection',
 ], function(
-  gettext, url_for, $, _, S, pgAdmin, pgBrowser, Backform, alertify,
+  gettext, url_for, $, _, pgAdmin, pgBrowser, Backform, alertify,
   SchemaChildTreeNode
 ) {
 
@@ -42,6 +42,7 @@ define('pgadmin.node.trigger', [
       sqlAlterHelp: 'sql-altertrigger.html',
       sqlCreateHelp: 'sql-createtrigger.html',
       dialogHelp: url_for('help.static', {'filename': 'trigger_dialog.html'}),
+      url_jump_after_node: 'schema',
       Init: function() {
         /* Avoid mulitple registration of menus */
         if (this.initialized)
@@ -108,7 +109,7 @@ define('pgadmin.node.trigger', [
           $.ajax({
             url: obj.generate_url(i, 'enable' , d, true),
             type:'PUT',
-            data: {'enable' : true},
+            data: {'is_enable_trigger' : 'O'},
             dataType: 'json',
           })
             .done(function(res) {
@@ -146,7 +147,7 @@ define('pgadmin.node.trigger', [
           $.ajax({
             url: obj.generate_url(i, 'enable' , d, true),
             type:'PUT',
-            data: {'enable' : false},
+            data: {'is_enable_trigger' : 'D'},
             dataType: 'json',
           })
             .done(function(res) {
@@ -184,11 +185,23 @@ define('pgadmin.node.trigger', [
           type: 'text', disabled: 'inSchema',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          type: 'int', disabled: true, mode: ['properties'],
+          type: 'int', mode: ['properties'],
         },{
           id: 'is_enable_trigger', label: gettext('Trigger enabled?'),
-          type: 'switch', disabled: 'inSchema', mode: ['edit', 'properties'],
-          group: gettext('Definition'),
+          mode: ['edit', 'properties'], group: gettext('Definition'),
+          disabled: function() {
+            if(this.node_info && ('catalog' in this.node_info || 'view' in this.node_info)) {
+              return true;
+            }
+            return false;
+          },
+          options: [
+            {label: gettext('Enable'), value: 'O'},
+            {label: gettext('Enable Replica'), value: 'R'},
+            {label: gettext('Enable Always'), value: 'A'},
+            {label: gettext('Disable'), value: 'D'},
+          ],
+          control: 'select2', select2: { allowClear: false, width: '100%' },
         },{
           id: 'is_row_trigger', label: gettext('Row trigger?'),
           type: 'switch', group: gettext('Definition'),
@@ -235,12 +248,17 @@ define('pgadmin.node.trigger', [
           type: 'switch',
           mode: ['create','edit', 'properties'],
           group: gettext('Definition'),
+          deps: ['tfunction'],
           disabled: function(m) {
             // Disabled if table is a partitioned table.
+            var tfunction = m.get('tfunction');
             if ((_.has(m, 'node_info') && _.has(m.node_info, 'table') &&
               _.has(m.node_info.table, 'is_partitioned') &&
                 m.node_info.table.is_partitioned) ||
-                _.indexOf(Object.keys(m.node_info), 'view') != -1) {
+                _.indexOf(Object.keys(m.node_info), 'view') != -1 ||
+                (m.node_info.server.server_type === 'ppas' &&
+                !_.isUndefined(tfunction) &&
+                 tfunction === 'Inline EDB-SPL')) {
               setTimeout(function(){
                 m.set('is_constraint_trigger', false);
               },10);
@@ -303,7 +321,7 @@ define('pgadmin.node.trigger', [
           id: 'tfunction', label: gettext('Trigger function'),
           type: 'text', disabled: 'inSchemaWithModelCheck',
           mode: ['create','edit', 'properties'], group: gettext('Definition'),
-          control: 'node-ajax-options', url: 'get_triggerfunctions',
+          control: 'node-ajax-options', url: 'get_triggerfunctions', url_jump_after_node: 'schema',
           cache_node: 'trigger_function',
         },{
           id: 'tgargs', label: gettext('Arguments'), cell: 'string',
@@ -347,7 +365,6 @@ define('pgadmin.node.trigger', [
               return view_options;
             }
           },
-          // If create mode then by default open composite type
           control: 'select2', select2: { allowClear: false, width: '100%' },
           disabled: function(m) {
             // If contraint trigger is set to True then only enable it
@@ -425,15 +442,11 @@ define('pgadmin.node.trigger', [
               if(!m.inSchemaWithModelCheck.apply(this, [m])) {
                 // We will enabale truncate only for EDB PPAS
                 // and both triggers row & constarint are set to false
-                if(server_type === 'ppas' &&
-                  !_.isUndefined(is_constraint_trigger) &&
-                    !_.isUndefined(is_row_trigger) &&
-                    is_constraint_trigger === false &&
-                    is_row_trigger === false) {
-                  return false;
-                } else {
-                  return true;
-                }
+                return (server_type !== 'ppas' ||
+                _.isUndefined(is_constraint_trigger) ||
+                  _.isUndefined(is_row_trigger) ||
+                  is_constraint_trigger !== false ||
+                  is_row_trigger !== false);
               } else {
                 // Disable it
                 return true;
@@ -480,19 +493,18 @@ define('pgadmin.node.trigger', [
         },{
           id: 'prosrc', label: gettext('Code'), group: gettext('Code'),
           type: 'text', mode: ['create', 'edit'], deps: ['tfunction'],
-          control: 'sql-field', visible: true,
+          tabPanelCodeClass: 'sql-code-control',
+          control: Backform.SqlCodeControl,
+          visible: true,
           disabled: function(m) {
             // We will enable it only when EDB PPAS and trigger function is
             // set to Inline EDB-SPL
             var tfunction = m.get('tfunction'),
               server_type = m.node_info['server']['server_type'];
 
-            if(server_type === 'ppas' &&
-              !_.isUndefined(tfunction) &&
-                tfunction === 'Inline EDB-SPL')
-              return false;
-            else
-              return true;
+            return (server_type !== 'ppas' ||
+            _.isUndefined(tfunction) ||
+              tfunction !== 'Inline EDB-SPL');
           },
         },{
           id: 'is_sys_trigger', label: gettext('System trigger?'), cell: 'string',
@@ -556,11 +568,7 @@ define('pgadmin.node.trigger', [
         inSchemaWithModelCheck: function(m) {
           if(this.node_info &&  'schema' in this.node_info) {
             // We will disable control if it's in 'edit' mode
-            if (m.isNew()) {
-              return false;
-            } else {
-              return true;
-            }
+            return !m.isNew();
           }
           return true;
         },
@@ -573,18 +581,14 @@ define('pgadmin.node.trigger', [
               return false;
             } else {
               // if we are in edit mode
-              if (!_.isUndefined(m.get('attnum')) && m.get('attnum') >= 1 ) {
-                return false;
-              } else {
-                return true;
-              }
+              return (_.isUndefined(m.get('attnum')) || m.get('attnum') < 1 );
             }
           }
           return true;
         },
         // Disable/Enable Transition tables
         disableTransition: function(m) {
-          var flag = true,
+          var flag = false,
             evnt = null,
             name = this.name,
             evnt_count = 0;
@@ -611,8 +615,7 @@ define('pgadmin.node.trigger', [
           // Disable New transition table if both UPDATE and INSERT events are disabled
           if(!m.get('is_constraint_trigger') && m.get('fires') == 'AFTER' &&
             (m.get('evnt_update') || m.get(evnt)) && evnt_count == 1) {
-            if (m.get('evnt_update') && (_.size(m.get('columns')) >= 1 && m.get('columns')[0] != '')) flag = true;
-            else flag = false;
+            flag = (m.get('evnt_update') && (_.size(m.get('columns')) >= 1 && m.get('columns')[0] != ''));
           }
 
           flag && setTimeout(function() {
@@ -627,11 +630,21 @@ define('pgadmin.node.trigger', [
       canCreate: SchemaChildTreeNode.isTreeItemOfChildOfSchema,
       // Check to whether trigger is disable ?
       canCreate_with_trigger_enable: function(itemData, item, data) {
+        var treeData = this.getTreeNodeHierarchy(item);
+        if ('view' in treeData) {
+          return false;
+        }
+
         return itemData.icon === 'icon-trigger-bad' &&
           this.canCreate.apply(this, [itemData, item, data]);
       },
       // Check to whether trigger is enable ?
       canCreate_with_trigger_disable: function(itemData, item, data) {
+        var treeData = this.getTreeNodeHierarchy(item);
+        if ('view' in treeData) {
+          return false;
+        }
+
         return itemData.icon === 'icon-trigger' &&
           this.canCreate.apply(this, [itemData, item, data]);
       },

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -23,6 +23,7 @@ from pgadmin.browser.utils import PGChildNodeView
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
+from pgadmin.utils.exception import ObjectGone
 
 
 class DomainConstraintModule(CollectionNodeModule):
@@ -46,8 +47,8 @@ class DomainConstraintModule(CollectionNodeModule):
       - Load the module script for the Domain Constraint, when any of the
         Domain node is initialized.
     """
-    NODE_TYPE = 'domain_constraints'
-    COLLECTION_LABEL = gettext("Domain Constraints")
+    _NODE_TYPE = 'domain_constraints'
+    _COLLECTION_LABEL = gettext("Domain Constraints")
 
     def __init__(self, *args, **kwargs):
         super(DomainConstraintModule, self).__init__(*args, **kwargs)
@@ -73,7 +74,7 @@ class DomainConstraintModule(CollectionNodeModule):
         Load the module script for the Domain Constraint, when any of the
         Domain node is initialized.
         """
-        return domains.DomainModule.NODE_TYPE
+        return domains.DomainModule.node_type
 
     @property
     def csssnippets(self):
@@ -152,6 +153,7 @@ class DomainConstraintView(PGChildNodeView):
       - Returns the dependencies for the Domain Constraint object.
     """
     node_type = blueprint.node_type
+    node_label = "Domain Constraint"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -178,6 +180,35 @@ class DomainConstraintView(PGChildNodeView):
         'dependent': [{'get': 'dependents'}]
     })
 
+    @staticmethod
+    def _get_req_data(kwargs):
+        """
+        Get data from request.
+        :param kwargs: kwargs for request.
+        :return: if any error return error with error msg else return req data
+        """
+        if request.data:
+            req = json.loads(request.data, encoding='utf-8')
+        else:
+            req = request.args or request.form
+
+        if 'coid' not in kwargs:
+            required_args = [
+                'name',
+                'consrc'
+            ]
+
+            for arg in required_args:
+                if arg not in req or req[arg] == '':
+                    return True, make_json_response(
+                        status=410,
+                        success=0,
+                        errormsg=gettext(
+                            "Could not find the required parameter ({})."
+                        ).format(arg)
+                    ), req
+        return False, '', req
+
     def validate_request(f):
         """
         Works as a decorator.
@@ -194,27 +225,9 @@ class DomainConstraintView(PGChildNodeView):
         def wrap(self, **kwargs):
 
             data = {}
-            if request.data:
-                req = json.loads(request.data, encoding='utf-8')
-            else:
-                req = request.args or request.form
-
-            if 'coid' not in kwargs:
-                required_args = [
-                    'name',
-                    'consrc'
-                ]
-
-                for arg in required_args:
-                    if arg not in req or req[arg] == '':
-                        return make_json_response(
-                            status=410,
-                            success=0,
-                            errormsg=gettext(
-                                "Could not find the required parameter (%s)." %
-                                arg
-                            )
-                        )
+            is_error, errmsg, req = DomainConstraintView._get_req_data(kwargs)
+            if is_error:
+                return errmsg
 
             try:
                 for key in req:
@@ -246,6 +259,10 @@ class DomainConstraintView(PGChildNodeView):
             self.manager = driver.connection_manager(kwargs['sid'])
             self.conn = self.manager.connection(did=kwargs['did'])
             self.qtIdent = driver.qtIdent
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
 
             # Set the template path for the SQL scripts
             self.template_path = 'domain_constraints/sql/#{0}#'.format(
@@ -268,7 +285,7 @@ class DomainConstraintView(PGChildNodeView):
             doid: Domain Id
         """
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               doid=doid)
         status, res = self.conn.execute_dict(SQL)
 
@@ -293,7 +310,7 @@ class DomainConstraintView(PGChildNodeView):
         """
         res = []
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               doid=doid)
         status, rset = self.conn.execute_2darray(SQL)
 
@@ -334,7 +351,7 @@ class DomainConstraintView(PGChildNodeView):
             coid: Domain Constraint Id
         """
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               coid=coid)
         status, rset = self.conn.execute_2darray(SQL)
 
@@ -358,9 +375,7 @@ class DomainConstraintView(PGChildNodeView):
                 status=200
             )
 
-        return gone(
-            gettext("Could not find the specified domain constraint.")
-        )
+        return gone(self.not_found_error_msg())
 
     @check_precondition
     def properties(self, gid, sid, did, scid, doid, coid):
@@ -377,19 +392,18 @@ class DomainConstraintView(PGChildNodeView):
         """
 
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               doid=doid, coid=coid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(gettext(
-                "Could not find the specified domain constraint."
-            )
-            )
+            return gone(self.not_found_error_msg())
 
         data = res['rows'][0]
+        data['is_sys_obj'] = (
+            data['oid'] <= self.datlastsysoid)
         return ajax_response(
             response=data,
             status=200
@@ -424,7 +438,7 @@ class DomainConstraintView(PGChildNodeView):
 
             # Get the recently added constraints oid
             SQL = render_template("/".join([self.template_path,
-                                            'get_oid.sql']),
+                                            self._OID_SQL]),
                                   doid=doid, name=data['name'])
             status, coid = self.conn.execute_scalar(SQL)
             if not status:
@@ -445,6 +459,8 @@ class DomainConstraintView(PGChildNodeView):
                     icon=icon
                 )
             )
+        except ObjectGone:
+            raise
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
@@ -471,7 +487,7 @@ class DomainConstraintView(PGChildNodeView):
         try:
             for coid in data['ids']:
                 SQL = render_template("/".join([self.template_path,
-                                                'properties.sql']),
+                                                self._PROPERTIES_SQL]),
                                       doid=doid, coid=coid)
                 status, res = self.conn.execute_dict(SQL)
 
@@ -480,20 +496,18 @@ class DomainConstraintView(PGChildNodeView):
 
                 if not res['rows']:
                     return make_json_response(
+                        status=410,
                         success=0,
                         errormsg=gettext(
                             'Error: Object not found.'
                         ),
-                        info=gettext(
-                            'The specified domain constraint '
-                            'could not be found.\n'
-                        )
+                        info=self.not_found_error_msg()
                     )
 
                 data = res['rows'][0]
 
                 SQL = render_template("/".join([self.template_path,
-                                                'delete.sql']),
+                                                self._DELETE_SQL]),
                                       data=data)
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
@@ -582,21 +596,18 @@ class DomainConstraintView(PGChildNodeView):
         schema, domain = self._get_domain(doid)
 
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               doid=doid, coid=coid)
         status, res = self.conn.execute_dict(SQL)
         if not status:
             return internal_server_error(errormsg=res)
         if len(res['rows']) == 0:
-            return gone(gettext(
-                "Could not find the specified domain constraint."
-            )
-            )
+            return gone(self.not_found_error_msg())
 
         data = res['rows'][0]
 
         SQL = render_template("/".join([self.template_path,
-                                        'create.sql']),
+                                        self._CREATE_SQL]),
                               data=data, domain=domain, schema=schema)
 
         sql_header = u"""-- CHECK: {1}.{0}
@@ -653,34 +664,33 @@ class DomainConstraintView(PGChildNodeView):
         try:
             if coid is not None:
                 SQL = render_template("/".join([self.template_path,
-                                                'properties.sql']),
+                                                self._PROPERTIES_SQL]),
                                       doid=doid, coid=coid)
                 status, res = self.conn.execute_dict(SQL)
 
                 if not status:
                     return False, internal_server_error(errormsg=res)
                 if len(res['rows']) == 0:
-                    return False, gone(gettext(
-                        "Could not find the specified domain constraint."
-                    )
-                    )
+                    return False, gone(self.not_found_error_msg())
 
                 old_data = res['rows'][0]
 
                 SQL = render_template(
-                    "/".join([self.template_path, 'update.sql']),
+                    "/".join([self.template_path, self._UPDATE_SQL]),
                     data=data, o_data=old_data, conn=self.conn
                 )
             else:
                 schema, domain = self._get_domain(doid)
 
                 SQL = render_template("/".join([self.template_path,
-                                                'create.sql']),
+                                                self._CREATE_SQL]),
                                       data=data, domain=domain, schema=schema)
             if 'name' in data:
                 return True, SQL.strip('\n'), data['name']
             else:
                 return True, SQL.strip('\n'), old_data['name']
+        except ObjectGone:
+            raise
         except Exception as e:
             return False, internal_server_error(errormsg=str(e)), None
 
@@ -699,6 +709,8 @@ class DomainConstraintView(PGChildNodeView):
 
         if not status:
             return False, internal_server_error(errormsg=res)
+        if len(res['rows']) == 0:
+            raise ObjectGone(self.not_found_error_msg('Domain'))
 
         return res['rows'][0]['schema'], res['rows'][0]['domain']
 

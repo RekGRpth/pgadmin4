@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -63,6 +63,8 @@ export function handleQueryToolAjaxError(
 
     if(exception.status === 503 && exception.responseJSON.info !== undefined &&
         exception.responseJSON.info == 'CONNECTION_LOST') {
+      // We will display re-connect dialog, no need to display error message again
+      msg = null;
       setTimeout(function() {
         if (stateToSave) {
           handler.saveState(stateToSave, stateParameters);

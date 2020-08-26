@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -72,6 +72,7 @@ define('pgadmin.node.fts_template', [
         idAttribute: 'oid',
         defaults: {
           name: undefined,      // Fts template name
+          is_sys_obj: undefined,  // Is system object
           description: undefined,   // Comment on template
           schema: undefined,        // Schema name to which template belongs
           tmplinit: undefined,      // Init function for fts template
@@ -90,24 +91,27 @@ define('pgadmin.node.fts_template', [
           type: 'text', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
-          editable: false, type: 'text', disabled: true, mode:['properties'],
+          editable: false, type: 'text', mode:['properties'],
         },{
           id: 'schema', label: gettext('Schema'), cell: 'string',
           type: 'text', mode: ['create','edit'], node: 'schema',
           control: 'node-list-by-id', cache_node: 'database',
           cache_level: 'database',
         },{
+          id: 'is_sys_obj', label: gettext('System FTS template?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
+        },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline', cellHeaderClasses: 'width_percent_50',
         },{
           id: 'tmplinit', label: gettext('Init function'),
-          group: gettext('Definition'), type: 'text', disabled: function(m) {
+          group: gettext('Definition'), type: 'text', readonly: function(m) {
             return !m.isNew();
           }, control: 'node-ajax-options', url: 'get_init',
           cache_level: 'database', cache_node: 'schema',
         },{
           id: 'tmpllexize', label: gettext('Lexize function'), group: gettext('Definition'),
-          type: 'text', disabled: function(m) { return !m.isNew(); },
+          type: 'text', readonly: function(m) { return !m.isNew(); },
           control: 'node-ajax-options', url: 'get_lexize', cache_level: 'database',
           cache_node: 'schema',
         }],

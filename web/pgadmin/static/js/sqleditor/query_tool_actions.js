@@ -2,12 +2,13 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 import $ from 'jquery';
+import pgWindow from 'sources/window';
 
 let queryToolActions = {
   _verbose: function () {
@@ -39,13 +40,8 @@ let queryToolActions = {
   },
 
   executeQuery: function (sqlEditorController) {
-    if(sqlEditorController.is_query_tool) {
-      this._clearMessageTab();
-      sqlEditorController.execute();
-    } else {
-      this._clearMessageTab();
-      sqlEditorController.execute_data_query();
-    }
+    this._clearMessageTab();
+    sqlEditorController.check_data_changes_to_execute_query();
   },
 
   explainAnalyze: function (sqlEditorController) {
@@ -60,7 +56,7 @@ let queryToolActions = {
       settings: this._settings(),
     };
     this._clearMessageTab();
-    sqlEditorController.execute(explainObject);
+    sqlEditorController.check_data_changes_to_execute_query(explainObject);
   },
 
   explain: function (sqlEditorController) {
@@ -76,7 +72,7 @@ let queryToolActions = {
       settings: this._settings(),
     };
     this._clearMessageTab();
-    sqlEditorController.execute(explainObject);
+    sqlEditorController.check_data_changes_to_execute_query(explainObject);
   },
 
   download: function (sqlEditorController) {
@@ -87,11 +83,11 @@ let queryToolActions = {
     }
 
     if (!sqlQuery) return;
-
-    let filename = 'data-' + new Date().getTime() + '.csv';
+    let extension = sqlEditorController.preferences.csv_field_separator === ',' ? '.csv': '.txt';
+    let filename = 'data-' + new Date().getTime() + extension;
 
     if (!sqlEditorController.is_query_tool) {
-      filename = sqlEditorController.table_name + '.csv';
+      filename = sqlEditorController.table_name + extension;
     }
 
     sqlEditorController.trigger_csv_download(sqlQuery, filename);
@@ -127,9 +123,13 @@ let queryToolActions = {
     );
   },
 
+  formatSql: function (sqlEditorController) {
+    sqlEditorController.gridView.on_format_sql();
+  },
+
   focusOut: function () {
     document.activeElement.blur();
-    window.top.document.activeElement.blur();
+    pgWindow.document.activeElement.blur();
   },
 
   toggleCaseOfSelectedText: function (sqlEditorController) {

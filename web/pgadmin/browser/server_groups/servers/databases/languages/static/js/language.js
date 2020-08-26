@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.language', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backform',
+  'sources/pgadmin', 'pgadmin.browser', 'pgadmin.backform',
   'pgadmin.browser.collection', 'pgadmin.browser.server.privilege',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, Backform) {
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, Backform) {
 
   // Extend the browser's collection class for languages collection
   if (!pgBrowser.Nodes['coll-language']) {
@@ -65,7 +65,6 @@ define('pgadmin.node.language', [
           icon: 'wcTabIcon icon-language', data: {action: 'create'},
         }]);
       },
-
       // Define the model for language node
       model: pgBrowser.Node.Model.extend({
         idAttribute: 'oid',
@@ -122,14 +121,17 @@ define('pgadmin.node.language', [
           },
         },{
           id: 'oid', label: gettext('OID'), cell: 'string', mode: ['properties'],
-          type: 'text', disabled: true,
+          type: 'text',
         },{
           id: 'lanowner', label: gettext('Owner'), type: 'text',
           control: Backform.NodeListByNameControl, node: 'role',
           mode: ['edit', 'properties', 'create'], select2: { allowClear: false },
         },{
           id: 'acl', label: gettext('Privileges'), type: 'text',
-          group: gettext('Security'), mode: ['properties'], disabled: true,
+          group: gettext('Security'), mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System language?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'description', label: gettext('Comment'), cell: 'string',
           type: 'multiline',
@@ -142,11 +144,14 @@ define('pgadmin.node.language', [
                 m.set({'is_template': false});
                 return false;
               }
-              else
+              else {
                 m.set({'is_template': true});
+                return true;
+              }
             }
-            return true;
+            return false;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'lanproc', label: gettext('Handler function'), type: 'text', control: 'node-ajax-options',
           group: gettext('Definition'), mode: ['edit', 'properties', 'create'], url:'get_functions',
@@ -167,11 +172,11 @@ define('pgadmin.node.language', [
             return res;
           }, disabled: function(m) {
             if (m.isNew()) {
-              if (m.get('template_list').indexOf(m.get('name')) == -1)
-                return false;
+              return m.get('template_list').indexOf(m.get('name')) != -1;
             }
-            return true;
+            return false;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'laninl', label: gettext('Inline function'), type: 'text', control: 'node-ajax-options',
           group: gettext('Definition'), mode: ['edit', 'properties', 'create'], url:'get_functions',
@@ -192,11 +197,11 @@ define('pgadmin.node.language', [
             return res;
           }, disabled: function(m) {
             if (m.isNew()) {
-              if (m.get('template_list').indexOf(m.get('name')) == -1)
-                return false;
+              return m.get('template_list').indexOf(m.get('name')) != -1;
             }
-            return true;
+            return false;
           },
+          readonly: function(m) {return !m.isNew();},
         },{
           id: 'lanval', label: gettext('Validator function'), type: 'text', control: 'node-ajax-options',
           group: gettext('Definition'), mode: ['edit', 'properties', 'create'], url:'get_functions',
@@ -217,11 +222,11 @@ define('pgadmin.node.language', [
             return res;
           }, disabled: function(m) {
             if (m.isNew()) {
-              if (m.get('template_list').indexOf(m.get('name')) == -1)
-                return false;
+              return m.get('template_list').indexOf(m.get('name')) != -1;
             }
-            return true;
+            return false;
           },
+          readonly: function(m) {return !m.isNew();},
         }, {
           id: 'lanacl', label: gettext('Privileges'), type: 'collection',
           group: gettext('Security'), control: 'unique-col-collection', mode: ['edit', 'create'],

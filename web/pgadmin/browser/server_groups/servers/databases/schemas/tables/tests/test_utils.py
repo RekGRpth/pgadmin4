@@ -2,19 +2,15 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
-import sys
+
 from pgadmin.browser.server_groups.servers.databases.schemas.tables import \
     BaseTableView
 from pgadmin.utils.route import BaseTestGenerator
-
-if sys.version_info < (3, 3):
-    from mock import patch, MagicMock
-else:
-    from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class TestBaseView(BaseTableView):
@@ -56,17 +52,8 @@ class TestUtils(BaseTestGenerator):
             self.assertEqual(
                 subject.data_type_template_path, 'datatype/sql/#gpdb#10#')
             self.assertEqual(
-                subject.check_constraint_template_path,
-                'check_constraint/sql/#gpdb#10#')
-            self.assertEqual(
-                subject.exclusion_constraint_template_path,
-                'exclusion_constraint/sql/#gpdb#10#')
-            self.assertEqual(
-                subject.foreign_key_template_path,
-                'foreign_key/sql/#gpdb#10#')
-            self.assertEqual(
                 subject.index_template_path,
                 'indexes/sql/#gpdb#10#')
             self.assertEqual(
                 subject.trigger_template_path,
-                'triggers/sql/#gpdb#10#')
+                'triggers/sql/gpdb/#10#')

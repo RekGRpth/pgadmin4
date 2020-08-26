@@ -2,15 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('misc.dependents', [
-  'sources/gettext', 'underscore', 'underscore.string', 'jquery', 'backbone',
+  'sources/gettext', 'underscore', 'jquery', 'backbone',
   'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs', 'pgadmin.backgrid',
-], function(gettext, _, S, $, Backbone, pgAdmin, pgBrowser, Alertify, Backgrid) {
+  'sources/utils',
+], function(gettext, _, $, Backbone, pgAdmin, pgBrowser, Alertify, Backgrid, pgadminUtils) {
 
   if (pgBrowser.NodeDependents)
     return pgBrowser.NodeDependents;
@@ -52,7 +53,7 @@ define('misc.dependents', [
               (node['node_image'] || ('icon-' + res.type))) :
               ('icon-' + res.type);
           }
-          res.type = S.titleize(res.type.replace(/_/g, ' '), true);
+          res.type = pgadminUtils.titleize(res.type.replace(/_/g, ' '), true);
           return res;
         },
       });
@@ -75,7 +76,7 @@ define('misc.dependents', [
       var $container = this.dependentsPanel.layout().scene().find('.pg-panel-content'),
         $gridContainer = $container.find('.pg-panel-dependents-container'),
         grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: [{
             name: 'type',
             label: gettext('Type'),
@@ -99,7 +100,7 @@ define('misc.dependents', [
           },
           {
             name: 'field',
-            label: '', // label kept blank, it will change dynamically
+            label: ' ', // label kept blank, it will change dynamically
             cell: 'string',
             editable: false,
           },
@@ -222,10 +223,9 @@ define('misc.dependents', [
               })) {
                 Alertify.pgNotifier(
                   error, xhr,
-                  S(gettext('Error retrieving data from the server: %s')).sprintf(
-                    message || _label).value(),
-                  function(msg) {
-                    if(msg === 'CRYPTKEY_SET') {
+                  gettext('Error retrieving data from the server: %s', message || _label),
+                  function(alertMsg) {
+                    if(alertMsg === 'CRYPTKEY_SET') {
                       self.showDependents(item, data, node);
                     } else {
                       console.warn(arguments);
@@ -236,7 +236,8 @@ define('misc.dependents', [
               $msgContainer.text(gettext('Failed to retrieve data from the server.'));
             });
         }
-      } if (msg != '') {
+      }
+      if (msg != '') {
         $msgContainer.text(msg);
         $msgContainer.removeClass('d-none');
         if (!$gridContainer.hasClass('d-none')) {

@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -10,16 +10,18 @@
 """Implements Functions/Procedures Node."""
 
 import copy
-import simplejson as json
 import re
 import sys
 import traceback
 from functools import wraps
 
-import pgadmin.browser.server_groups.servers.databases as databases
-from flask import render_template, make_response, request, jsonify, \
+import simplejson as json
+from flask import render_template, request, jsonify, \
     current_app
 from flask_babelex import gettext
+
+import pgadmin.browser.server_groups.servers.databases as databases
+from config import PG_DEFAULT_DRIVER
 from pgadmin.browser.server_groups.servers.databases.schemas.utils import \
     SchemaChildModule, DataTypeReader
 from pgadmin.browser.server_groups.servers.databases.utils import \
@@ -27,11 +29,11 @@ from pgadmin.browser.server_groups.servers.databases.utils import \
 from pgadmin.browser.server_groups.servers.utils import parse_priv_from_db, \
     parse_priv_to_db
 from pgadmin.browser.utils import PGChildNodeView
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
-
-from config import PG_DEFAULT_DRIVER
 
 
 class FunctionModule(SchemaChildModule):
@@ -59,8 +61,8 @@ class FunctionModule(SchemaChildModule):
       - Returns a snippet of css.
     """
 
-    NODE_TYPE = 'function'
-    COLLECTION_LABEL = gettext("Functions")
+    _NODE_TYPE = 'function'
+    _COLLECTION_LABEL = gettext("Functions")
 
     def __init__(self, *args, **kwargs):
         """
@@ -97,7 +99,7 @@ class FunctionModule(SchemaChildModule):
         Load the module script for Functions, when the
         schema node is initialized.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
     @property
     def csssnippets(self):
@@ -115,7 +117,7 @@ class FunctionModule(SchemaChildModule):
 blueprint = FunctionModule(__name__)
 
 
-class FunctionView(PGChildNodeView, DataTypeReader):
+class FunctionView(PGChildNodeView, DataTypeReader, SchemaDiffObjectCompare):
     """
     class FunctionView(PGChildNodeView)
 
@@ -177,6 +179,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
 
     * exec_sql(gid, sid, did, scid, fnid):
       - Returns sql for Script
+
+    * compare(**kwargs):
+      - This function will compare the function nodes from two
+        different schemas.
     """
 
     node_type = blueprint.node_type
@@ -208,8 +214,15 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         'get_languages': [{'get': 'get_languages'}, {'get': 'get_languages'}],
         'vopts': [{}, {'get': 'variable_options'}],
         'select_sql': [{'get': 'select_sql'}],
-        'exec_sql': [{'get': 'exec_sql'}]
+        'exec_sql': [{'get': 'exec_sql'}],
+        'get_support_functions': [{'get': 'get_support_functions'},
+                                  {'get': 'get_support_functions'}]
     })
+
+    keys_to_ignore = ['oid', 'proowner', 'typnsp', 'xmin', 'prokind',
+                      'proisagg', 'pronamespace', 'proargdefaults',
+                      'prorettype', 'proallargtypes', 'proacl', 'oid-2',
+                      'prolang']
 
     @property
     def required_args(self):
@@ -235,6 +248,58 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             'probin'
         ]
 
+    @staticmethod
+    def _create_wrap_data(req, key, data):
+        """
+        This function is used to create data required by validate_request().
+        :param req:
+        :param key:
+        :param data:
+        :return:
+        """
+        list_params = []
+        if request.method == 'GET':
+            list_params = ['arguments', 'variables', 'proacl',
+                           'seclabels', 'acl', 'args']
+
+        if key in list_params and req[key] != '' and req[key] is not None:
+            # Coverts string into python list as expected.
+            data[key] = json.loads(req[key], encoding='utf-8')
+        elif (key == 'proretset' or key == 'proisstrict' or
+              key == 'prosecdef' or key == 'proiswindow' or
+              key == 'proleakproof'):
+            if req[key] == 'true' or req[key] is True:
+                data[key] = True
+            else:
+                data[key] = False if (
+                    req[key] == 'false' or req[key] is False) else ''
+        else:
+            data[key] = req[key]
+
+    @staticmethod
+    def _remove_parameters_for_c_lang(req, req_args):
+        """
+        This function is used to remove 'prosrc' from the required
+        arguments list if language is 'c'.
+        :param req:
+        :param req_args:
+        :return:
+        """
+        if req['lanname'] == 'c' and 'prosrc' in req_args:
+            req_args.remove('prosrc')
+
+    @staticmethod
+    def _get_request_data():
+        """
+        This function is used to get the request data.
+        :return:
+        """
+        if request.data:
+            req = json.loads(request.data, encoding='utf-8')
+        else:
+            req = request.args or request.form
+        return req
+
     def validate_request(f):
         """
         Works as a decorator.
@@ -243,20 +308,11 @@ class FunctionView(PGChildNodeView, DataTypeReader):
 
         @wraps(f)
         def wrap(self, **kwargs):
-
-            data = {}
-            if request.data:
-                req = json.loads(request.data, encoding='utf-8')
-            else:
-                req = request.args or request.form
+            req = FunctionView._get_request_data()
 
             if 'fnid' not in kwargs:
                 req_args = self.required_args
-                # We need to remove 'prosrc' from the required arguments list
-                # if language is 'c'.
-                if req['lanname'] == 'c' and 'prosrc' in req_args:
-                    req_args.remove('prosrc')
-
+                FunctionView._remove_parameters_for_c_lang(req, req_args)
                 for arg in req_args:
                     if (arg not in req or req[arg] == '') or \
                         (arg == 'probin' and req['lanname'] == 'c' and
@@ -265,34 +321,13 @@ class FunctionView(PGChildNodeView, DataTypeReader):
                             status=410,
                             success=0,
                             errormsg=gettext(
-                                "Could not find the required parameter (%s)." %
-                                arg
-                            )
+                                "Could not find the required parameter ({})."
+                            ).format(arg)
                         )
 
-            list_params = []
-            if request.method == 'GET':
-                list_params = ['arguments', 'variables', 'proacl',
-                               'seclabels', 'acl', 'args']
-
+            data = {}
             for key in req:
-                if (
-                    key in list_params and req[key] != '' and
-                    req[key] is not None
-                ):
-                    # Coverts string into python list as expected.
-                    data[key] = json.loads(req[key], encoding='utf-8')
-                elif (
-                    key == 'proretset' or key == 'proisstrict' or
-                    key == 'prosecdef' or key == 'proiswindow' or
-                    key == 'proleakproof'
-                ):
-                    data[key] = True if (
-                        req[key] == 'true' or req[key] is True) \
-                        else False if (req[key] == 'false' or
-                                       req[key] is False) else ''
-                else:
-                    data[key] = req[key]
+                FunctionView._create_wrap_data(req, key, data)
 
             self.request = data
             return f(self, **kwargs)
@@ -349,9 +384,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             scid: Schema Id
         """
 
-        SQL = render_template("/".join([self.sql_template_path, 'node.sql']),
+        sql = render_template("/".join([self.sql_template_path,
+                                        self._NODE_SQL]),
                               scid=scid)
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self.conn.execute_dict(sql)
 
         if not status:
             return internal_server_error(errormsg=res)
@@ -373,12 +409,12 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         """
 
         res = []
-        SQL = render_template(
-            "/".join([self.sql_template_path, 'node.sql']),
+        sql = render_template(
+            "/".join([self.sql_template_path, self._NODE_SQL]),
             scid=scid,
             fnid=fnid
         )
-        status, rset = self.conn.execute_2darray(SQL)
+        status, rset = self.conn.execute_2darray(sql)
 
         if not status:
             return internal_server_error(errormsg=rset)
@@ -386,8 +422,9 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         if fnid is not None:
             if len(rset['rows']) == 0:
                 return gone(
-                    _("Could not find the specified %s.").format(
-                        self.node_type)
+                    gettext("Could not find the specified %s.").format(
+                        self.node_type
+                    )
                 )
 
             row = rset['rows'][0]
@@ -446,6 +483,79 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             status=200
         )
 
+    def _get_argument_values(self, data):
+        """
+        This function is used to get the argument values for
+        function/procedure.
+        :param data:
+        :return:
+        """
+        proargtypes = [ptype for ptype in data['proargtypenames'].split(",")] \
+            if data['proargtypenames'] else []
+        proargmodes = data['proargmodes'] if data['proargmodes'] else \
+            ['i'] * len(proargtypes)
+        proargnames = data['proargnames'] if data['proargnames'] else []
+        proargdefaultvals = [ptype for ptype in
+                             data['proargdefaultvals'].split(",")] \
+            if data['proargdefaultvals'] else []
+        proallargtypes = data['proallargtypes'] \
+            if data['proallargtypes'] else []
+
+        return {'proargtypes': proargtypes, 'proargmodes': proargmodes,
+                'proargnames': proargnames,
+                'proargdefaultvals': proargdefaultvals,
+                'proallargtypes': proallargtypes}
+
+    def _params_list_for_display(self, proargmodes_fltrd, proargtypes,
+                                 proargnames, proargdefaultvals):
+        """
+        This function is used to prepare dictionary of arguments to
+        display on UI.
+        :param proargmodes_fltrd:
+        :param proargtypes:
+        :param proargnames:
+        :param proargdefaultvals:
+        :return:
+        """
+        # Insert null value against the parameters which do not have
+        # default values.
+        if len(proargmodes_fltrd) > len(proargdefaultvals):
+            dif = len(proargmodes_fltrd) - len(proargdefaultvals)
+            while dif > 0:
+                proargdefaultvals.insert(0, '')
+                dif -= 1
+
+        param = {"arguments": [
+            self._map_arguments_dict(
+                i, proargmodes_fltrd[i] if len(proargmodes_fltrd) > i else '',
+                proargtypes[i] if len(proargtypes) > i else '',
+                proargnames[i] if len(proargnames) > i else '',
+                proargdefaultvals[i] if len(proargdefaultvals) > i else ''
+            )
+            for i in range(len(proargtypes))]}
+        return param
+
+    def _display_properties_argument_list(self, proargmodes_fltrd,
+                                          proargtypes, proargnames,
+                                          proargdefaultvals):
+        """
+        This function is used to prepare list of arguments to display on UI.
+        :param proargmodes_fltrd:
+        :param proargtypes:
+        :param proargnames:
+        :param proargdefaultvals:
+        :return:
+        """
+        proargs = [self._map_arguments_list(
+            proargmodes_fltrd[i] if len(proargmodes_fltrd) > i else '',
+            proargtypes[i] if len(proargtypes) > i else '',
+            proargnames[i] if len(proargnames) > i else '',
+            proargdefaultvals[i] if len(proargdefaultvals) > i else ''
+        )
+            for i in range(len(proargtypes))]
+
+        return proargs
+
     def _format_arguments_from_db(self, data):
         """
         Create Argument list of the Function.
@@ -461,20 +571,17 @@ class FunctionView(PGChildNodeView, DataTypeReader):
                 ]
             Where
                 Arguments:
-                    proargtypes: Argument Types (Data Type)
-                    proargmodes: Argument Modes [IN, OUT, INOUT, VARIADIC]
-                    proargnames: Argument Name
-                    proargdefaultvals: Default Value of the Argument
+                    # proargtypes: Argument Types (Data Type)
+                    # proargmodes: Argument Modes [IN, OUT, INOUT, VARIADIC]
+                    # proargnames: Argument Name
+                    # proargdefaultvals: Default Value of the Argument
         """
-        proargtypes = [ptype for ptype in data['proargtypenames'].split(",")] \
-            if data['proargtypenames'] else []
-        proargmodes = data['proargmodes'] if data['proargmodes'] else []
-        proargnames = data['proargnames'] if data['proargnames'] else []
-        proargdefaultvals = [ptype for ptype in
-                             data['proargdefaultvals'].split(",")] \
-            if data['proargdefaultvals'] else []
-        proallargtypes = data['proallargtypes'] \
-            if data['proallargtypes'] else []
+        arguments = self._get_argument_values(data)
+        proargtypes = arguments['proargtypes']
+        proargmodes = arguments['proargmodes']
+        proargnames = arguments['proargnames']
+        proargdefaultvals = arguments['proargdefaultvals']
+        proallargtypes = arguments['proallargtypes']
 
         proargmodenames = {
             'i': 'IN', 'o': 'OUT', 'b': 'INOUT', 'v': 'VARIADIC', 't': 'TABLE'
@@ -511,10 +618,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         cnt = 0
         for m in proargmodes:
             if m == 'o':  # Out Mode
-                SQL = render_template("/".join([self.sql_template_path,
+                sql = render_template("/".join([self.sql_template_path,
                                                 'get_out_types.sql']),
                                       out_arg_oid=proallargtypes[cnt])
-                status, out_arg_type = self.conn.execute_scalar(SQL)
+                status, out_arg_type = self.conn.execute_scalar(sql)
                 if not status:
                     return internal_server_error(errormsg=out_arg_type)
 
@@ -540,34 +647,16 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         for i in proargnames_fltrd:
             proargnames.remove(i)
 
-        # Insert null value against the parameters which do not have
-        # default values.
-        if len(proargmodes_fltrd) > len(proargdefaultvals):
-            dif = len(proargmodes_fltrd) - len(proargdefaultvals)
-            while (dif > 0):
-                proargdefaultvals.insert(0, '')
-                dif -= 1
-
         # Prepare list of Argument list dict to be displayed in the Data Grid.
-        params = {"arguments": [
-            self._map_arguments_dict(
-                i, proargmodes_fltrd[i] if len(proargmodes_fltrd) > i else '',
-                proargtypes[i] if len(proargtypes) > i else '',
-                proargnames[i] if len(proargnames) > i else '',
-                proargdefaultvals[i] if len(proargdefaultvals) > i else ''
-            )
-            for i in range(len(proargtypes))]}
+        params = self._params_list_for_display(proargmodes_fltrd, proargtypes,
+                                               proargnames, proargdefaultvals)
 
         # Prepare string formatted Argument to be displayed in the Properties
         # panel.
-
-        proargs = [self._map_arguments_list(
-            proargmodes_fltrd[i] if len(proargmodes_fltrd) > i else '',
-            proargtypes[i] if len(proargtypes) > i else '',
-            proargnames[i] if len(proargnames) > i else '',
-            proargdefaultvals[i] if len(proargdefaultvals) > i else ''
-        )
-            for i in range(len(proargtypes))]
+        proargs = self._display_properties_argument_list(proargmodes_fltrd,
+                                                         proargtypes,
+                                                         proargnames,
+                                                         proargdefaultvals)
 
         proargs = {"proargs": ", ".join(proargs)}
 
@@ -612,7 +701,7 @@ class FunctionView(PGChildNodeView, DataTypeReader):
 
         arg = ''
 
-        if argmode and argmode:
+        if argmode:
             arg += argmode + " "
         if argname:
             arg += argname + " "
@@ -652,9 +741,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         condition = "(typtype IN ('b', 'c', 'd', 'e', 'p', 'r') AND " \
                     "typname NOT IN ('any', 'trigger', 'language_handler', " \
                     "'event_trigger'))"
-        if self.blueprint.show_system_objects:
+        if not self.blueprint.show_system_objects:
             condition += " AND nspname NOT LIKE E'pg\\\\_toast%' AND " \
-                         "nspname NOT LIKE E'pg\\\\_temp%'"
+                         "nspname NOT LIKE E'pg\\\\_temp%' AND "\
+                         "nspname != 'information_schema'"
 
         # Get Types
         status, types = self.get_types(self.conn, condition, False, scid)
@@ -682,10 +772,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
 
         res = [{'label': '', 'value': ''}]
         try:
-            SQL = render_template("/".join([self.sql_template_path,
+            sql = render_template("/".join([self.sql_template_path,
                                             'get_languages.sql'])
                                   )
-            status, rows = self.conn.execute_dict(SQL)
+            status, rows = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
@@ -723,10 +813,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             This function will return list of variables available for
             table spaces.
         """
-        SQL = render_template(
+        sql = render_template(
             "/".join([self.sql_template_path, 'variables.sql'])
         )
-        status, rset = self.conn.execute_dict(SQL)
+        status, rset = self.conn.execute_dict(sql)
 
         if not status:
             return internal_server_error(errormsg=rset)
@@ -747,29 +837,29 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             sid: Server Id
             did: Database Id
             scid: Schema Id
-            fnid: Function Id
 
         Returns:
             Function object in json format.
         """
 
         # Get SQL to create Function
-        status, SQL = self._get_sql(gid, sid, did, scid, self.request)
+        status, sql = self._get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                    data=self.request)
         if not status:
-            return internal_server_error(errormsg=SQL)
+            return internal_server_error(errormsg=sql)
 
-        status, res = self.conn.execute_scalar(SQL)
+        status, res = self.conn.execute_scalar(sql)
         if not status:
             return internal_server_error(errormsg=res)
 
-        SQL = render_template(
+        sql = render_template(
             "/".join(
-                [self.sql_template_path, 'get_oid.sql']
+                [self.sql_template_path, self._OID_SQL]
             ),
             nspname=self.request['pronamespace'],
             name=self.request['name']
         )
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self.conn.execute_dict(sql)
         if not status:
             return internal_server_error(errormsg=res)
 
@@ -787,7 +877,7 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         )
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, fnid=None):
+    def delete(self, gid, sid, did, scid, fnid=None, only_sql=False):
         """
         Drop the Function.
 
@@ -805,23 +895,18 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         else:
             data = {'ids': [fnid]}
 
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation()
 
         try:
             for fnid in data['ids']:
                 # Fetch Name and Schema Name to delete the Function.
-                SQL = render_template("/".join([self.sql_template_path,
-                                                'delete.sql']), scid=scid,
+                sql = render_template("/".join([self.sql_template_path,
+                                                self._DELETE_SQL]), scid=scid,
                                       fnid=fnid)
-                status, res = self.conn.execute_2darray(SQL)
+                status, res = self.conn.execute_2darray(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
-
-                if not res['rows']:
+                elif not res['rows']:
                     return make_json_response(
                         success=0,
                         errormsg=gettext(
@@ -832,13 +917,15 @@ class FunctionView(PGChildNodeView, DataTypeReader):
                         )
                     )
 
-                SQL = render_template("/".join([self.sql_template_path,
-                                                'delete.sql']),
+                sql = render_template("/".join([self.sql_template_path,
+                                                self._DELETE_SQL]),
                                       name=res['rows'][0]['name'],
                                       func_args=res['rows'][0]['func_args'],
                                       nspname=res['rows'][0]['nspname'],
                                       cascade=cascade)
-                status, res = self.conn.execute_scalar(SQL)
+                if only_sql:
+                    return sql
+                status, res = self.conn.execute_scalar(sql)
                 if not status:
                     return internal_server_error(errormsg=res)
 
@@ -864,14 +951,14 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             fnid: Function Id
         """
 
-        status, SQL = self._get_sql(gid, sid, did, scid, self.request, fnid)
-
+        status, sql = self._get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                    data=self.request, fnid=fnid)
         if not status:
-            return internal_server_error(errormsg=SQL)
+            return internal_server_error(errormsg=sql)
 
-        if SQL and SQL.strip('\n') and SQL.strip(' '):
+        if sql and sql.strip('\n') and sql.strip(' '):
 
-            status, res = self.conn.execute_scalar(SQL)
+            status, res = self.conn.execute_scalar(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
@@ -911,34 +998,29 @@ class FunctionView(PGChildNodeView, DataTypeReader):
                 }
             )
 
-    @check_precondition
-    def sql(self, gid, sid, did, scid, fnid=None):
+    @staticmethod
+    def _check_argtype(args, args_without_name, a):
         """
-        Returns the SQL for the Function object.
-
-        Args:
-            gid: Server Group Id
-            sid: Server Id
-            did: Database Id
-            scid: Schema Id
-            fnid: Function Id
+        This function is used to check the arg type.
+        :param args:
+        :param args_without_name:
+        :param a:
+        :return:
         """
-        resp_data = self._fetch_properties(gid, sid, did, scid, fnid)
-        # Most probably this is due to error
-        if not isinstance(resp_data, dict):
-            return resp_data
+        if 'argtype' in a:
+            args += a['argtype']
+            args_without_name.append(a['argtype'])
+        return args, args_without_name
 
-        # Fetch the function definition.
-        args = u''
-        args_without_name = []
+    def _get_arguments(self, args_list, args, args_without_name):
+        """
+        This function is used to get the arguments.
+        :param args_list:
+        :param args:
+        :param args_without_name:
+        :return:
+        """
         cnt = 1
-        args_list = []
-        vol_dict = {'v': 'VOLATILE', 's': 'STABLE', 'i': 'IMMUTABLE'}
-
-        if 'arguments' in resp_data and len(resp_data['arguments']) > 0:
-            args_list = resp_data['arguments']
-            resp_data['args'] = resp_data['arguments']
-
         for a in args_list:
             if (
                 (
@@ -954,16 +1036,79 @@ class FunctionView(PGChildNodeView, DataTypeReader):
                 ):
                     args += self.qtIdent(
                         self.conn, a['argname']) + " "
-                if 'argtype' in a:
-                    args += a['argtype']
-                    args_without_name.append(a['argtype'])
+
+                args, args_without_name = FunctionView._check_argtype(
+                    args,
+                    args_without_name,
+                    a
+                )
+
                 if cnt < len(args_list):
                     args += ', '
             cnt += 1
 
+    def _parse_privilege_data(self, resp_data):
+        """
+        This function is used to parse the privilege data.
+        :param resp_data:
+        :return:
+        """
+        # Parse privilege data
+        if 'acl' in resp_data:
+            resp_data['acl'] = parse_priv_to_db(resp_data['acl'], ['X'])
+
+            # Check Revoke all for public
+            resp_data['revoke_all'] = self._set_revoke_all(
+                resp_data['acl'])
+
+    def _get_schema_name_from_oid(self, resp_data):
+        """
+        This function is used to get te schema name from OID.
+        :param resp_data:
+        :return:
+        """
+        if 'pronamespace' in resp_data:
+            resp_data['pronamespace'] = self._get_schema(
+                resp_data['pronamespace'])
+
+    @check_precondition
+    def sql(self, gid, sid, did, scid, fnid=None, **kwargs):
+        """
+        Returns the SQL for the Function object.
+
+        Args:
+            gid: Server Group Id
+            sid: Server Id
+            did: Database Id
+            scid: Schema Id
+            fnid: Function Id
+            json_resp:
+        """
+        json_resp = kwargs.get('json_resp', True)
+
+        resp_data = self._fetch_properties(gid, sid, did, scid, fnid)
+        # Most probably this is due to error
+        if not isinstance(resp_data, dict):
+            return resp_data
+
+        # Fetch the function definition.
+        args = u''
+        args_without_name = []
+
+        args_list = []
+        vol_dict = {'v': 'VOLATILE', 's': 'STABLE', 'i': 'IMMUTABLE'}
+
+        if 'arguments' in resp_data and len(resp_data['arguments']) > 0:
+            args_list = resp_data['arguments']
+            resp_data['args'] = resp_data['arguments']
+
+        self._get_arguments(args_list, args, args_without_name)
+
         resp_data['func_args'] = args.strip(' ')
 
         resp_data['func_args_without'] = ', '.join(args_without_name)
+
+        self.reformat_prosrc_code(resp_data)
 
         if self.node_type == 'procedure':
             object_type = 'procedure'
@@ -973,41 +1118,33 @@ class FunctionView(PGChildNodeView, DataTypeReader):
                 )
 
             # Get Schema Name from its OID.
-            if 'pronamespace' in resp_data:
-                resp_data['pronamespace'] = self._get_schema(
-                    resp_data['pronamespace'])
+            self._get_schema_name_from_oid(resp_data)
 
-            SQL = render_template("/".join([self.sql_template_path,
-                                            'get_definition.sql']
+            sql = render_template("/".join([self.sql_template_path,
+                                            self._GET_DEFINITION_SQL]
                                            ), data=resp_data,
                                   fnid=fnid, scid=scid)
 
-            status, res = self.conn.execute_2darray(SQL)
+            status, res = self.conn.execute_2darray(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
+            # Add newline and tab before each argument to format
             name_with_default_args = self.qtIdent(
                 self.conn,
                 res['rows'][0]['nspname'],
                 res['rows'][0]['proname']
-            ) + '(' + res['rows'][0]['func_args'] + ')'
-            # Add newline and tab before each argument to format
-            name_with_default_args = name_with_default_args.replace(
-                ', ', ',\r\t').replace('(', '(\r\t')
+            ) + '(\n\t' + res['rows'][0]['func_args'].\
+                replace(', ', ',\n\t') + ')'
 
             # Parse privilege data
-            if 'acl' in resp_data:
-                resp_data['acl'] = parse_priv_to_db(resp_data['acl'], ['X'])
-
-                # Check Revoke all for public
-                resp_data['revoke_all'] = self._set_revoke_all(
-                    resp_data['acl'])
+            self._parse_privilege_data(resp_data)
 
             # Generate sql for "SQL panel"
             # func_def is procedure signature with default arguments
             # query_for - To distinguish the type of call
             func_def = render_template("/".join([self.sql_template_path,
-                                                 'create.sql']),
+                                                 self._CREATE_SQL]),
                                        data=resp_data, query_type="create",
                                        func_def=name_with_default_args,
                                        query_for="sql_panel")
@@ -1015,63 +1152,53 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             object_type = 'function'
 
             # Get Schema Name from its OID.
-            if 'pronamespace' in resp_data:
-                resp_data['pronamespace'] = self._get_schema(
-                    resp_data['pronamespace']
-                )
+            self._get_schema_name_from_oid(resp_data)
 
             # Parse privilege data
-            if 'acl' in resp_data:
-                resp_data['acl'] = parse_priv_to_db(resp_data['acl'], ['X'])
+            self._parse_privilege_data(resp_data)
 
-                # Check Revoke all for public
-                resp_data['revoke_all'] = self._set_revoke_all(
-                    resp_data['acl'])
-
-            SQL = render_template("/".join([self.sql_template_path,
-                                            'get_definition.sql']
+            sql = render_template("/".join([self.sql_template_path,
+                                            self._GET_DEFINITION_SQL]
                                            ), data=resp_data,
                                   fnid=fnid, scid=scid)
 
-            status, res = self.conn.execute_2darray(SQL)
+            status, res = self.conn.execute_2darray(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
+            # Add newline and tab before each argument to format
             name_with_default_args = self.qtIdent(
                 self.conn,
                 res['rows'][0]['nspname'],
                 res['rows'][0]['proname']
-            ) + '(' + res['rows'][0]['func_args'] + ')'
-            # Add newline and tab before each argument to format
-            name_with_default_args = name_with_default_args.replace(
-                ', ',
-                ',\r\t'
-            ).replace('(', '(\r\t')
+            ) + '(\n\t' + res['rows'][0]['func_args']. \
+                replace(', ', ',\n\t') + ')'
 
             # Generate sql for "SQL panel"
             # func_def is function signature with default arguments
             # query_for - To distinguish the type of call
             func_def = render_template("/".join([self.sql_template_path,
-                                                 'create.sql']),
+                                                 self._CREATE_SQL]),
                                        data=resp_data, query_type="create",
                                        func_def=name_with_default_args,
                                        query_for="sql_panel")
 
-        sql_header = u"""-- {0}: {1}({2})
+        sql_header = u"""-- {0}: {1}.{2}({3})\n\n""".format(
+            object_type.upper(), resp_data['pronamespace'],
+            resp_data['proname'],
+            resp_data['proargtypenames'].lstrip('(').rstrip(')'))
+        sql_header += """-- DROP {0} {1}({2});\n\n""".format(
+            object_type.upper(), self.qtIdent(
+                self.conn, resp_data['pronamespace'], resp_data['proname']),
+            resp_data['proargtypenames'].lstrip('(').rstrip(')'))
 
--- DROP {0} {1}({2});
+        if not json_resp:
+            return re.sub('\n{2,}', '\n\n', func_def)
 
-""".format(object_type.upper(),
-           self.qtIdent(
-               self.conn,
-               resp_data['pronamespace'],
-               resp_data['proname']),
-           resp_data['proargtypenames'].lstrip('(').rstrip(')'))
+        sql = sql_header + func_def
+        sql = re.sub('\n{2,}', '\n\n', sql)
 
-        SQL = sql_header + func_def
-        SQL = re.sub('\n{2,}', '\n\n', SQL)
-
-        return ajax_response(response=SQL)
+        return ajax_response(response=sql)
 
     @check_precondition
     @validate_request
@@ -1089,206 +1216,282 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             SQL statements to create/update the Domain.
         """
 
-        status, SQL = self._get_sql(gid, sid, did, scid, self.request, fnid)
+        status, sql = self._get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                    data=self.request, fnid=fnid)
 
         if status:
-            SQL = re.sub('\n{2,}', '\n\n', SQL)
+            sql = re.sub('\n{2,}', '\n\n', sql)
             return make_json_response(
-                data=SQL,
+                data=sql,
                 status=200
             )
         else:
-            SQL = re.sub('\n{2,}', '\n\n', SQL)
-            return SQL
+            sql = re.sub('\n{2,}', '\n\n', sql)
+            return sql
 
-    def _get_sql(self, gid, sid, did, scid, data, fnid=None, is_sql=False):
+    @staticmethod
+    def _update_arguments_for_get_sql(data, old_data):
+        """
+        If Function Definition/Arguments are changed then merge old
+        Arguments with changed ones for Create/Replace Function SQL statement
+        :param data:
+        :param old_data:
+        :return:
+        """
+        if 'arguments' in data and len(data['arguments']) > 0:
+            for arg in data['arguments']['changed']:
+                for old_arg in old_data['arguments']:
+                    if arg['argid'] == old_arg['argid']:
+                        old_arg.update(arg)
+                        break
+            data['arguments'] = old_data['arguments']
+        elif data['change_func']:
+            data['arguments'] = old_data['arguments']
+
+    @staticmethod
+    def _delete_variable_in_edit_mode(data, del_variables):
+        """
+        This function is used to create variables that marked for delete.
+        :param data:
+        :param del_variables:
+        :return:
+        """
+        if 'variables' in data and 'deleted' in data['variables']:
+            for v in data['variables']['deleted']:
+                del_variables[v['name']] = v['value']
+
+    @staticmethod
+    def _prepare_final_dict(data, old_data, chngd_variables, del_variables,
+                            all_ids_dict):
+        """
+        This function is used to prepare the final dict.
+        :param data:
+        :param old_data:
+        :param chngd_variables:
+        :param del_variables:
+        :param all_ids_dict:
+        :return:
+        """
+        # In case of schema diff we don't want variables from
+        # old data
+        if not all_ids_dict['is_schema_diff']:
+            for v in old_data['variables']:
+                old_data['chngd_variables'][v['name']] = v['value']
+
+        # Prepare final dict of new and old variables
+        for name, val in old_data['chngd_variables'].items():
+            if (
+                name not in chngd_variables and
+                name not in del_variables
+            ):
+                chngd_variables[name] = val
+
+        # Prepare dict in [{'name': var_name, 'value': var_val},..]
+        # format
+        for name, val in chngd_variables.items():
+            data['merged_variables'].append({'name': name,
+                                             'value': val})
+
+    @staticmethod
+    def _parser_privilege(data):
+        """
+        This function is used to parse the privilege data.
+        :param data:
+        :return:
+        """
+        if 'acl' in data:
+            for key in ['added', 'deleted', 'changed']:
+                if key in data['acl']:
+                    data['acl'][key] = parse_priv_to_db(
+                        data['acl'][key], ["X"])
+
+    @staticmethod
+    def _merge_variable_changes(data, chngd_variables):
+        """
+        This function is used to merge the changed variables.
+        :param data:
+        :param chngd_variables:
+        :return:
+        """
+        if 'variables' in data and 'changed' in data['variables']:
+            for v in data['variables']['changed']:
+                chngd_variables[v['name']] = v['value']
+
+        if 'variables' in data and 'added' in data['variables']:
+            for v in data['variables']['added']:
+                chngd_variables[v['name']] = v['value']
+
+    @staticmethod
+    def _merge_variables(data):
+        """
+        This function is used to prepare the merged variables.
+        :param data:
+        :return:
+        """
+        if 'variables' in data and 'changed' in data['variables']:
+            for v in data['variables']['changed']:
+                data['merged_variables'].append(v)
+
+        if 'variables' in data and 'added' in data['variables']:
+            for v in data['variables']['added']:
+                data['merged_variables'].append(v)
+
+    def _get_sql_for_edit_mode(self, data, parallel_dict, all_ids_dict,
+                               vol_dict):
+        """
+        This function is used to get the sql for edit mode.
+        :param data:
+        :param parallel_dict:
+        :param all_ids_dict:
+        :param vol_dict:
+        :return:
+        """
+        if 'proparallel' in data and data['proparallel']:
+            data['proparallel'] = parallel_dict[data['proparallel']]
+
+        # Fetch Old Data from database.
+        old_data = self._fetch_properties(all_ids_dict['gid'],
+                                          all_ids_dict['sid'],
+                                          all_ids_dict['did'],
+                                          all_ids_dict['scid'],
+                                          all_ids_dict['fnid'])
+        # Most probably this is due to error
+        if not isinstance(old_data, dict):
+            return False, gettext(
+                "Could not find the function in the database."
+            )
+
+        # Get Schema Name
+        old_data['pronamespace'] = self._get_schema(
+            old_data['pronamespace']
+        )
+
+        if 'provolatile' in old_data and \
+                old_data['provolatile'] is not None:
+            old_data['provolatile'] = vol_dict[old_data['provolatile']]
+
+        if 'proparallel' in old_data and \
+                old_data['proparallel'] is not None:
+            old_data['proparallel'] = \
+                parallel_dict[old_data['proparallel']]
+
+        # If any of the below argument is changed,
+        # then CREATE OR REPLACE SQL statement should be called
+        fun_change_args = ['lanname', 'prosrc', 'probin', 'prosrc_c',
+                           'provolatile', 'proisstrict', 'prosecdef',
+                           'proparallel', 'procost', 'proleakproof',
+                           'arguments', 'prorows', 'prosupportfunc']
+
+        data['change_func'] = False
+        for arg in fun_change_args:
+            if (arg == 'arguments' and arg in data and len(
+                    data[arg]) > 0) or arg in data:
+                data['change_func'] = True
+
+        # If Function Definition/Arguments are changed then merge old
+        #  Arguments with changed ones for Create/Replace Function
+        # SQL statement
+        FunctionView._update_arguments_for_get_sql(data, old_data)
+
+        # Parse Privileges
+        FunctionView._parser_privilege(data)
+
+        # Parse Variables
+        chngd_variables = {}
+        data['merged_variables'] = []
+        old_data['chngd_variables'] = {}
+        del_variables = {}
+
+        # If Function Definition/Arguments are changed then,
+        # Merge old, new (added, changed, deleted) variables,
+        # which will be used in the CREATE or REPLACE Function sql
+        # statement
+        if data['change_func']:
+            # Deleted Variables
+            FunctionView._delete_variable_in_edit_mode(data, del_variables)
+            FunctionView._merge_variable_changes(data, chngd_variables)
+
+            # Prepare final dict
+            FunctionView._prepare_final_dict(data, old_data, chngd_variables,
+                                             del_variables, all_ids_dict)
+        else:
+            FunctionView._merge_variables(data)
+
+        self.reformat_prosrc_code(data)
+
+        sql = render_template(
+            "/".join([self.sql_template_path, self._UPDATE_SQL]),
+            data=data, o_data=old_data
+        )
+        return sql
+
+    def _get_sql(self, **kwargs):
         """
         Generates the SQL statements to create/update the Function.
 
         Args:
-            gid: Server Group Id
-            sid: Server Id
-            did: Database Id
-            scid: Schema Id
-            data: Function data
-            fnid: Function Id
+            kwargs:
         """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        data = kwargs.get('data')
+        fnid = kwargs.get('fnid', None)
+        is_sql = kwargs.get('is_sql', False)
+        is_schema_diff = kwargs.get('is_schema_diff', False)
 
         vol_dict = {'v': 'VOLATILE', 's': 'STABLE', 'i': 'IMMUTABLE'}
         parallel_dict = {'u': 'UNSAFE', 's': 'SAFE', 'r': 'RESTRICTED'}
 
         # Get Schema Name from its OID.
-        if 'pronamespace' in data:
-            data['pronamespace'] = self._get_schema(
-                data['pronamespace']
-            )
+        self._get_schema_name_from_oid(data)
+
         if 'provolatile' in data:
-            data['provolatile'] = vol_dict[data['provolatile']]
+            data['provolatile'] = vol_dict[data['provolatile']]\
+                if data['provolatile'] else ''
 
         if fnid is not None:
             # Edit Mode
 
-            if 'proparallel' in data:
-                data['proparallel'] = parallel_dict[data['proparallel']]
-
-            # Fetch Old Data from database.
-            old_data = self._fetch_properties(gid, sid, did, scid, fnid)
-            # Most probably this is due to error
-            if not isinstance(old_data, dict):
-                return False, gettext(
-                    "Could not find the function in the database."
-                )
-
-            # Get Schema Name
-            old_data['pronamespace'] = self._get_schema(
-                old_data['pronamespace']
-            )
-
-            if 'provolatile' in old_data and \
-                    old_data['provolatile'] is not None:
-                old_data['provolatile'] = vol_dict[old_data['provolatile']]
-
-            if 'proparallel' in old_data and \
-                    old_data['proparallel'] is not None:
-                old_data['proparallel'] = \
-                    parallel_dict[old_data['proparallel']]
-
-            # If any of the below argument is changed,
-            # then CREATE OR REPLACE SQL statement should be called
-            fun_change_args = ['lanname', 'prosrc', 'probin', 'prosrc_c',
-                               'provolatile', 'proisstrict', 'prosecdef',
-                               'proparallel', 'procost', 'proleakproof',
-                               'arguments', 'prorows']
-
-            data['change_func'] = False
-            for arg in fun_change_args:
-                if arg == 'arguments' and arg in data and len(data[arg]) > 0:
-                    data['change_func'] = True
-                elif arg in data:
-                    data['change_func'] = True
-
-            # If Function Definition/Arguments are changed then merge old
-            #  Arguments with changed ones for Create/Replace Function
-            # SQL statement
-            if 'arguments' in data and len(data['arguments']) > 0:
-                for arg in data['arguments']['changed']:
-                    for old_arg in old_data['arguments']:
-                        if arg['argid'] == old_arg['argid']:
-                            old_arg.update(arg)
-                            break
-                data['arguments'] = old_data['arguments']
-            elif data['change_func']:
-                data['arguments'] = old_data['arguments']
-
-            # Parse Privileges
-            if 'acl' in data:
-                for key in ['added', 'deleted', 'changed']:
-                    if key in data['acl']:
-                        data['acl'][key] = parse_priv_to_db(
-                            data['acl'][key], ["X"])
-
-            # Parse Variables
-            chngd_variables = {}
-            data['merged_variables'] = []
-            old_data['chngd_variables'] = {}
-            del_variables = {}
-
-            # If Function Definition/Arguments are changed then,
-            # Merge old, new (added, changed, deleted) variables,
-            # which will be used in the CREATE or REPLACE Function sql
-            # statement
-
-            if data['change_func']:
-                # To compare old and new variables, preparing name :
-                # value dict
-
-                # Deleted Variables
-                if 'variables' in data and 'deleted' in data['variables']:
-                    for v in data['variables']['deleted']:
-                        del_variables[v['name']] = v['value']
-
-                if 'variables' in data and 'changed' in data['variables']:
-                    for v in data['variables']['changed']:
-                        chngd_variables[v['name']] = v['value']
-
-                if 'variables' in data and 'added' in data['variables']:
-                    for v in data['variables']['added']:
-                        chngd_variables[v['name']] = v['value']
-
-                for v in old_data['variables']:
-                    old_data['chngd_variables'][v['name']] = v['value']
-
-                # Prepare final dict of new and old variables
-                for name, val in old_data['chngd_variables'].items():
-                    if (
-                        name not in chngd_variables and
-                        name not in del_variables
-                    ):
-                        chngd_variables[name] = val
-
-                # Prepare dict in [{'name': var_name, 'value': var_val},..]
-                # format
-                for name, val in chngd_variables.items():
-                    data['merged_variables'].append({'name': name,
-                                                     'value': val})
-            else:
-                if 'variables' in data and 'changed' in data['variables']:
-                    for v in data['variables']['changed']:
-                        data['merged_variables'].append(v)
-
-                if 'variables' in data and 'added' in data['variables']:
-                    for v in data['variables']['added']:
-                        data['merged_variables'].append(v)
-
-            SQL = render_template(
-                "/".join([self.sql_template_path, 'update.sql']),
-                data=data, o_data=old_data
-            )
+            all_ids_dict = {
+                'gid': gid,
+                'sid': sid,
+                'did': did,
+                'scid': scid,
+                'data': data,
+                'fnid': fnid,
+                'is_sql': is_sql,
+                'is_schema_diff': is_schema_diff,
+            }
+            sql = self._get_sql_for_edit_mode(data, parallel_dict,
+                                              all_ids_dict, vol_dict)
         else:
             # Parse Privileges
-            if 'acl' in data:
-                data['acl'] = parse_priv_to_db(data['acl'], ["X"])
-
-                # Check Revoke all for public
-                data['revoke_all'] = self._set_revoke_all(data['acl'])
+            self._parse_privilege_data(data)
 
             args = u''
             args_without_name = []
-            cnt = 1
+
             args_list = []
             if 'arguments' in data and len(data['arguments']) > 0:
                 args_list = data['arguments']
             elif 'args' in data and len(data['args']) > 0:
                 args_list = data['args']
-            for a in args_list:
-                if (
-                    (
-                        'argmode' in a and a['argmode'] != 'OUT' and
-                        a['argmode'] is not None
-                    ) or 'argmode' not in a
-                ):
-                    if 'argmode' in a:
-                        args += a['argmode'] + " "
-                    if (
-                        'argname' in a and a['argname'] != '' and
-                        a['argname'] is not None
-                    ):
-                        args += self.qtIdent(self.conn, a['argname']) + " "
-                    if 'argtype' in a:
-                        args += a['argtype']
-                        args_without_name.append(a['argtype'])
-                    if cnt < len(args_list):
-                        args += ', '
-                cnt += 1
+
+            self._get_arguments(args_list, args, args_without_name)
 
             data['func_args'] = args.strip(' ')
 
             data['func_args_without'] = ', '.join(args_without_name)
+
+            self.reformat_prosrc_code(data)
+
             # Create mode
-            SQL = render_template("/".join([self.sql_template_path,
-                                            'create.sql']),
+            sql = render_template("/".join([self.sql_template_path,
+                                            self._CREATE_SQL]),
                                   data=data, is_sql=is_sql)
-        return True, SQL.strip('\n')
+        return True, sql.strip('\n')
 
     def _fetch_properties(self, gid, sid, did, scid, fnid=None):
         """
@@ -1303,12 +1506,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             fnid: Function Id
         """
 
-        resp_data = {}
-
-        SQL = render_template("/".join([self.sql_template_path,
-                                        'properties.sql']),
+        sql = render_template("/".join([self.sql_template_path,
+                                        self._PROPERTIES_SQL]),
                               scid=scid, fnid=fnid)
-        status, res = self.conn.execute_dict(SQL)
+        status, res = self.conn.execute_dict(sql)
         if not status:
             return internal_server_error(errormsg=res)
 
@@ -1325,9 +1526,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         resp_data.update(frmtd_proargs)
 
         # Fetch privileges
-        SQL = render_template("/".join([self.sql_template_path, 'acl.sql']),
+        sql = render_template("/".join([self.sql_template_path,
+                                        self._ACL_SQL]),
                               fnid=fnid)
-        status, proaclres = self.conn.execute_dict(SQL)
+        status, proaclres = self.conn.execute_dict(sql)
         if not status:
             return internal_server_error(errormsg=res)
 
@@ -1338,6 +1540,11 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         resp_data['sysfunc'] = False
         if fnid <= self.manager.db_info[did]['datlastsysoid']:
             resp_data['sysfunc'] = True
+
+        # Set System Functions Status
+        resp_data['sysproc'] = False
+        if fnid <= self.manager.db_info[did]['datlastsysoid']:
+            resp_data['sysproc'] = True
 
         # Get formatted Security Labels
         if 'seclabels' in resp_data:
@@ -1367,10 +1574,10 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         Args:
             scid: Schema Id
         """
-        SQL = render_template("/".join([self.sql_template_path,
+        sql = render_template("/".join([self.sql_template_path,
                                         'get_schema.sql']), scid=scid)
 
-        status, schema_name = self.conn.execute_scalar(SQL)
+        status, schema_name = self.conn.execute_scalar(sql)
 
         if not status:
             return internal_server_error(errormsg=schema_name)
@@ -1391,6 +1598,36 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         return revoke_all
 
     @check_precondition
+    def get_support_functions(self, gid, sid, did, scid):
+        """
+        This function will return list of available support functions.
+        """
+        res = [{'label': '', 'value': ''}]
+
+        try:
+            sql = render_template(
+                "/".join([self.sql_template_path,
+                          'get_support_functions.sql']),
+                show_system_objects=self.blueprint.show_system_objects
+            )
+            status, rset = self.conn.execute_2darray(sql)
+            if not status:
+                return internal_server_error(errormsg=res)
+
+            for row in rset['rows']:
+                res.append(
+                    {'label': row['sfunctions'],
+                     'value': row['sfunctions']}
+                )
+            return make_json_response(
+                data=res,
+                status=200
+            )
+
+        except Exception as e:
+            return internal_server_error(errormsg=str(e))
+
+    @check_precondition
     def dependents(self, gid, sid, did, scid, fnid):
         """
         This function get the dependents and return ajax response
@@ -1401,7 +1638,7 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             sid: Server Id
             did: Database Id
             scid: Schema Id
-            doid: Function Id
+            fnid: Function Id
         """
         dependents_result = self.get_dependents(self.conn, fnid)
         return ajax_response(
@@ -1420,7 +1657,7 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             sid: Server Id
             did: Database Id
             scid: Schema Id
-            doid: Function Id
+            fnid: Function Id
         """
         dependencies_result = self.get_dependencies(self.conn, fnid)
         return ajax_response(
@@ -1438,15 +1675,17 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             sid: Server Id
             did: Database Id
             scid: Schema Id
-            doid: Function Id
+            fnid: Function Id
         """
         # Fetch the function definition.
-        SQL = render_template("/".join([self.sql_template_path,
-                                        'get_definition.sql']), fnid=fnid,
+        sql = render_template("/".join([self.sql_template_path,
+                                        self._GET_DEFINITION_SQL]), fnid=fnid,
                               scid=scid)
-        status, res = self.conn.execute_2darray(SQL)
+        status, res = self.conn.execute_2darray(sql)
         if not status:
             return internal_server_error(errormsg=res)
+        if len(res['rows']) == 0:
+            return gone(gettext("The specified function could not be found."))
 
         name = self.qtIdent(
             self.conn, res['rows'][0]['nspname'],
@@ -1454,9 +1693,9 @@ class FunctionView(PGChildNodeView, DataTypeReader):
         ) + '(' + res['rows'][0]['func_with_identity_arguments'] + ')'
 
         # Fetch only arguments
-        argString = name[name.rfind('('):].strip('(').strip(')')
-        if len(argString) > 0:
-            args = argString.split(',')
+        arg_string = name[name.rfind('('):].strip('(').strip(')')
+        if len(arg_string) > 0:
+            args = arg_string.split(',')
             # Remove unwanted spaces from arguments
             args = [arg.strip(' ') for arg in args]
 
@@ -1480,7 +1719,7 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             sid: Server Id
             did: Database Id
             scid: Schema Id
-            doid: Function Id
+            fnid: Function Id
         """
         resp_data = self._fetch_properties(gid, sid, did, scid, fnid)
         # Most probably this is due to error
@@ -1564,7 +1803,104 @@ class FunctionView(PGChildNodeView, DataTypeReader):
             status=200
         )
 
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
 
+        if data:
+            status, sql = self._get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                        data=data, fnid=oid, is_sql=False,
+                                        is_schema_diff=True)
+            # Check if return type is changed then we need to drop the
+            # function first and then recreate it.
+            if 'prorettypename' in data:
+                drop_fun_sql = self.delete(gid=gid, sid=sid, did=did,
+                                           scid=scid, fnid=oid, only_sql=True)
+                sql = drop_fun_sql + '\n' + sql
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, fnid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, fnid=oid,
+                               json_resp=False)
+        return sql
+
+    def reformat_prosrc_code(self, data):
+        """
+        :param data:
+        :return:
+        """
+        if 'prosrc' in data and data['prosrc'] is not None:
+
+            is_prc_version_lesser_than_11 = \
+                self.node_type == 'procedure' and\
+                self.manager.sversion <= 110000
+
+            data['prosrc'] = re.sub(r"^\s+", '',
+                                    re.sub(r"\s+$", '',
+                                           data['prosrc']))
+
+            if not is_prc_version_lesser_than_11:
+                if data['prosrc'].startswith('\n') is False:
+                    data['prosrc'] = ''.join(
+                        ('\n', data['prosrc']))
+
+                if data['prosrc'].endswith('\n') is False:
+                    data['prosrc'] = ''.join(
+                        (data['prosrc'], '\n'))
+
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid, oid=None):
+        """
+        This function will fetch the list of all the functions for
+        specified schema id.
+
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :return:
+        """
+        res = dict()
+        server_type = self.manager.server_type
+        server_version = self.manager.sversion
+
+        if server_type == 'pg' and self.blueprint.min_ver is not None and \
+                server_version < self.blueprint.min_ver:
+            return res
+        if server_type == 'ppas' and self.blueprint.min_ppasver is not None \
+                and server_version < self.blueprint.min_ppasver:
+            return res
+
+        if not oid:
+            sql = render_template("/".join([self.sql_template_path,
+                                            self._NODE_SQL]), scid=scid)
+            status, rset = self.conn.execute_2darray(sql)
+            if not status:
+                return internal_server_error(errormsg=res)
+
+            for row in rset['rows']:
+                data = self._fetch_properties(0, sid, did, scid, row['oid'])
+                if isinstance(data, dict):
+                    res[row['name']] = data
+        else:
+            data = self._fetch_properties(0, sid, did, scid, oid)
+            res = data
+
+        return res
+
+
+SchemaDiffRegistry(blueprint.node_type, FunctionView)
 FunctionView.register_node_view(blueprint)
 
 
@@ -1591,8 +1927,8 @@ class ProcedureModule(SchemaChildModule):
 
     """
 
-    NODE_TYPE = 'procedure'
-    COLLECTION_LABEL = gettext("Procedures")
+    _NODE_TYPE = 'procedure'
+    _COLLECTION_LABEL = gettext("Procedures")
 
     def __init__(self, *args, **kwargs):
         """
@@ -1630,7 +1966,7 @@ class ProcedureModule(SchemaChildModule):
         Load the module script for Procedures, when the
         database node is initialized.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
 
 procedure_blueprint = ProcedureModule(__name__)
@@ -1665,6 +2001,7 @@ class ProcedureView(FunctionView):
                 'prosrc']
 
 
+SchemaDiffRegistry(procedure_blueprint.node_type, ProcedureView)
 ProcedureView.register_node_view(procedure_blueprint)
 
 
@@ -1691,8 +2028,8 @@ class TriggerFunctionModule(SchemaChildModule):
 
     """
 
-    NODE_TYPE = 'trigger_function'
-    COLLECTION_LABEL = gettext("Trigger Functions")
+    _NODE_TYPE = 'trigger_function'
+    _COLLECTION_LABEL = gettext("Trigger Functions")
 
     def __init__(self, *args, **kwargs):
         """
@@ -1728,7 +2065,7 @@ class TriggerFunctionModule(SchemaChildModule):
         Load the module script for Trigger function, when the
         schema node is initialized.
         """
-        return databases.DatabaseModule.NODE_TYPE
+        return databases.DatabaseModule.node_type
 
 
 trigger_function_blueprint = TriggerFunctionModule(__name__)
@@ -1763,4 +2100,5 @@ class TriggerFunctionView(FunctionView):
                 'prosrc']
 
 
+SchemaDiffRegistry(trigger_function_blueprint.node_type, TriggerFunctionView)
 TriggerFunctionView.register_node_view(trigger_function_blueprint)

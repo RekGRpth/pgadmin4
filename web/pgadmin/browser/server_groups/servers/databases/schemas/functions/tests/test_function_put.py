@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -41,6 +41,17 @@ class FunctionPutTestCase(BaseTestGenerator):
             "description": "This is a procedure update comment",
             "id": func_id
         }
+
+        if self.server_version >= 120000:
+            support_function_name = 'supportfunc_%s' % str(uuid.uuid4())[1:8]
+            funcs_utils.create_support_internal_function(
+                self.server,
+                self.db_name,
+                self.schema_name,
+                support_function_name
+            )
+
+            data['prosupportfuc'] = support_function_name
 
         put_response = self.tester.put(
             self.url + str(utils.SERVER_GROUP) +

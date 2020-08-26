@@ -4,21 +4,17 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 # config.py - Core application configuration settings
 #
 ##########################################################################
 
+import builtins
 import logging
 import os
 import sys
-
-if sys.version_info[0] >= 3:
-    import builtins
-else:
-    import __builtin__ as builtins
 
 # We need to include the root directory in sys.path to ensure that we can
 # find everything we need when running in the standalone runtime.
@@ -26,7 +22,7 @@ root = os.path.dirname(os.path.realpath(__file__))
 if sys.path[0] != root:
     sys.path.insert(0, root)
 
-from pgadmin.utils import env, IS_PY2, IS_WIN, fs_short_path
+from pgadmin.utils import env, IS_WIN, fs_short_path
 
 ##########################################################################
 # Application settings
@@ -50,7 +46,7 @@ APP_ICON = 'pg-icon'
 
 # Application version number components
 APP_RELEASE = 4
-APP_REVISION = 10
+APP_REVISION = 25
 
 # Application version suffix, e.g. 'beta1', 'dev'. Usually an empty string
 # for GA releases.
@@ -59,7 +55,7 @@ APP_SUFFIX = ''
 # Numeric application version for upgrade checks. Should be in the format:
 # [X]XYYZZ, where X is the release version, Y is the revision, with a leading
 # zero if needed, and Z represents the suffix, with a leading zero if needed
-APP_VERSION_INT = 41000
+APP_VERSION_INT = 42500
 
 # DO NOT CHANGE!
 # The application version string, constructed from the components
@@ -70,7 +66,7 @@ else:
 
 # Copyright string for display in the app
 # Any changes made here must also be made in runtime/pgAdmin4.pro
-APP_COPYRIGHT = 'Copyright (C) 2013 - 2019, The pgAdmin Development Team'
+APP_COPYRIGHT = 'Copyright (C) 2013 - 2020, The pgAdmin Development Team'
 
 ##########################################################################
 # Misc stuff
@@ -83,8 +79,10 @@ HELP_PATH = '../../../docs/en_US/_build/html/'
 LANGUAGES = {
     'en': 'English',
     'zh': 'Chinese (Simplified)',
+    'cs': 'Czech',
     'fr': 'French',
     'de': 'German',
+    'it': 'Italian',
     'ja': 'Japanese',
     'ko': 'Korean',
     'pl': 'Polish',
@@ -154,14 +152,41 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 # Hashing algorithm used for password storage
 SECURITY_PASSWORD_HASH = 'pbkdf2_sha512'
 
+# Reverse Proxy parameters
+# You must tell the middleware how many proxies set each header
+# so it knows what values to trust.
+# See https://tinyurl.com/yyg7r9av
+# for more information.
+
+# Number of values to trust for X-Forwarded-For
+PROXY_X_FOR_COUNT = 1
+
+# Number of values to trust for X-Forwarded-Proto.
+PROXY_X_PROTO_COUNT = 1
+
+# Number of values to trust for X-Forwarded-Host.
+PROXY_X_HOST_COUNT = 0
+
+# Number of values to trust for X-Forwarded-Port.
+PROXY_X_PORT_COUNT = 1
+
+# Number of values to trust for X-Forwarded-Prefix.
+PROXY_X_PREFIX_COUNT = 0
+
 # NOTE: CSRF_SESSION_KEY, SECRET_KEY and SECURITY_PASSWORD_SALT are no
 #       longer part of the main configuration, but are stored in the
 #       configuration databases 'keys' table and are auto-generated.
 
-# Should HTML be minified on the fly when not in debug mode?
-# NOTE: The HTMLMIN module doesn't work with Python 2.6, so this option
-#       has no effect on <= Python 2.7.
-MINIFY_PAGE = True
+# COMPRESSION
+COMPRESS_MIMETYPES = [
+    'text/html', 'text/css', 'text/xml', 'application/json',
+    'application/javascript'
+]
+COMPRESS_LEVEL = 9
+COMPRESS_MIN_SIZE = 500
+
+# Set the cache control max age for static files in flask to 1 year
+SEND_FILE_MAX_AGE_DEFAULT = 31556952
 
 # This will be added to static urls as url parameter with value as
 # APP_VERSION_INT for cache busting on version upgrade. If the value is set as
@@ -186,6 +211,13 @@ else:
         DATA_DIR = '/var/lib/pgadmin'
     else:
         DATA_DIR = os.path.realpath(os.path.expanduser(u'~/.pgadmin/'))
+
+# An optional login banner to show security warnings/disclaimers etc. at
+# login and password recovery etc. HTML may be included for basic formatting,
+# For example:
+# LOGIN_BANNER = "<h4>Authorised Users Only!</h4>" \
+#                "Unauthorised use is strictly forbidden."
+LOGIN_BANNER = ""
 
 ##########################################################################
 # Log settings
@@ -322,6 +354,9 @@ UPGRADE_CHECK_KEY = 'pgadmin4'
 CA_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                        "cacert.pem")
 
+# Check if the detected browser is supported
+CHECK_SUPPORTED_BROWSER = True
+
 ##########################################################################
 # Storage Manager storage url config settings
 # If user sets STORAGE_DIR to empty it will show all volumes if platform
@@ -411,6 +446,22 @@ SESSION_EXPIRATION_TIME = 1
 # the session files for cleanup after specified number of *hours*.
 CHECK_SESSION_FILES_INTERVAL = 24
 
+# USER_INACTIVITY_TIMEOUT is interval in Seconds. If the pgAdmin screen is left
+# unattended for <USER_INACTIVITY_TIMEOUT> seconds then the user will
+# be logged out. When set to 0, the timeout will be disabled.
+# If pgAdmin doesn't detect any activity in the time specified (in seconds),
+# the user will be forcibly logged out from pgAdmin. Set to zero to disable
+# the timeout.
+# Note: This is applicable only for SERVER_MODE=True.
+USER_INACTIVITY_TIMEOUT = 0
+
+# OVERRIDE_USER_INACTIVITY_TIMEOUT when set to True will override
+# USER_INACTIVITY_TIMEOUT when long running queries in the Query Tool
+# or Debugger are running. When the queries complete, the inactivity timer
+# will restart in this case. If set to False, user inactivity may cause
+# transactions or in-process debugging sessions to be aborted.
+OVERRIDE_USER_INACTIVITY_TIMEOUT = True
+
 ##########################################################################
 # SSH Tunneling supports only for Python 2.7 and 3.4+
 ##########################################################################
@@ -424,6 +475,104 @@ ALLOW_SAVE_TUNNEL_PASSWORD = False
 # Applicable for desktop mode only
 ##########################################################################
 MASTER_PASSWORD_REQUIRED = True
+
+##########################################################################
+# Allows pgAdmin4 to create session cookies based on IP address, so even
+# if a cookie is stolen, the attacker will not be able to connect to the
+# server using that stolen cookie.
+# Note: This can cause problems when the server is deployed in dynamic IP
+# address hosting environments, such as Kubernetes or behind load
+# balancers. In such cases, this option should be set to False.
+##########################################################################
+ENHANCED_COOKIE_PROTECTION = True
+
+##########################################################################
+# External Authentication Sources
+##########################################################################
+
+# Default setting is internal
+# External Supported Sources: ldap
+# Multiple authentication can be achieved by setting this parameter to
+# ['ldap', 'internal']. pgAdmin will authenticate the user with ldap first,
+# in case of failure internal authentication will be done.
+
+AUTHENTICATION_SOURCES = ['internal']
+
+##########################################################################
+# LDAP Configuration
+##########################################################################
+
+# After ldap authentication, user will be added into the SQLite database
+# automatically, if set to True.
+# Set it to False, if user should not be added automatically,
+# in this case Admin has to add the user manually in the SQLite database.
+LDAP_AUTO_CREATE_USER = True
+
+# Connection timeout
+LDAP_CONNECTION_TIMEOUT = 10
+
+# Server connection details (REQUIRED)
+# example: ldap://<ip-address>:<port> or ldap://<hostname>:<port>
+LDAP_SERVER_URI = 'ldap://<ip-address>:<port>'
+
+# The LDAP attribute containing user names. In OpenLDAP, this may be 'uid'
+# whilst in AD, 'sAMAccountName' might be appropriate. (REQUIRED)
+LDAP_USERNAME_ATTRIBUTE = '<User-id>'
+
+##########################################################################
+# 3 ways to configure LDAP as follows (Choose anyone):
+
+# 1. Dedicated User binding
+
+# LDAP Bind User DN Example: cn=username,dc=example,dc=com
+# Set this parameter to allow the connection to bind using a dedicated user.
+# After the connection is made, the pgadmin login user will be further
+# authenticated by the username and password provided
+# at the login screen.
+LDAP_BIND_USER = None
+
+# LDAP Bind User Password
+LDAP_BIND_PASSWORD = None
+
+# OR ####################
+# 2. Anonymous Binding
+
+# Set this parameter to allow the anonymous bind.
+# After the connection is made, the pgadmin login user will be further
+# authenticated by the username and password provided
+
+LDAP_ANONYMOUS_BIND = False
+
+# OR ####################
+# 3. Bind as pgAdmin user
+
+# BaseDN (REQUIRED)
+# AD example:
+# (&(objectClass=user)(memberof=CN=MYGROUP,CN=Users,dc=example,dc=com))
+# OpenLDAP example: CN=Users,dc=example,dc=com
+LDAP_BASE_DN = '<Base-DN>'
+
+##########################################################################
+
+# Search ldap for further authentication (REQUIRED)
+# It can be optional while bind as pgAdmin user
+LDAP_SEARCH_BASE_DN = '<Search-Base-DN>'
+
+# Filter string for the user search.
+# For OpenLDAP, '(cn=*)' may well be enough.
+# For AD, you might use '(objectClass=user)' (REQUIRED)
+LDAP_SEARCH_FILTER = '(objectclass=*)'
+
+# Search scope for users (one of BASE, LEVEL or SUBTREE)
+LDAP_SEARCH_SCOPE = 'SUBTREE'
+
+# Use TLS? If the URI scheme is ldaps://, this is ignored.
+LDAP_USE_STARTTLS = False
+
+# TLS/SSL certificates. Specify if required, otherwise leave empty
+LDAP_CA_CERT_FILE = ''
+LDAP_CERT_FILE = ''
+LDAP_KEY_FILE = ''
 
 ##########################################################################
 # Local config settings
@@ -441,10 +590,26 @@ try:
 except ImportError:
     pass
 
-# SUPPORT_SSH_TUNNEL can be override in local config file and if that
-# setting is False in local config then we should not check the Python version.
-if (SUPPORT_SSH_TUNNEL is True and
-    ((sys.version_info[0] == 2 and sys.version_info[1] < 7) or
-     (sys.version_info[0] == 3 and sys.version_info[1] < 4))):
-    SUPPORT_SSH_TUNNEL = False
-    ALLOW_SAVE_TUNNEL_PASSWORD = False
+# Load system config overrides. We do this last, so that the sysadmin can
+# override anything they want from a config file that's in a protected system
+# directory and away from pgAdmin to avoid invalidating signatures.
+system_config_dir = '/etc/pgadmin'
+if sys.platform.startswith('win32'):
+    system_config_dir = os.environ['CommonProgramFiles'] + '/pgadmin'
+elif sys.platform.startswith('darwin'):
+    system_config_dir = '/Library/Preferences/pgadmin'
+
+if os.path.exists(system_config_dir + '/config_system.py'):
+    try:
+        sys.path.insert(0, system_config_dir)
+        from config_system import *
+    except ImportError:
+        pass
+
+# Override DEFAULT_SERVER value from environment variable.
+if 'PGADMIN_CONFIG_DEFAULT_SERVER' in os.environ:
+    DEFAULT_SERVER = os.environ['PGADMIN_CONFIG_DEFAULT_SERVER']
+
+# Disable USER_INACTIVITY_TIMEOUT when SERVER_MODE=False
+if not SERVER_MODE:
+    USER_INACTIVITY_TIMEOUT = 0

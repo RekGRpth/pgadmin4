@@ -45,9 +45,9 @@ def mktemp(dir=None, suffix=''):
 
 
 def main(options, args):
-    dmgFile, license = args
-    with mktemp('.') as tmpFile:
-        with open(tmpFile, 'w') as f:
+    dmg_file, license_file = args
+    with mktemp('.') as tmp_file:
+        with open(tmp_file, 'w') as f:
             f.write("""data 'TMPL' (128, "LPic") {
         $"1344 6566 6175 6C74 204C 616E 6775 6167"
         $"6520 4944 4457 5244 0543 6F75 6E74 4F43"
@@ -90,8 +90,9 @@ data 'STR#' (5002, "English") {
         $"2C20 7072 6573 7320 2244 6973 6167 7265"
         $"6522 2E"
 };\n\n""")
-            with open(license, 'r') as lines:
-                kind = 'RTF ' if license.lower().endswith('.rtf') else 'TEXT'
+            with open(license_file, 'r') as lines:
+                kind = 'RTF ' if license_file.lower().endswith('.rtf') \
+                    else 'TEXT'
                 f.write('data \'%s\' (5000, "English") {\n' % kind)
 
                 def escape(s):
@@ -110,24 +111,24 @@ data 'STR#' (5002, "English") {
         $"0100 0000 0000 0000 0000 0000 002A 000C"
         $"0009 0014 0000 0000 0000 0000 0000"
 };\n""")
-        os.system('hdiutil unflatten -quiet "%s"' % dmgFile)
+        os.system('hdiutil unflatten -quiet "%s"' % dmg_file)
         ret = os.system('%s -a %s -o "%s"' %
-                        (options.rez, tmpFile, dmgFile))
-        os.system('hdiutil flatten -quiet "%s"' % dmgFile)
+                        (options.rez, tmp_file, dmg_file))
+        os.system('hdiutil flatten -quiet "%s"' % dmg_file)
         if options.compression is not None:
-            os.system('cp %s %s.temp.dmg' % (dmgFile, dmgFile))
-            os.remove(dmgFile)
+            os.system('cp %s %s.temp.dmg' % (dmg_file, dmg_file))
+            os.remove(dmg_file)
             if options.compression == "bz2":
                 os.system('hdiutil convert %s.temp.dmg -format UDBZ -o %s' %
-                          (dmgFile, dmgFile))
+                          (dmg_file, dmg_file))
             elif options.compression == "gz":
-                os.system('hdiutil convert %s.temp.dmg -format ' % dmgFile +
-                          'UDZO -imagekey zlib-devel=9 -o %s' % dmgFile)
-            os.remove('%s.temp.dmg' % dmgFile)
+                os.system('hdiutil convert %s.temp.dmg -format ' % dmg_file +
+                          'UDZO -imagekey zlib-devel=9 -o %s' % dmg_file)
+            os.remove('%s.temp.dmg' % dmg_file)
     if ret == 0:
-        print("Successfully added license to '%s'" % dmgFile)
+        print("Successfully added license to '%s'" % dmg_file)
     else:
-        print("Failed to add license to '%s'" % dmgFile)
+        print("Failed to add license to '%s'" % dmg_file)
 
 
 if __name__ == '__main__':

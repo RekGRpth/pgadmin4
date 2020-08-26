@@ -11,7 +11,7 @@
 {% block init_script %}
 try {
 require(
-['sources/generated/app.bundle'],
+['sources/generated/app.bundle', 'sources/generated/codemirror', 'sources/generated/browser_nodes', 'sources/generated/slickgrid'],
 function() {
 },
 function() {
@@ -100,8 +100,8 @@ window.onload = function(e){
 </div>
 <nav class="navbar fixed-top navbar-expand-lg navbar-dark pg-navbar">
     <a class="navbar-brand pgadmin_header_logo" onClick="return false;" href="{{ '#' }}"
-       title="{{ config.APP_NAME }} {{ _('logo') }}">
-        <i class="app-icon {{ config.APP_ICON }}"></i>
+       title="{{ config.APP_NAME }} {{ _('logo') }}" aria-label="{ config.APP_NAME }} {{ _('logo') }}">
+        <i class="app-icon {{ config.APP_ICON }}" aria-hidden="true"></i>
     </a>
     <button type="button" class="navbar-toggler collapsed" data-toggle="collapse" data-target="#navbar-menu" aria-controls="navbar-menu">
         <span class="sr-only">{{ _('Toggle navigation') }}</span>
@@ -115,11 +115,6 @@ window.onload = function(e){
                     _('File') }} <span class="caret"></span></a>
                 <ul class="dropdown-menu" role="menu"></ul>
             </li>
-            <li id="mnu_edit" class="nav-item active dropdown d-none">
-                <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">{{
-                    _('Edit') }} <span class="caret"></span></a>
-                <ul class="dropdown-menu" role="menu"></ul>
-            </li>
             <li id="mnu_obj" class="nav-item active dropdown ">
                 <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">{{
                     _('Object') }} <span class="caret"></span></a>
@@ -128,7 +123,7 @@ window.onload = function(e){
             <li id="mnu_management" class="nav-item active dropdown d-none">
                 <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">{{
                     _('Management') }} <span class="caret"></span></a>
-                <ul class="dropdown-menu" role="menu"></ul>
+                <ul class="dropdown-menu" aria-hidden="true"></ul>
             </li>
             <li id="mnu_tools" class="nav-item active dropdown d-none">
                 <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">{{
@@ -147,6 +142,7 @@ window.onload = function(e){
                 <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown"
                    role="button" aria-expanded="false" id="navbar-user"></a>
                 <ul class="dropdown-menu dropdown-menu-right" role="menu">
+                    {% if auth_only_internal %}
                     <li>
                         <a class="dropdown-item" href="#" onclick="pgAdmin.Browser.UserManagement.change_password(
                           '{{ url_for('browser.change_password') }}'
@@ -155,11 +151,12 @@ window.onload = function(e){
                         </a>
                     </li>
                     <li class="dropdown-divider"></li>
+                    {% endif %}
                     {% if is_admin %}
                     <li><a class="dropdown-item" href="#" onclick="pgAdmin.Browser.UserManagement.show_users()">{{ _('Users') }}</a></li>
                     <li class="dropdown-divider"></li>
                     {% endif %}
-                    <li><a class="dropdown-item" href="{{ url_for('security.logout') }}?next={{url_for('browser.index')}}">{{ _('Logout') }}</a></li>
+                    <li><a class="dropdown-item" href="{{ logout_url }}">{{ _('Logout') }}</a></li>
                 </ul>
             </li>
         </ul>

@@ -2,13 +2,12 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
 import simplejson as json
-import re
 import pgadmin.browser.server_groups as sg
 from flask import render_template, request, make_response, jsonify, \
     current_app, url_for
@@ -28,6 +27,10 @@ from pgadmin.model import db, Server, ServerGroup, User
 from pgadmin.utils.driver import get_driver
 from pgadmin.utils.master_password import get_crypt_key
 from pgadmin.utils.exception import CryptKeyMissing
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from psycopg2 import Error as psycopg2_Error, OperationalError
+from pgadmin.browser.server_groups.servers.utils import is_valid_ipaddress
+from pgadmin.utils.constants import UNAUTH_REQ, MIMETYPE_APP_JS
 
 
 def has_any(data, keys):
@@ -58,7 +61,7 @@ def recovery_state(connection, postgres_version):
     else:
         in_recovery = None
         wal_paused = None
-    return in_recovery, wal_paused
+    return status, result, in_recovery, wal_paused
 
 
 def server_icon_and_background(is_connected, manager, server):
@@ -95,12 +98,12 @@ def server_icon_and_background(is_connected, manager, server):
 
 
 class ServerModule(sg.ServerGroupPluginModule):
-    NODE_TYPE = "server"
+    _NODE_TYPE = "server"
     LABEL = gettext("Servers")
 
     @property
     def node_type(self):
-        return self.NODE_TYPE
+        return self._NODE_TYPE
 
     @property
     def script_load(self):
@@ -108,7 +111,7 @@ class ServerModule(sg.ServerGroupPluginModule):
         Load the module script for server, when any of the server-group node is
         initialized.
         """
-        return sg.ServerGroupModule.NODE_TYPE
+        return sg.ServerGroupModule.node_type
 
     @login_required
     def get_nodes(self, gid):
@@ -121,26 +124,28 @@ class ServerModule(sg.ServerGroupPluginModule):
         for server in servers:
             connected = False
             manager = None
+            errmsg = None
+            was_connected = False
+            in_recovery = None
+            wal_paused = None
             try:
                 manager = driver.connection_manager(server.id)
                 conn = manager.connection()
-                connected = conn.connected()
+                was_connected = conn.wasConnected
             except CryptKeyMissing:
                 # show the nodes at least even if not able to connect.
                 pass
+            except psycopg2_Error as e:
+                current_app.logger.exception(e)
+                errmsg = str(e)
 
-            in_recovery = None
-            wal_paused = None
-
-            if connected:
-                in_recovery, wal_paused = recovery_state(conn, manager.version)
             yield self.generate_browser_node(
                 "%d" % (server.id),
                 gid,
                 server.name,
                 server_icon_and_background(connected, manager, server),
                 True,
-                self.NODE_TYPE,
+                self.node_type,
                 connected=connected,
                 server_type=manager.server_type if connected else "pg",
                 version=manager.version,
@@ -148,10 +153,11 @@ class ServerModule(sg.ServerGroupPluginModule):
                 user=manager.user_info if connected else None,
                 in_recovery=in_recovery,
                 wal_pause=wal_paused,
-                is_password_saved=True if server.password is not None
-                else False,
+                is_password_saved=bool(server.save_password),
                 is_tunnel_password_saved=True
-                if server.tunnel_password is not None else False
+                if server.tunnel_password is not None else False,
+                was_connected=was_connected,
+                errmsg=errmsg
             )
 
     @property
@@ -226,7 +232,7 @@ class ServerModule(sg.ServerGroupPluginModule):
 
 class ServerMenuItem(MenuItem):
     def __init__(self, **kwargs):
-        kwargs.setdefault("type", ServerModule.NODE_TYPE)
+        kwargs.setdefault("type", ServerModule.node_type)
         super(ServerMenuItem, self).__init__(**kwargs)
 
 
@@ -234,7 +240,8 @@ blueprint = ServerModule(__name__)
 
 
 class ServerNode(PGChildNodeView):
-    node_type = ServerModule.NODE_TYPE
+    node_type = ServerModule._NODE_TYPE
+    node_label = "Server"
 
     parent_ids = [{'type': 'int', 'id': 'gid'}]
     ids = [{'type': 'int', 'id': 'sid'}]
@@ -266,31 +273,6 @@ class ServerNode(PGChildNodeView):
         'clear_saved_password': [{'put': 'clear_saved_password'}],
         'clear_sshtunnel_password': [{'put': 'clear_sshtunnel_password'}]
     })
-    EXP_IP4 = "^\s*((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\." \
-              "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\." \
-              "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\." \
-              "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\s*$"
-    EXP_IP6 = '^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|' \
-              '(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|' \
-              '2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d))' \
-              '{3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|' \
-              ':((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d' \
-              '|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]' \
-              '{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|' \
-              '[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|' \
-              '(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-' \
-              'Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25' \
-              '[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:)' \
-              '{2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:(' \
-              '(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|' \
-              '[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]' \
-              '{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|'\
-              '1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))' \
-              '|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((' \
-              '25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|' \
-              '[1-9]?\d)){3}))|:)))(%.+)?\s*$'
-    pat4 = re.compile(EXP_IP4)
-    pat6 = re.compile(EXP_IP6)
     SSL_MODES = ['prefer', 'require', 'verify-ca', 'verify-full']
 
     def check_ssl_fields(self, data):
@@ -315,24 +297,25 @@ class ServerNode(PGChildNodeView):
             required_ssl_fields_server_mode = ['sslcert', 'sslkey']
 
             for field in ssl_fields:
-                if field not in data:
+                if field in data:
+                    continue
+                elif config.SERVER_MODE and \
+                        field in required_ssl_fields_server_mode:
                     # In Server mode,
                     # we will set dummy SSL certificate file path which will
                     # prevent using default SSL certificates from web servers
 
-                    if config.SERVER_MODE and \
-                            field in required_ssl_fields_server_mode:
-                        # Set file manager directory from preference
-                        import os
-                        file_extn = '.key' if field.endswith('key') else '.crt'
-                        dummy_ssl_file = os.path.join(
-                            '<STORAGE_DIR>', '.postgresql',
-                            'postgresql' + file_extn
-                        )
-                        data[field] = dummy_ssl_file
+                    # Set file manager directory from preference
+                    import os
+                    file_extn = '.key' if field.endswith('key') else '.crt'
+                    dummy_ssl_file = os.path.join(
+                        '<STORAGE_DIR>', '.postgresql',
+                        'postgresql' + file_extn
+                    )
+                    data[field] = dummy_ssl_file
                     # For Desktop mode, we will allow to default
-                    else:
-                        data[field] = None
+                else:
+                    data[field] = None
 
         return flag, data
 
@@ -352,12 +335,16 @@ class ServerNode(PGChildNodeView):
             manager = driver.connection_manager(server.id)
             conn = manager.connection()
             connected = conn.connected()
-
+            errmsg = None
+            in_recovery = None
+            wal_paused = None
             if connected:
-                in_recovery, wal_paused = recovery_state(conn, manager.version)
-            else:
-                in_recovery = None
-                wal_paused = None
+                status, result, in_recovery, wal_paused =\
+                    recovery_state(conn, manager.version)
+                if not status:
+                    connected = False
+                    manager.release()
+                    errmsg = "{0} : {1}".format(server.name, result)
 
             res.append(
                 self.blueprint.generate_browser_node(
@@ -374,10 +361,10 @@ class ServerNode(PGChildNodeView):
                     user=manager.user_info if connected else None,
                     in_recovery=in_recovery,
                     wal_pause=wal_paused,
-                    is_password_saved=True if server.password is not None
-                    else False,
+                    is_password_saved=bool(server.save_password),
                     is_tunnel_password_saved=True
-                    if server.tunnel_password is not None else False
+                    if server.tunnel_password is not None else False,
+                    errmsg=errmsg
                 )
             )
 
@@ -409,12 +396,16 @@ class ServerNode(PGChildNodeView):
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(server.id)
         conn = manager.connection()
         connected = conn.connected()
-
+        errmsg = None
+        in_recovery = None
+        wal_paused = None
         if connected:
-            in_recovery, wal_paused = recovery_state(conn, manager.version)
-        else:
-            in_recovery = None
-            wal_paused = None
+            status, result, in_recovery, wal_paused =\
+                recovery_state(conn, manager.version)
+            if not status:
+                connected = False
+                manager.release()
+                errmsg = "{0} : {1}".format(server.name, result)
 
         return make_json_response(
             result=self.blueprint.generate_browser_node(
@@ -431,11 +422,11 @@ class ServerNode(PGChildNodeView):
                 user=manager.user_info if connected else None,
                 in_recovery=in_recovery,
                 wal_pause=wal_paused,
-                is_password_saved=True if server.password is not None
-                else False,
+                is_password_saved=bool(server.save_password),
                 is_tunnel_password_saved=True
-                if server.tunnel_password is not None else False
-            )
+                if server.tunnel_password is not None else False,
+                errmsg=errmsg
+            ),
         )
 
     @login_required
@@ -534,41 +525,22 @@ class ServerNode(PGChildNodeView):
         if 'db_res' in data:
             data['db_res'] = ','.join(data['db_res'])
 
-        if 'hostaddr' in data and data['hostaddr'] and data['hostaddr'] != '':
-            if not self.pat4.match(data['hostaddr']):
-                if not self.pat6.match(data['hostaddr']):
-                    return make_json_response(
-                        success=0,
-                        status=400,
-                        errormsg=gettext('Host address not valid')
-                    )
+        hostaddr = data.get('hostaddr')
+        if hostaddr and not is_valid_ipaddress(hostaddr):
+            return make_json_response(
+                success=0,
+                status=400,
+                errormsg=gettext('Host address not valid')
+            )
 
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
         conn = manager.connection()
         connected = conn.connected()
 
-        if connected:
-            for arg in (
-                    'host', 'hostaddr', 'port', 'db', 'username', 'sslmode',
-                    'role', 'service'
-            ):
-                if arg in data:
-                    return forbidden(
-                        errormsg=gettext(
-                            "'{0}' is not allowed to modify, "
-                            "when server is connected."
-                        ).format(disp_lbl[arg])
-                    )
+        self._server_modify_disallowed_when_connected(
+            connected, data, disp_lbl)
 
-        for arg in config_param_map:
-            if arg in data:
-                value = data[arg]
-                # sqlite3 do not have boolean type so we need to convert
-                # it manually to integer
-                if arg == 'sslcompression':
-                    value = 1 if value else 0
-                setattr(server, config_param_map[arg], value)
-                idx += 1
+        idx = self._set_valid_attr_value(data, config_param_map, server)
 
         if idx == 0:
             return make_json_response(
@@ -603,6 +575,37 @@ class ServerNode(PGChildNodeView):
                 server_type='pg'  # default server type
             )
         )
+
+    def _set_valid_attr_value(self, data, config_param_map, server):
+
+        idx = 0
+        for arg in config_param_map:
+            if arg in data:
+                value = data[arg]
+                # sqlite3 do not have boolean type so we need to convert
+                # it manually to integer
+                if arg == 'sslcompression':
+                    value = 1 if value else 0
+                setattr(server, config_param_map[arg], value)
+                idx += 1
+
+        return idx
+
+    def _server_modify_disallowed_when_connected(
+            self, connected, data, disp_lbl):
+
+        if connected:
+            for arg in (
+                    'hostaddr', 'db', 'sslmode',
+                    'role', 'service'
+            ):
+                if arg in data:
+                    return forbidden(
+                        errmsg=gettext(
+                            "'{0}' is not allowed to modify, "
+                            "when server is connected."
+                        ).format(disp_lbl[arg])
+                    )
 
     @login_required
     def list(self, gid):
@@ -657,7 +660,7 @@ class ServerNode(PGChildNodeView):
             return make_json_response(
                 status=410,
                 success=0,
-                errormsg=gettext("Could not find the required server.")
+                errormsg=self.not_found_error_msg()
             )
 
         sg = ServerGroup.query.filter_by(
@@ -723,9 +726,8 @@ class ServerNode(PGChildNodeView):
         """Add a server node to the settings database"""
         required_args = [
             u'name',
-            u'port',
+            u'db',
             u'sslmode',
-            u'username'
         ]
 
         data = request.form if request.form else json.loads(
@@ -741,7 +743,8 @@ class ServerNode(PGChildNodeView):
         if 'service' in data and not data['service']:
             required_args.extend([
                 u'host',
-                u'db',
+                u'port',
+                u'username',
                 u'role'
             ])
         for arg in required_args:
@@ -750,18 +753,17 @@ class ServerNode(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
-        if 'hostaddr' in data and data['hostaddr'] and data['hostaddr'] != '':
-            if not self.pat4.match(data['hostaddr']):
-                if not self.pat6.match(data['hostaddr']):
-                    return make_json_response(
-                        success=0,
-                        status=400,
-                        errormsg=gettext('Host address not valid')
-                    )
+        hostaddr = data.get('hostaddr')
+        if hostaddr and not is_valid_ipaddress(data['hostaddr']):
+            return make_json_response(
+                success=0,
+                status=400,
+                errormsg=gettext('Not a valid Host address')
+            )
 
         # To check ssl configuration
         is_ssl, data = self.check_ssl_fields(data)
@@ -774,10 +776,12 @@ class ServerNode(PGChildNodeView):
                 servergroup_id=data.get('gid', gid),
                 name=data.get('name'),
                 host=data.get('host', None),
-                hostaddr=data.get('hostaddr', None),
+                hostaddr=hostaddr,
                 port=data.get('port'),
                 maintenance_db=data.get('db', None),
                 username=data.get('username'),
+                save_password=1 if data.get('save_password', False) and
+                config.ALLOW_SAVE_PASSWORD else 0,
                 ssl_mode=data.get('sslmode'),
                 comment=data.get('comment', None),
                 role=data.get('role', None),
@@ -839,8 +843,6 @@ class ServerNode(PGChildNodeView):
                     tunnel_password=tunnel_password,
                     server_types=ServerType.types()
                 )
-                if hasattr(str, 'decode') and errmsg is not None:
-                    errmsg = errmsg.decode('utf-8')
                 if not status:
                     db.session.delete(server)
                     db.session.commit()
@@ -848,7 +850,8 @@ class ServerNode(PGChildNodeView):
                         status=401,
                         success=0,
                         errormsg=gettext(
-                            u"Unable to connect to server:\n\n%s" % errmsg)
+                            u"Unable to connect to server:\n\n{}"
+                        ).format(errmsg)
                     )
                 else:
                     if 'save_password' in data and data['save_password'] and \
@@ -877,7 +880,10 @@ class ServerNode(PGChildNodeView):
                     connected=connected,
                     server_type=manager.server_type
                     if manager and manager.server_type
-                    else 'pg'
+                    else 'pg',
+                    version=manager.version
+                    if manager and manager.version
+                    else None
                 )
             )
 
@@ -944,24 +950,38 @@ class ServerNode(PGChildNodeView):
                 "servers/supported_servers.js",
                 server_types=ServerType.types()
             ),
-            200, {'Content-Type': 'application/javascript'}
+            200, {'Content-Type': MIMETYPE_APP_JS}
         )
 
     def connect_status(self, gid, sid):
         """Check and return the connection status."""
+        server = Server.query.filter_by(id=sid).first()
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
         conn = manager.connection()
-        res = conn.connected()
+        connected = conn.connected()
+        in_recovery = None
+        wal_paused = None
+        errmsg = None
+        if connected:
+            status, result, in_recovery, wal_paused =\
+                recovery_state(conn, manager.version)
 
-        if res:
-            from pgadmin.utils.exception import ConnectionLost, \
-                SSHTunnelConnectionLost
-            try:
-                conn.execute_scalar('SELECT 1')
-            except (ConnectionLost, SSHTunnelConnectionLost):
-                res = False
+            if not status:
+                connected = False
+                manager.release()
+                errmsg = "{0} : {1}".format(server.name, result)
 
-        return make_json_response(data={'connected': res})
+        return make_json_response(
+            data={
+                'icon': server_icon_and_background(connected, manager, server),
+                'connected': connected,
+                'in_recovery': in_recovery,
+                'wal_pause': wal_paused,
+                'server_type': manager.server_type if connected else "pg",
+                'user': manager.user_info if connected else None,
+                'errmsg': errmsg
+            }
+        )
 
     def connect(self, gid, sid):
         """
@@ -986,19 +1006,21 @@ class ServerNode(PGChildNodeView):
         # Fetch Server Details
         server = Server.query.filter_by(id=sid).first()
         if server is None:
-            return bad_request(gettext("Server not found."))
+            return bad_request(self.not_found_error_msg())
 
         if current_user and hasattr(current_user, 'id'):
             # Fetch User Details.
             user = User.query.filter_by(id=current_user.id).first()
             if user is None:
-                return unauthorized(gettext("Unauthorized request."))
+                return unauthorized(gettext(UNAUTH_REQ))
         else:
-            return unauthorized(gettext("Unauthorized request."))
+            return unauthorized(gettext(UNAUTH_REQ))
 
-        data = request.form if request.form else json.loads(
-            request.data, encoding='utf-8'
-        ) if request.data else {}
+        data = {}
+        if request.form:
+            data = request.form
+        elif request.data:
+            data = json.loads(request.data, encoding='utf-8')
 
         password = None
         passfile = None
@@ -1010,6 +1032,7 @@ class ServerNode(PGChildNodeView):
 
         # Connect the Server
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
+        manager.update(server)
         conn = manager.connection()
 
         # Get enc key
@@ -1026,7 +1049,7 @@ class ServerNode(PGChildNodeView):
                     tunnel_password = server.tunnel_password
             else:
                 tunnel_password = data['tunnel_password'] \
-                    if 'tunnel_password'in data else ''
+                    if 'tunnel_password' in data else ''
                 save_tunnel_password = data['save_tunnel_password'] \
                     if tunnel_password and 'save_tunnel_password' in data \
                     else False
@@ -1042,7 +1065,7 @@ class ServerNode(PGChildNodeView):
 
         if 'password' not in data:
             conn_passwd = getattr(conn, 'password', None)
-            if conn_passwd is None and server.password is None and \
+            if conn_passwd is None and not server.save_password and \
                     server.passfile is None and server.service is None:
                 prompt_password = True
             elif server.passfile and server.passfile != '':
@@ -1052,7 +1075,7 @@ class ServerNode(PGChildNodeView):
         else:
             password = data['password'] if 'password' in data else None
             save_password = data['save_password']\
-                if password and 'save_password' in data else False
+                if 'save_password' in data else False
 
             # Encrypt the password before saving with user's login
             # password key.
@@ -1078,17 +1101,17 @@ class ServerNode(PGChildNodeView):
                 tunnel_password=tunnel_password,
                 server_types=ServerType.types()
             )
+        except OperationalError as e:
+            return internal_server_error(errormsg=str(e))
         except Exception as e:
             current_app.logger.exception(e)
             return self.get_response_for_password(
                 server, 401, True, True, getattr(e, 'message', str(e)))
 
         if not status:
-            if hasattr(str, 'decode'):
-                errmsg = errmsg.decode('utf-8')
 
             current_app.logger.error(
-                "Could not connected to server(#{0}) - '{1}'.\nError: {2}"
+                "Could not connect to server(#{0}) - '{1}'.\nError: {2}"
                 .format(server.id, server.name, errmsg)
             )
             return self.get_response_for_password(server, 401, True,
@@ -1096,9 +1119,15 @@ class ServerNode(PGChildNodeView):
         else:
             if save_password and config.ALLOW_SAVE_PASSWORD:
                 try:
+                    # If DB server is running in trust mode then password may
+                    # not be available but we don't need to ask password
+                    # every time user try to connect
+                    # 1 is True in SQLite as no boolean type
+                    setattr(server, 'save_password', 1)
                     # Save the encrypted password using the user's login
-                    # password key.
-                    setattr(server, 'password', password)
+                    # password key, if there is any password to save
+                    if password:
+                        setattr(server, 'password', password)
                     db.session.commit()
                 except Exception as e:
                     # Release Connection
@@ -1125,7 +1154,8 @@ class ServerNode(PGChildNodeView):
                 %s - %s' % (server.id, server.name))
             # Update the recovery and wal pause option for the server
             # if connected successfully
-            in_recovery, wal_paused = recovery_state(conn, manager.version)
+            _, _, in_recovery, wal_paused =\
+                recovery_state(conn, manager.version)
 
             return make_json_response(
                 success=1,
@@ -1140,8 +1170,7 @@ class ServerNode(PGChildNodeView):
                     'user': manager.user_info,
                     'in_recovery': in_recovery,
                     'wal_pause': wal_paused,
-                    'is_password_saved': True if server.password is not None
-                    else False,
+                    'is_password_saved': bool(server.save_password),
                     'is_tunnel_password_saved': True
                     if server.tunnel_password is not None else False,
                 }
@@ -1152,7 +1181,7 @@ class ServerNode(PGChildNodeView):
 
         server = Server.query.filter_by(id=sid).first()
         if server is None:
-            return bad_request(gettext("Server not found."))
+            return bad_request(self.not_found_error_msg())
 
         # Release Connection
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
@@ -1233,13 +1262,14 @@ class ServerNode(PGChildNodeView):
                     data={
                         'status': 1,
                         'result': gettext(
-                            'Named restore point created: {0}'.format(
-                                restore_point_name))
+                            'Named restore point created: {0}').format(
+                                restore_point_name)
                     })
 
         except Exception as e:
-            current_app.logger.error(
-                'Named restore point creation failed ({0})'.format(str(e))
+            current_app.logger.error(gettext(
+                'Named restore point creation failed ({0})').format(
+                    str(e))
             )
             return internal_server_error(errormsg=str(e))
 
@@ -1259,12 +1289,12 @@ class ServerNode(PGChildNodeView):
             # Fetch Server Details
             server = Server.query.filter_by(id=sid).first()
             if server is None:
-                return bad_request(gettext("Server not found."))
+                return bad_request(self.not_found_error_msg())
 
             # Fetch User Details.
             user = User.query.filter_by(id=current_user.id).first()
             if user is None:
-                return unauthorized(gettext("Unauthorized request."))
+                return unauthorized(gettext(UNAUTH_REQ))
 
             manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
             conn = manager.connection()
@@ -1272,22 +1302,21 @@ class ServerNode(PGChildNodeView):
 
             # If there is no password found for the server
             # then check for pgpass file
-            if not server.password and not manager.password:
-                if server.passfile and \
-                        manager.passfile and \
-                        server.passfile == manager.passfile:
-                    is_passfile = True
+            if not server.password and not manager.password and \
+                    server.passfile and manager.passfile and \
+                    server.passfile == manager.passfile:
+                is_passfile = True
 
             # Check for password only if there is no pgpass file used
-            if not is_passfile:
-                if data and ('password' not in data or data['password'] == ''):
-                    return make_json_response(
-                        status=400,
-                        success=0,
-                        errormsg=gettext(
-                            "Could not find the required parameter(s)."
-                        )
+            if not is_passfile and data and \
+                    ('password' not in data or data['password'] == ''):
+                return make_json_response(
+                    status=400,
+                    success=0,
+                    errormsg=gettext(
+                        "Could not find the required parameter(s)."
                     )
+                )
 
             if data and ('newPassword' not in data or
                          data['newPassword'] == '' or
@@ -1380,7 +1409,7 @@ class ServerNode(PGChildNodeView):
         if server is None:
             return make_json_response(
                 success=0,
-                errormsg=gettext("Could not find the required server.")
+                errormsg=self.not_found_error_msg()
             )
 
         try:
@@ -1414,7 +1443,7 @@ class ServerNode(PGChildNodeView):
                     info=gettext('WAL replay paused'),
                     data={'in_recovery': True, 'wal_pause': pause}
                 )
-            return gone(errormsg=_('Please connect the server.'))
+            return gone(errormsg=gettext('Please connect the server.'))
         except Exception as e:
             current_app.logger.error(
                 'WAL replay pause/resume failed'
@@ -1464,7 +1493,7 @@ class ServerNode(PGChildNodeView):
         if server is None:
             return make_json_response(
                 success=0,
-                errormsg=gettext("Could not find the required server.")
+                errormsg=self.not_found_error_msg()
             )
 
         try:
@@ -1472,14 +1501,13 @@ class ServerNode(PGChildNodeView):
             conn = manager.connection()
             if not conn.connected():
                 return gone(
-                    errormsg=_('Please connect the server.')
+                    errormsg=gettext('Please connect the server.')
                 )
 
-            if not server.password or not manager.password:
-                if server.passfile and \
-                        manager.passfile and \
-                        server.passfile == manager.passfile:
-                    is_pgpass = True
+            if (not server.password or not manager.password) and \
+                server.passfile and manager.passfile and \
+                    server.passfile == manager.passfile:
+                is_pgpass = True
             return make_json_response(
                 success=1,
                 data=dict({'is_pgpass': is_pgpass}),
@@ -1540,10 +1568,14 @@ class ServerNode(PGChildNodeView):
             if server is None:
                 return make_json_response(
                     success=0,
-                    info=gettext("Could not find the required server.")
+                    info=self.not_found_error_msg()
                 )
 
             setattr(server, 'password', None)
+            # If password was saved then clear the flag also
+            # 0 is False in SQLite db
+            if server.save_password:
+                setattr(server, 'save_password', 0)
             db.session.commit()
         except Exception as e:
             current_app.logger.error(
@@ -1575,7 +1607,7 @@ class ServerNode(PGChildNodeView):
             if server is None:
                 return make_json_response(
                     success=0,
-                    info=gettext("Could not find the required server.")
+                    info=self.not_found_error_msg()
                 )
 
             setattr(server, 'tunnel_password', None)
@@ -1595,4 +1627,5 @@ class ServerNode(PGChildNodeView):
         )
 
 
+SchemaDiffRegistry(blueprint.node_type, ServerNode)
 ServerNode.register_node_view(blueprint)

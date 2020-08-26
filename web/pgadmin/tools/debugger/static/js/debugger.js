@@ -2,20 +2,20 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define([
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'alertify', 'sources/pgadmin', 'pgadmin.browser',
+  'alertify', 'sources/pgadmin', 'pgadmin.browser',
   'backbone', 'pgadmin.backgrid', 'codemirror', 'pgadmin.backform',
-  'pgadmin.tools.debugger.ui', 'pgadmin.tools.debugger.utils',
+  'pgadmin.tools.debugger.ui', 'pgadmin.tools.debugger.utils', 'sources/utils',
   'wcdocker', 'pgadmin.browser.frame',
 ], function(
-  gettext, url_for, $, _, S, Alertify, pgAdmin, pgBrowser, Backbone, Backgrid,
-  CodeMirror, Backform, get_function_arguments, debuggerUtils
+  gettext, url_for, $, _, Alertify, pgAdmin, pgBrowser, Backbone, Backgrid,
+  CodeMirror, Backform, get_function_arguments, debuggerUtils, pgadminUtils,
 ) {
   var pgTools = pgAdmin.Tools = pgAdmin.Tools || {},
     wcDocker = window.wcDocker;
@@ -281,7 +281,7 @@ define([
           }
         ),
         function(o) {
-          ref = S('%s/%s').sprintf(ref, encodeURI(o._id)).value();
+          ref = pgadminUtils.sprintf('%s/%s', ref, encodeURI(o._id));
         });
 
       var args = {
@@ -463,11 +463,12 @@ define([
         i = item || t.selected(),
         d = i && i.length == 1 ? t.itemData(i) : undefined,
         node = d && pgBrowser.Nodes[d._type],
-        self = this,
-        is_edb_proc = d._type == 'edbproc';
+        self = this;
 
       if (!d)
         return;
+
+      var is_edb_proc = d._type == 'edbproc';
 
       var treeInfo = node.getTreeNodeHierarchy.apply(node, [i]),
         _url = this.generate_url('init', treeInfo, node);
@@ -487,37 +488,37 @@ define([
           // Initialize the target and create asynchronous connection and unique transaction ID
           // If there is no arguments to the functions then we should not ask for for function arguments and
           // Directly open the panel
-            var t = pgBrowser.tree,
-              i = t.selected(),
-              d = i && i.length == 1 ? t.itemData(i) : undefined,
-              node = d && pgBrowser.Nodes[d._type];
+            var _t = pgBrowser.tree,
+              _i = _t.selected(),
+              _d = _i && _i.length == 1 ? _t.itemData(_i) : undefined,
+              _node = _d && pgBrowser.Nodes[_d._type];
 
-            if (!d)
+            if (!_d)
               return;
 
-            var treeInfo = node.getTreeNodeHierarchy.apply(node, [i]),
+            var newTreeInfo = _node.getTreeNodeHierarchy.apply(_node, [_i]),
               baseUrl;
 
-            if (d._type == 'function' || d._type == 'edbfunc') {
+            if (_d._type == 'function' || _d._type == 'edbfunc') {
               baseUrl = url_for(
                 'debugger.initialize_target_for_function', {
                   'debug_type': 'direct',
                   'trans_id': trans_id,
-                  'sid': treeInfo.server._id,
-                  'did': treeInfo.database._id,
-                  'scid': treeInfo.schema._id,
-                  'func_id': debuggerUtils.getFunctionId(treeInfo),
+                  'sid': newTreeInfo.server._id,
+                  'did': newTreeInfo.database._id,
+                  'scid': newTreeInfo.schema._id,
+                  'func_id': debuggerUtils.getFunctionId(newTreeInfo),
                 }
               );
-            } else if(d._type == 'procedure' || d._type == 'edbproc') {
+            } else if(_d._type == 'procedure' || _d._type == 'edbproc') {
               baseUrl = url_for(
                 'debugger.initialize_target_for_function', {
                   'debug_type': 'direct',
                   'trans_id': trans_id,
-                  'sid': treeInfo.server._id,
-                  'did': treeInfo.database._id,
-                  'scid': treeInfo.schema._id,
-                  'func_id': debuggerUtils.getProcedureId(treeInfo),
+                  'sid': newTreeInfo.server._id,
+                  'did': newTreeInfo.database._id,
+                  'scid': newTreeInfo.schema._id,
+                  'func_id': debuggerUtils.getProcedureId(newTreeInfo),
                 }
               );
             }

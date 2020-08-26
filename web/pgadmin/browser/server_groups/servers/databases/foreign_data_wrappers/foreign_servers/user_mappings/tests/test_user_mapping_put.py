@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import json
 import uuid
@@ -24,15 +23,14 @@ from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
 from regression.python_test_utils import test_utils as utils
 from . import utils as um_utils
+from unittest.mock import patch
 
 
 class UserMappingPutTestCase(BaseTestGenerator):
     """This class will update user mapping under foreign server node."""
     skip_on_database = ['gpdb']
-    scenarios = [
-        # Fetching default URL for user mapping node.
-        ('Check user mapping Node', dict(url='/browser/user_mapping/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('user_mapping_update',
+                                         um_utils.test_cases)
 
     def setUp(self):
         """ This function will create extension and foreign data wrapper."""
@@ -54,8 +52,21 @@ class UserMappingPutTestCase(BaseTestGenerator):
         self.um_id = um_utils.create_user_mapping(self.server, self.db_name,
                                                   self.fsrv_name)
 
+    def update_user_mapping(self):
+        """
+        This functions update user mapping
+        :return: user mapping update request details
+        """
+        return self.tester.put(
+            self.url + str(utils.SERVER_GROUP) + '/' +
+            str(self.server_id) + '/' + str(self.db_id) +
+            '/' + str(self.fdw_id) + '/' +
+            str(self.fsrv_id) + '/' + str(self.um_id),
+            data=json.dumps(self.test_data),
+            follow_redirects=True)
+
     def runTest(self):
-        """This function will update foreign server present under test
+        """This function will update user mapping present under test
         database"""
         db_con = database_utils.connect_database(self,
                                                  utils.SERVER_GROUP,
@@ -76,26 +87,20 @@ class UserMappingPutTestCase(BaseTestGenerator):
                                                    self.fsrv_name)
         if not um_response:
             raise Exception("Could not find user mapping.")
-        data = {
-            "id": self.um_id,
-            "umoptions":
-                {
-                    "changed":
-                        [
-                            {"umoption": "user",
-                             "umvalue": "public"
-                             }
-                        ]
-                }
-        }
-        put_response = self.tester.put(
-            self.url + str(utils.SERVER_GROUP) + '/' +
-            str(self.server_id) + '/' + str(self.db_id) +
-            '/' + str(self.fdw_id) + '/' +
-            str(self.fsrv_id) + '/' + str(self.um_id),
-            data=json.dumps(data),
-            follow_redirects=True)
-        self.assertEquals(put_response.status_code, 200)
+        self.test_data["id"] = self.um_id
+
+        if self.is_positive_test:
+            put_response = self.update_user_mapping()
+
+        else:
+            if hasattr(self, "error_in_db"):
+                with patch(self.mock_data["function_name"],
+                           side_effect=eval(self.mock_data["return_value"])):
+                    put_response = self.update_user_mapping()
+
+        actual_response_code = put_response.status_code
+        expected_response_code = self.expected_data['status_code']
+        self.assertEquals(actual_response_code, expected_response_code)
 
     def tearDown(self):
         """This function disconnect the test database and drop added

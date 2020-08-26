@@ -2,14 +2,14 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define([
-  'underscore', 'underscore.string', 'sources/pgadmin', 'jquery',
-], function(_, S, pgAdmin, $) {
+  'underscore', 'sources/pgadmin', 'jquery', 'sources/utils',
+], function(_, pgAdmin, $, pgadminUtils) {
   'use strict';
 
   pgAdmin.Browser = pgAdmin.Browser || {};
@@ -72,6 +72,7 @@ define([
           'href': this.url,
           'target': this.target,
           'data-toggle': 'pg-menu',
+          'role': 'menuitem',
         }).data('pgMenu', {
           module: this.module || pgAdmin.Browser,
           cb: this.callback,
@@ -141,7 +142,7 @@ define([
         cb.apply(o.module, [o.data, item]);
       } else {
         pgAdmin.Browser.report_error(
-          S('Developer Warning: Callback - "%s" not found!').sprintf(o.cb).value()
+          pgadminUtils.sprintf('Developer Warning: Callback - "%s" not found!', o.cb)
         );
       }
     },
@@ -207,7 +208,7 @@ define([
   pgAdmin.Browser.MenuGroup = function(opts, items, prev, ctx) {
     var template = _.template([
         '<% if (above) { %><li class="dropdown-divider"></li><% } %>',
-        '<li class="dropdown-submenu">',
+        '<li class="dropdown-submenu" role="menuitem">',
         ' <a href="#" class="dropdown-item">',
         '  <% if (icon) { %><i class="<%= icon %>"></i><% } %>',
         '  <span><%= label %></span>',

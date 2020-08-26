@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -17,7 +17,8 @@ const PERIOD_KEY = 190,
   LEFT_KEY = 37,
   UP_KEY = 38,
   RIGHT_KEY = 39,
-  DOWN_KEY = 40;
+  DOWN_KEY = 40,
+  K_KEY = 75;
 
 function isMac() {
   return window.navigator.platform.search('Mac') != -1;
@@ -80,20 +81,14 @@ function shortcut_title(title, shortcut) {
   }
   text_representation += shortcut_key(shortcut);
 
-  return gettext('%(title)s (%(text_representation)s)',{
-    'title': title,
-    'text_representation': text_representation,
-  });
+  return `${title} (${text_representation})`;
 }
 
 /* Returns the key char of shortcut
  * shortcut object is browser.get_preference().value
  */
 function shortcut_accesskey_title(title, shortcut) {
-  return gettext('%(title)s (accesskey + %(key)s)',{
-    'title': title,
-    'key': shortcut_key(shortcut),
-  });
+  return `${title} (` + gettext('accesskey') + ` + ${shortcut_key(shortcut)})`;
 }
 
 
@@ -137,7 +132,7 @@ function focusDockerPanel(docker, op) {
 
   // Mod is used to cycle the op
   if (op == 'switch') {
-    let i = 0, total_frames = docker._frameList.length;
+    let i, total_frames = docker._frameList.length;
 
     for(i = 0; i < total_frames; i++) {
       if(focus_frame === docker._frameList[i]) break;
@@ -147,10 +142,8 @@ function focusDockerPanel(docker, op) {
     flash = true;
   } else if (op == 'left') {
     focus_id = getMod(focus_frame._curTab-1, focus_frame._panelList.length);
-    flash = false;
   } else if (op == 'right') {
     focus_id = getMod(focus_frame._curTab+1, focus_frame._panelList.length);
-    flash = false;
   }
 
   let focus_panel = focus_frame._panelList[focus_id];
@@ -255,6 +248,12 @@ function keyboardShortcutsQueryTool(
   ) && keyCode === PERIOD_KEY) {
     this._stopEventPropagation(event);
     queryToolActions.uncommentLineCode(sqlEditorController);
+  } else if ((
+    (this.isMac() && event.metaKey) ||
+     (!this.isMac() && event.ctrlKey)
+  ) && !event.altKey && event.shiftKey && keyCode === K_KEY) {
+    this._stopEventPropagation(event);
+    queryToolActions.formatSql(sqlEditorController);
   }  else if (keyCode == ESC_KEY) {
     queryToolActions.focusOut(sqlEditorController);
     /*Apply only for sub-dropdown*/
@@ -309,7 +308,7 @@ function keyboardShortcutsQueryTool(
         /*open submenu if any*/
         if(currLi.hasClass('dropdown-submenu')){
           currLi.find('.dropdown-menu').addClass('show');
-          currLi = currLi.find('.dropdown-menu .dropdown-item').first().trigger('focus');
+          currLi.find('.dropdown-menu .dropdown-item').first().trigger('focus');
         }
       } else if(keyCode === LEFT_KEY) {
         /*close submenu*/

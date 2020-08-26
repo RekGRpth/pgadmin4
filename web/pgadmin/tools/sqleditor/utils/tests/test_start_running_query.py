@@ -2,11 +2,10 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
-import sys
 
 from flask import Response
 import simplejson as json
@@ -14,11 +13,7 @@ import simplejson as json
 from pgadmin.tools.sqleditor.utils.start_running_query import StartRunningQuery
 from pgadmin.utils.exception import ConnectionLost, SSHTunnelConnectionLost
 from pgadmin.utils.route import BaseTestGenerator
-
-if sys.version_info < (3, 3):
-    from mock import patch, MagicMock
-else:
-    from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 get_driver_exception = Exception('get_driver exception')
 get_connection_lost_exception = Exception('Unable to connect to server')
@@ -584,7 +579,7 @@ class StartRunningQueryTest(BaseTestGenerator):
 
     def tearDown(self):
         #  Reset methods to the original state
-        StartRunningQuery.is_rollback_statement_required = \
-            staticmethod(self.is_rollback_statement_required)
+        StartRunningQuery.is_begin_required_for_sql_query = \
+            staticmethod(self.is_begin_required_for_sql_query)
         StartRunningQuery.is_rollback_statement_required = \
             staticmethod(self.is_rollback_statement_required)

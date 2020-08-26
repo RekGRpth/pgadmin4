@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -28,12 +28,15 @@ class SQLTemplateTestBase(BaseTestGenerator):
         self.database_name = -1
 
     def test_setup(self, connection, cursor):
+        # To be implemented by child classes
         pass
 
     def generate_sql(self, version):
+        # To be implemented by child classes
         pass
 
     def assertions(self, fetch_result, descriptions):
+        # To be implemented by child classes
         pass
 
     def runTest(self):

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -22,14 +22,13 @@ module.exports =  Alertify.dialog('fileSelectionDlg', function() {
       // Set title and button name
       var self = this;
       if (_.isUndefined(params['dialog_title'])) {
-        params['dialog_title'] = 'Select file';
+        params['dialog_title'] = gettext('Select file');
       }
       self.dialog_type = params['dialog_type'];
 
       this.set('title', params['dialog_title']);
       this.params = JSON.stringify(params);
 
-      this.elements.dialog.style.minWidth = '630px';
       this.show();
 
     },
@@ -71,7 +70,7 @@ module.exports =  Alertify.dialog('fileSelectionDlg', function() {
       if (transId.readyState == 4) {
         t_res = JSON.parse(transId.responseText);
       }
-      self.trans_id = t_res.data.fileTransId;
+      self.trans_id = _.isUndefined(t_res) ? 0 : t_res.data.fileTransId;
 
       setTimeout(function() {
         $(self.$container.find('.file_manager')).on('enter-key', function() {
@@ -91,9 +90,6 @@ module.exports =  Alertify.dialog('fileSelectionDlg', function() {
           key: 13,
           className: 'btn btn-primary fa fa-file file_manager_ok pg-alertify-button disabled',
         }],
-        focus: {
-          element: 0,
-        },
         options: {
           closableByDimmer: false,
           maximizable: false,

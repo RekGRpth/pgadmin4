@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -23,6 +23,8 @@ from pgadmin.browser.utils import PGChildNodeView
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone, bad_request
 from pgadmin.utils.driver import get_driver
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.model import Database
 
 """
     This module is responsible for generating two nodes
@@ -63,8 +65,8 @@ class SchemaModule(CollectionNodeModule):
       - Load the module script for schema, when any of the server node is
         initialized.
     """
-    NODE_TYPE = 'schema'
-    COLLECTION_LABEL = gettext("Schemas")
+    _NODE_TYPE = 'schema'
+    _COLLECTION_LABEL = gettext("Schemas")
 
     def __init__(self, *args, **kwargs):
         """
@@ -91,7 +93,7 @@ class SchemaModule(CollectionNodeModule):
         Load the module script for schema, when any of the server node is
         initialized.
         """
-        return servers.ServerModule.NODE_TYPE
+        return servers.ServerModule.node_type
 
     @property
     def module_use_template_javascript(self):
@@ -109,8 +111,8 @@ class CatalogModule(SchemaModule):
         A module class for the catalog schema node derived from SchemaModule.
     """
 
-    NODE_TYPE = 'catalog'
-    COLLECTION_LABEL = gettext("Catalogs")
+    _NODE_TYPE = 'catalog'
+    _COLLECTION_LABEL = gettext("Catalogs")
 
 
 schema_blueprint = SchemaModule(__name__)
@@ -135,9 +137,13 @@ def check_precondition(f):
             kwargs['sid']
         )
         if not self.manager:
-            return gone(errormsg="Could not find the server.")
+            return gone(errormsg=gettext("Could not find the server."))
 
         self.conn = self.manager.connection(did=kwargs['did'])
+        self.datlastsysoid = \
+            self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+            if self.manager.db_info is not None and \
+            kwargs['did'] in self.manager.db_info else 0
         # Set the template path for the SQL scripts
         if self.manager.server_type == 'gpdb':
             _temp = self.gpdb_template_path(self.manager.version)
@@ -201,6 +207,7 @@ class SchemaView(PGChildNodeView):
         pane for the selected schema node.
     """
     node_type = schema_blueprint.node_type
+    _SQL_PREFIX = 'sql/'
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -379,10 +386,22 @@ class SchemaView(PGChildNodeView):
         Returns:
             JSON of available schema nodes
         """
+        database = Database.query.filter_by(id=did, server=sid).first()
+        param = None
+        if database:
+            schema_restrictions = database.schema_res
+
+            if schema_restrictions:
+                schema_res = ",".join(
+                    ["'%s'"] * len(schema_restrictions.split(',')))
+                param = schema_res % (tuple(schema_restrictions.split(',')))
+
         SQL = render_template(
-            "/".join([self.template_path, 'sql/properties.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._PROPERTIES_SQL]),
             _=gettext,
-            show_sysobj=self.blueprint.show_system_objects
+            show_sysobj=self.blueprint.show_system_objects,
+            schema_restrictions=param
         )
         status, res = self.conn.execute_dict(SQL)
 
@@ -394,7 +413,7 @@ class SchemaView(PGChildNodeView):
         )
 
     @check_precondition
-    def nodes(self, gid, sid, did, scid=None):
+    def nodes(self, gid, sid, did, scid=None, is_schema_diff=False):
         """
         This function will create all the child nodes within the collection
         Here it will create all the schema node.
@@ -403,16 +422,33 @@ class SchemaView(PGChildNodeView):
             gid: Server Group ID
             sid: Server ID
             did: Database ID
+            scid: Schema ID
+            is_schema_diff: True if called by schema diff tool
 
         Returns:
             JSON of available schema child nodes
         """
         res = []
+        database = Database.query.filter_by(id=did, server=sid).first()
+        param = None
+        if database:
+            schema_restrictions = database.schema_res
+
+            if schema_restrictions:
+                schema_res = ",".join(
+                    ["'%s'"] * len(schema_restrictions.split(',')))
+                param = schema_res % (tuple(schema_restrictions.split(',')))
+
+        show_system_objects = self.blueprint.show_system_objects
+        if is_schema_diff:
+            show_system_objects = False
+
         SQL = render_template(
-            "/".join([self.template_path, 'sql/nodes.sql']),
-            show_sysobj=self.blueprint.show_system_objects,
+            "/".join([self.template_path, self._SQL_PREFIX + self._NODES_SQL]),
+            show_sysobj=show_system_objects,
             _=gettext,
-            scid=scid
+            scid=scid,
+            schema_restrictions=param
         )
 
         status, rset = self.conn.execute_2darray(SQL)
@@ -423,10 +459,9 @@ class SchemaView(PGChildNodeView):
 
         if scid is not None:
             if len(rset['rows']) == 0:
-                return gone(gettext("""
-Could not find the schema in the database.
-It may have been removed by another user.
-"""))
+                return gone(gettext(
+                    """Could not find the schema in the database.
+                    It may have been removed by another user."""))
             row = rset['rows'][0]
             return make_json_response(
                 data=self.blueprint.generate_browser_node(
@@ -472,7 +507,7 @@ It may have been removed by another user.
             JSON of given schema child node
         """
         SQL = render_template(
-            "/".join([self.template_path, 'sql/nodes.sql']),
+            "/".join([self.template_path, self._SQL_PREFIX + self._NODES_SQL]),
             show_sysobj=self.blueprint.show_system_objects,
             _=gettext,
             scid=scid
@@ -482,9 +517,8 @@ It may have been removed by another user.
         if not status:
             return internal_server_error(errormsg=rset)
 
-        if scid is not None:
-            if len(rset['rows']) == 0:
-                return gone(gettext("""
+        if scid is not None and len(rset['rows']) == 0:
+            return gone(gettext("""
 Could not find the schema in the database.
 It may have been removed by another user.
 """))
@@ -519,7 +553,8 @@ It may have been removed by another user.
             JSON of selected schema node
         """
         SQL = render_template(
-            "/".join([self.template_path, 'sql/properties.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._PROPERTIES_SQL]),
             scid=scid,
             _=gettext,
             show_sysobj=self.blueprint.show_system_objects
@@ -538,6 +573,8 @@ It may have been removed by another user.
 
         # Making copy of output for future use
         copy_data = dict(res['rows'][0])
+        copy_data['is_sys_obj'] = (
+            copy_data['oid'] <= self.datlastsysoid)
         copy_data = self._formatter(copy_data, scid)
 
         return ajax_response(
@@ -569,14 +606,14 @@ It may have been removed by another user.
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." %
-                        required_args[arg]
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         try:
             self.format_request_acls(data)
             SQL = render_template(
-                "/".join([self.template_path, 'sql/create.sql']),
+                "/".join([self.template_path,
+                          self._SQL_PREFIX + self._CREATE_SQL]),
                 data=data, conn=self.conn, _=gettext
             )
             status, res = self.conn.execute_scalar(SQL)
@@ -691,9 +728,10 @@ It may have been removed by another user.
 
                 # drop schema
                 SQL = render_template(
-                    "/".join([self.template_path, 'sql/delete.sql']),
+                    "/".join([self.template_path,
+                              self._SQL_PREFIX + self._DELETE_SQL]),
                     _=gettext, name=name, conn=self.conn,
-                    cascade=True if self.cmd == 'delete' else False
+                    cascade=self._check_cascade_operation()
                 )
                 status, res = self.conn.execute_scalar(SQL)
                 if not status:
@@ -749,7 +787,8 @@ It may have been removed by another user.
         """
         if scid is not None:
             SQL = render_template(
-                "/".join([self.template_path, 'sql/properties.sql']),
+                "/".join([self.template_path,
+                          self._SQL_PREFIX + self._PROPERTIES_SQL]),
                 _=gettext, scid=scid,
                 show_sysobj=self.blueprint.show_system_objects
             )
@@ -769,7 +808,8 @@ It may have been removed by another user.
             self.format_request_acls(data, True)
 
             SQL = render_template(
-                "/".join([self.template_path, 'sql/update.sql']),
+                "/".join([self.template_path,
+                          self._SQL_PREFIX + self._UPDATE_SQL]),
                 _=gettext, data=data, o_data=old_data, conn=self.conn
             )
             return SQL, data['name'] if 'name' in data else old_data['nam']
@@ -784,7 +824,8 @@ It may have been removed by another user.
             self.format_request_acls(data)
 
             SQL = render_template(
-                "/".join([self.template_path, 'sql/create.sql']),
+                "/".join([self.template_path,
+                          self._SQL_PREFIX + self._CREATE_SQL]),
                 data=data, conn=self.conn, _=gettext
             )
 
@@ -803,7 +844,8 @@ It may have been removed by another user.
            scid: Schema ID
         """
         SQL = render_template(
-            "/".join([self.template_path, 'sql/properties.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._PROPERTIES_SQL]),
             scid=scid, _=gettext
         )
 
@@ -825,7 +867,8 @@ It may have been removed by another user.
         # Render sql from create & alter sql using properties & acl data
         SQL = ''
         SQL = render_template(
-            "/".join([self.template_path, 'sql/create.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._CREATE_SQL]),
             _=gettext, data=data, conn=self.conn
         )
 
@@ -833,7 +876,8 @@ It may have been removed by another user.
 
         # drop schema
         sql_header += render_template(
-            "/".join([self.template_path, 'sql/delete.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._DELETE_SQL]),
             _=gettext, name=data['name'], conn=self.conn, cascade=False)
 
         SQL = sql_header + '\n\n' + SQL
@@ -891,10 +935,9 @@ It may have been removed by another user.
             return internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(gettext("""
-Could not find the schema in the database.
-It may have been removed by another user.
-"""))
+            return gone(gettext(
+                """Could not find the schema in the database.
+                It may have been removed by another user."""))
 
         data = res['rows'][0]
         backend_support_keywords = kwargs.copy()
@@ -907,7 +950,7 @@ It may have been removed by another user.
             if isinstance(module, PGChildModule):
                 if (
                     self.manager is not None and
-                    module.BackendSupported(
+                    module.backend_supported(
                         self.manager, **backend_support_keywords
                     )
                 ):
@@ -984,7 +1027,8 @@ class CatalogView(SchemaView):
            scid: Schema ID
         """
         SQL = render_template(
-            "/".join([self.template_path, 'sql/properties.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._PROPERTIES_SQL]),
             scid=scid, _=gettext
         )
 
@@ -1007,14 +1051,15 @@ It may have been removed by another user.
         # Render sql from create & alter sql using properties & acl data
         SQL = ''
         SQL = render_template(
-            "/".join([self.template_path, 'sql/create.sql']),
+            "/".join([self.template_path,
+                      self._SQL_PREFIX + self._CREATE_SQL]),
             _=gettext, data=old_data, conn=self.conn
         )
 
         sql_header = u"""
 -- CATALOG: {0}
 
--- DROP SCHEMA {0};(
+-- DROP SCHEMA {0};
 
 """.format(old_data['name'])
 
@@ -1023,5 +1068,6 @@ It may have been removed by another user.
         return ajax_response(response=SQL.strip("\n"))
 
 
+SchemaDiffRegistry(schema_blueprint.node_type, SchemaView)
 SchemaView.register_node_view(schema_blueprint)
 CatalogView.register_node_view(catalog_blueprint)

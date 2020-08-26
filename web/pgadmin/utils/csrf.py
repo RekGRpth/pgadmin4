@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 #########################################################################
@@ -16,7 +16,7 @@ class _PGCSRFProtect(CSRFProtect):
         super(_PGCSRFProtect, self).__init__(*args, **kwargs)
 
     def init_app(self, app):
-        res = super(_PGCSRFProtect, self).init_app(app)
+        super(_PGCSRFProtect, self).init_app(app)
         self._pg_csrf_exempt(app)
 
     def _pg_csrf_exempt(self, app):
@@ -34,6 +34,9 @@ class _PGCSRFProtect(CSRFProtect):
             'pgadmin.tools.datagrid.panel',
             'pgadmin.tools.debugger.initialize_target',
             'pgadmin.tools.debugger.direct_new',
+            'pgadmin.tools.schema_diff.panel',
+            'pgadmin.tools.schema_diff.ddl_compare',
+            'pgadmin.authenticate.login'
         ]
 
         for exempt in exempt_views:

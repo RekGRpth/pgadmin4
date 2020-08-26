@@ -2,6 +2,7 @@
 {% import 'macros/functions/privilege.macros' as PRIVILEGE %}
 {% import 'macros/functions/variable.macros' as VARIABLE %}
 {% set is_columns = [] %}
+{% set exclude_quoting = ['search_path'] %}
 {% if data %}
 {% if query_for == 'sql_panel' and func_def is defined %}
 CREATE OR REPLACE PROCEDURE {{func_def}}
@@ -15,15 +16,15 @@ CREATE OR REPLACE PROCEDURE {{ conn|qtIdent(data.pronamespace, data.name) }}{% i
 {% endif %}
     {{ data.provolatile }} {% if data.proleakproof %}LEAKPROOF {% endif %}
 {% if data.proisstrict %}STRICT {% endif %}
-{% if data.prosecdef %}SECURITY DEFINER {% endif %}
+{% if data.prosecdef %}SECURITY DEFINER{% endif %}
 {% if data.proparallel and (data.proparallel == 'r' or data.proparallel == 's') %}
-{% if data.proparallel == 'r' %}PARALLEL RESTRICTED{% elif data.proparallel == 's' %}PARALLEL SAFE{% endif %}{% endif %}{% if data.procost %}
+{% if data.proparallel == 'r' %} PARALLEL RESTRICTED{% elif data.proparallel == 's' %} PARALLEL SAFE{% endif %}{% endif %}{% if data.procost %}
 
     COST {{data.procost}}{% endif %}{% if data.prorows and (data.prorows | int) > 0 %}
 
     ROWS {{data.prorows}}{% endif -%}{% if data.variables %}{% for v in data.variables %}
 
-    SET {{ conn|qtIdent(v.name) }}={{ v.value|qtLiteral }}{% endfor -%}
+    SET {{ conn|qtIdent(v.name) }}={% if v.name in exclude_quoting %}{{ v.value }}{% else %}{{ v.value|qtLiteral }}{% endif %}{% endfor -%}
 {% endif %}
 
 AS {{ data.prosrc }};

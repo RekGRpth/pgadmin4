@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -29,7 +29,7 @@ from flask_sqlalchemy import SQLAlchemy
 #
 ##########################################################################
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 25
 
 ##########################################################################
 #
@@ -66,13 +66,15 @@ class User(db.Model, UserMixin):
     """Define a user object"""
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(256), unique=True, nullable=False)
+    email = db.Column(db.String(256), nullable=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
     password = db.Column(db.String(256))
     active = db.Column(db.Boolean(), nullable=False)
     confirmed_at = db.Column(db.DateTime())
     masterpass_check = db.Column(db.String(256))
     roles = db.relationship('Role', secondary=roles_users,
                             backref=db.backref('users', lazy='dynamic'))
+    auth_source = db.Column(db.String(16), unique=True, nullable=False)
 
 
 class Setting(db.Model):
@@ -117,6 +119,11 @@ class Server(db.Model):
     maintenance_db = db.Column(db.String(64), nullable=True)
     username = db.Column(db.String(64), nullable=False)
     password = db.Column(db.String(64), nullable=True)
+    save_password = db.Column(
+        db.Integer(),
+        db.CheckConstraint('save_password >= 0 AND save_password <= 1'),
+        nullable=False
+    )
     role = db.Column(db.String(64), nullable=True)
     ssl_mode = db.Column(
         db.String(16),
@@ -283,3 +290,18 @@ class QueryHistoryModel(db.Model):
     dbname = db.Column(db.String(), nullable=False, primary_key=True)
     query_info = db.Column(db.String(), nullable=False)
     last_updated_flag = db.Column(db.String(), nullable=False)
+
+
+class Database(db.Model):
+    """
+    Define a Database.
+    """
+    __tablename__ = 'database'
+    id = db.Column(db.Integer, primary_key=True)
+    schema_res = db.Column(db.String(256), nullable=True)
+    server = db.Column(
+        db.Integer,
+        db.ForeignKey('server.id'),
+        nullable=False,
+        primary_key=True
+    )

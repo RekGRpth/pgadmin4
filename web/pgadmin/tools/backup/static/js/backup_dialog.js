@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -15,7 +15,7 @@ import axios from 'axios/index';
 
 export class BackupDialog extends Dialog {
   constructor(pgBrowser, $, alertify, BackupModel, backform = Backform) {
-    super('Backup Error',
+    super(gettext('Backup Error'),
       '<div class=\'backup_dialog\'></div>',
       pgBrowser, $, alertify, BackupModel, backform
     );

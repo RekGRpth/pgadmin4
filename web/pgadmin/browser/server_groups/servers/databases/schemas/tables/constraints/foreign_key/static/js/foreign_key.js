@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -27,7 +27,7 @@ define('pgadmin.node.foreign_key', [
         return opt.text;
       } else {
         return $(
-          '<span><span class="wcTabIcon ' + optimage + '"/>' + opt.text + '</span>'
+          '<span><span class="wcTabIcon ' + optimage + '"/></span><span>' + opt.text + '</span></span>'
         );
       }
     },
@@ -51,11 +51,15 @@ define('pgadmin.node.foreign_key', [
     },
     schema: [{
       id: 'local_column', label: gettext('Local'), type:'text', editable: false,
-      cellHeaderClasses: 'width_percent_50', cell:'string',
+      cellHeaderClasses: 'width_percent_35', cell:'string',
       headerCell: Backgrid.Extension.CustomHeaderCell,
     },{
       id: 'referenced', label: gettext('Referenced'), type: 'text', editable: false,
-      cell:'string', cellHeaderClasses: 'width_percent_50',
+      cell:'string', cellHeaderClasses: 'width_percent_35',
+      headerCell: Backgrid.Extension.CustomHeaderCell,
+    },{
+      id: 'references_table_name', label: gettext('Referenced Table'), type: 'text', editable: false,
+      cell:'string', cellHeaderClasses: 'width_percent_30',
       headerCell: Backgrid.Extension.CustomHeaderCell,
     }],
   });
@@ -153,7 +157,7 @@ define('pgadmin.node.foreign_key', [
               first_empty: !_.isUndefined(self.model.get('oid')),
             },
             version_compatible: self.field.get('version_compatible'),
-            disabled: function() {
+            readonly: function() {
               return !_.isUndefined(self.model.get('oid'));
             },
           },{
@@ -168,7 +172,7 @@ define('pgadmin.node.foreign_key', [
             }),
             url: 'all_tables', node: 'table',
             version_compatible: self.field.get('version_compatible'),
-            disabled: function() {
+            readonly: function() {
               return !_.isUndefined(self.model.get('oid'));
             },
             transform: function(rows) {
@@ -199,26 +203,29 @@ define('pgadmin.node.foreign_key', [
               formatter: Backform.ControlFormatter,
               template: headerSelectControlTemplate,
               render: function() {
-                var self = this,
-                  url = self.field.get('url') || self.defaults.url,
-                  m = self.model,
+                var self_referenced = this,
+                  url = self_referenced.field.get('url') || self_referenced.defaults.url,
+                  m = self_referenced.model,
                   tid = m.get('references');
+                // Store name for selected table
+                var a = $('select[name="references"]').find(':selected').text();
+                this.model.set('references_table_name', a,{silent: true});
 
                 // Clear any existing value before setting new options.
-                m.set(self.field.get('name'), null, {silent: true});
+                m.set(self_referenced.field.get('name'), null, {silent: true});
 
                 if (url && !_.isUndefined(tid) && !_.isNull(tid) && tid != '') {
-                  var node = this.field.get('schema_node'),
+                  var schema_node = this.field.get('schema_node'),
                     node_info = this.field.get('node_info'),
-                    full_url = node.generate_url.apply(
-                      node, [
+                    full_url = schema_node.generate_url.apply(
+                      schema_node, [
                         null, url, this.field.get('node_data'),
                         this.field.get('url_with_id') || false, node_info,
                       ]),
                     data = [];
 
                   if (this.field.get('version_compatible')) {
-                    m.trigger('pgadmin:view:fetching', m, self.field);
+                    m.trigger('pgadmin:view:fetching', m, self_referenced.field);
                     $.ajax({
                       async: false,
                       data : {tid:tid},
@@ -228,24 +235,24 @@ define('pgadmin.node.foreign_key', [
                         data = res.data;
                       })
                       .fail(function() {
-                        m.trigger('pgadmin:view:fetch:error', m, self.field);
+                        m.trigger('pgadmin:view:fetch:error', m, self_referenced.field);
                       });
-                    m.trigger('pgadmin:view:fetched', m, self.field);
+                    m.trigger('pgadmin:view:fetched', m, self_referenced.field);
                   }
                   /*
                      * Transform the data
                      */
-                  var transform = this.field.get('transform') || self.defaults.transform;
+                  var transform = this.field.get('transform') || self_referenced.defaults.transform;
                   if (transform && _.isFunction(transform)) {
                     // We will transform the data later, when rendering.
                     // It will allow us to generate different data based on the
                     // dependencies.
-                    self.field.set('options', transform.bind(self, data));
+                    self_referenced.field.set('options', transform.bind(self_referenced, data));
                   } else {
-                    self.field.set('options', data);
+                    self_referenced.field.set('options', data);
                   }
                 } else {
-                  self.field.set('options', []);
+                  self_referenced.field.set('options', []);
                 }
                 Backform.Select2Control.prototype.render.apply(this, arguments);
                 return this;
@@ -260,14 +267,14 @@ define('pgadmin.node.foreign_key', [
             },
             deps:['references'],  node: 'table',
             version_compatible: self.field.get('version_compatible'),
-            disabled: function() {
+            readonly: function() {
               return !_.isUndefined(self.model.get('oid'));
             },
           }],
           headerDefaults = {local_column: null,
             references: null,
             referenced:null},
-          gridCols = ['local_column', 'references', 'referenced'];
+          gridCols = ['local_column', 'references', 'referenced','references_table_name'];
 
         if ((!self.model.isNew() && _.isUndefined(self.model.handler)) ||
           (_.has(self.model, 'handler') &&
@@ -378,7 +385,7 @@ define('pgadmin.node.foreign_key', [
           titleTmpl = _.template([
             '<div class="subnode-header">',
             '  <label class="control-label pg-el-sm-10"><%-label%></label>',
-            '  <button class="btn btn-sm-sq btn-secondary add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> title="' + _('Add new row') + '"></button>',
+            '  <button class="btn btn-sm-sq btn-primary-icon add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> title="' + gettext('Add new row') + '"></button>',
             '</div>'].join('\n')),
           $gridBody =
           $('<div class=\'pgadmin-control-group backgrid form-group col-12 object subnode\'></div>').append(
@@ -480,32 +487,28 @@ define('pgadmin.node.foreign_key', [
           local_column = self.headerData.get('local_column'),
           referenced = self.headerData.get('referenced');
 
-        if (!local_column || local_column == '' ||
-          !referenced || referenced  =='') {
-          return false;
+        if (local_column && local_column != '' && referenced && referenced != '') {
+          var m = new (self.field.get('model'))(
+              self.headerData.toJSON()),
+            coll = self.model.get(self.field.get('name'));
+
+          coll.add(m);
+
+          var idx = coll.indexOf(m);
+
+          // idx may not be always > -1 because our UniqueColCollection may
+          // remove 'm' if duplicate value found.
+          if (idx > -1) {
+            self.$grid.find('.new').removeClass('new');
+
+            var newRow = self.grid.body.rows[idx].$el;
+
+            newRow.addClass('new');
+            $(newRow).pgMakeVisible('backform-tab');
+          } else {
+            //delete m;
+          }
         }
-
-        var m = new (self.field.get('model'))(
-            self.headerData.toJSON()),
-          coll = self.model.get(self.field.get('name'));
-
-        coll.add(m);
-
-        var idx = coll.indexOf(m);
-
-        // idx may not be always > -1 because our UniqueColCollection may
-        // remove 'm' if duplicate value found.
-        if (idx > -1) {
-          self.$grid.find('.new').removeClass('new');
-
-          var newRow = self.grid.body.rows[idx].$el;
-
-          newRow.addClass('new');
-          $(newRow).pgMakeVisible('backform-tab');
-        } else {
-          //delete m;
-        }
-
         return false;
       },
 
@@ -545,10 +548,11 @@ define('pgadmin.node.foreign_key', [
           url = 'get_coveringindex',
           m = self.model,
           cols = [],
-          coveringindex = null;
+          coveringindex = null,
+          url_jump_after_node = 'schema';
 
-        self.collection.each(function(m){
-          cols.push(m.get('local_column'));
+        self.collection.each(function(local_model){
+          cols.push(local_model.get('local_column'));
         });
 
         if (cols.length > 0) {
@@ -557,7 +561,7 @@ define('pgadmin.node.foreign_key', [
             full_url = node.generate_url.apply(
               node, [
                 null, url, this.field.get('node_data'),
-                this.field.get('url_with_id') || false, node_info,
+                this.field.get('url_with_id') || false, node_info, url_jump_after_node,
               ]);
 
           if (this.field.get('version_compatible')) {
@@ -622,6 +626,7 @@ define('pgadmin.node.foreign_key', [
       canDrop: true,
       canDropCascade: true,
       hasDepends: true,
+      url_jump_after_node: 'schema',
       Init: function() {
         /* Avoid multiple registration of menus */
         if (this.initialized)
@@ -654,30 +659,28 @@ define('pgadmin.node.foreign_key', [
             i = input.item || t.selected(),
             d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-          if (!d) {
-            return false;
-          }
-          var data = d;
-          $.ajax({
-            url: obj.generate_url(i, 'validate', d, true),
-            type:'GET',
-          })
-            .done(function(res) {
-              if (res.success == 1) {
-                Alertify.success(res.info);
-                t.removeIcon(i);
-                data.valid = true;
-                data.icon = 'icon-foreign_key';
-                t.addIcon(i, {icon: data.icon});
-                setTimeout(function() {t.deselect(i);}, 10);
-                setTimeout(function() {t.select(i);}, 100);
-              }
+          if (d) {
+            var data = d;
+            $.ajax({
+              url: obj.generate_url(i, 'validate', d, true),
+              type:'GET',
             })
-            .fail(function(xhr, status, error) {
-              Alertify.pgRespErrorNotify(xhr, error);
-              t.unload(i);
-            });
-
+              .done(function(res) {
+                if (res.success == 1) {
+                  Alertify.success(res.info);
+                  t.removeIcon(i);
+                  data.valid = true;
+                  data.icon = 'icon-foreign_key';
+                  t.addIcon(i, {icon: data.icon});
+                  setTimeout(function() {t.deselect(i);}, 10);
+                  setTimeout(function() {t.select(i);}, 100);
+                }
+              })
+              .fail(function(xhr, status, error) {
+                Alertify.pgRespErrorNotify(xhr, error);
+                t.unload(i);
+              });
+          }
           return false;
         },
       },
@@ -687,7 +690,9 @@ define('pgadmin.node.foreign_key', [
 
         defaults: {
           name: undefined,
+          reftab: undefined,
           oid: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           condeferrable: undefined,
           condeferred: undefined,
@@ -709,10 +714,13 @@ define('pgadmin.node.foreign_key', [
         schema: [{
           id: 'name', label: gettext('Name'), type: 'text',
           mode: ['properties', 'create', 'edit'], editable:true,
-          headerCell: Backgrid.Extension.CustomHeaderCell, cellHeaderClasses: 'width_percent_50',
+          headerCell: Backgrid.Extension.CustomHeaderCell, cellHeaderClasses: 'width_percent_30',
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System foreign key?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comment', label: gettext('Comment'), cell: 'string',
           type: 'multiline', mode: ['properties', 'create', 'edit'],
@@ -731,14 +739,13 @@ define('pgadmin.node.foreign_key', [
         },{
           id: 'condeferrable', label: gettext('Deferrable?'),
           type: 'switch', group: gettext('Definition'),
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
               // If OID is undefined then user is trying to add
               // new constraint which should allowed for Unique
               return !_.isUndefined(m.get('oid'));
             }
-            // We can't update condeferrable of existing foreign key.
             return !m.isNew();
           },
         },{
@@ -746,14 +753,6 @@ define('pgadmin.node.foreign_key', [
           type: 'switch', group: gettext('Definition'),
           deps: ['condeferrable'],
           disabled: function(m) {
-            // If we are in table edit mode then
-            if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
-              // If OID is undefined then user is trying to add
-              // new constraint which should allowed for Unique
-              return !_.isUndefined(m.get('oid'));
-            } else if(!m.isNew()) {
-              return true;
-            }
             // Disable if condeferred is false or unselected.
             if(m.get('condeferrable') == true) {
               return false;
@@ -765,6 +764,15 @@ define('pgadmin.node.foreign_key', [
               return true;
             }
           },
+          readonly: function(m) {
+            // If we are in table edit mode then
+            if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
+              // If OID is undefined then user is trying to add
+              // new constraint which should allowed for Unique
+              return !_.isUndefined(m.get('oid'));
+            }
+            return !m.isNew();
+          },
         },{
           id: 'confmatchtype', label: gettext('Match type'),
           type: 'switch', group: gettext('Definition'),
@@ -772,7 +780,7 @@ define('pgadmin.node.foreign_key', [
             onText: 'FULL',
             offText: 'SIMPLE',
             width: '80',
-          },disabled: function(m) {
+          },readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
               // If OID is undefined then user is trying to add
@@ -788,15 +796,15 @@ define('pgadmin.node.foreign_key', [
           options: {
             onText: gettext('Yes'),
             offText: gettext('No'),
-          },disabled: function(m) {
+          },readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
               // If OID is undefined then user is trying to add
               // new constraint which should allowed
-              return !(_.isUndefined(m.get('oid')) || m.get('convalidated'));
+              return !(_.isUndefined(m.get('oid')) || !m.get('convalidated'));
             }
             // We can't update condeferred of existing foreign key.
-            return !(m.isNew() || m.get('convalidated'));
+            return !(m.isNew() || !m.get('convalidated'));
           },
         },{
           id: 'autoindex', label: gettext('Auto FK index?'),
@@ -875,28 +883,62 @@ define('pgadmin.node.foreign_key', [
                 }
               };
 
-            // If we are in table edit mode then
-            if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
-              // If OID is undefined then user is trying to add
-              // new constraint which should allowed for Unique
-              if (_.isUndefined(m.get('oid')) && _.isUndefined(m.handler.get('oid'))) {
-                return true;
-              } else {
-                return setIndexName();
-              }
-
-            } else if (!m.isNew() && m.get('autoindex') && !_.isUndefined(index)
+            if (!m.isNew() && m.get('autoindex') && !_.isUndefined(index)
               && _.isNull(index) && index == '') {
               return true;
             }
 
             return setIndexName();
           },
+          readonly: function(m) {
+            // If we are in table edit mode then
+            if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
+              // If OID is undefined then user is trying to add
+              // new constraint which should allowed for Unique
+              return !_.isUndefined(m.get('oid'));
+            }
+            // We can't update columns of existing foreign key.
+            return !m.isNew();
+          },
+        },{
+          id: 'references_table_name', label: gettext('Referenced Table'),
+          type: 'text', group: gettext('Columns'),
+          node: 'foreign_key', editable: false,visible:false,
+          cellHeaderClasses: 'width_percent_30',
+          cell: Backgrid.StringCell.extend({
+            initialize: function() {
+              Backgrid.StringCell.prototype.initialize.apply(this, arguments);
+              var self = this,
+                collection = this.model.get('columns');
+              self.model.get('columns').on('pgadmin:columns:updated', function() {
+                self.render.apply(self);
+              });
+              self.listenTo(collection, 'add', self.render);
+              self.listenTo(collection, 'remove', self.render);
+            },
+            formatter: {
+              fromRaw: function (rawValue,model,) {
+                var remote_tables = [],
+                  m = model.get('columns');
+                if (m.length > 0) {
+                  m.each(function(col){
+                    remote_tables.push(col.get('references_table_name'));
+                  });
+                  return remote_tables;
+                }
+
+              },
+              toRaw: function (val) { return val; },
+            },
+            render: function() {
+              return Backgrid.StringCell.prototype.render.apply(this, arguments);
+            },
+          }),
         },{
           id: 'columns', label: gettext('Columns'),
           type: 'collection', group: gettext('Columns'),
           node: 'foreign_key', editable: false, headerCell: Backgrid.Extension.CustomHeaderCell,
-          cellHeaderClasses: 'width_percent_50',
+          cellHeaderClasses: 'width_percent_30',
           cell: Backgrid.StringCell.extend({
             initialize: function() {
               Backgrid.StringCell.prototype.initialize.apply(this, arguments);
@@ -986,7 +1028,7 @@ define('pgadmin.node.foreign_key', [
           }, canDelete: true,
           control: ForeignKeyColumnControl,
           model: ForeignKeyColumnModel,
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
               // If OID is undefined then user is trying to add
@@ -1006,7 +1048,7 @@ define('pgadmin.node.foreign_key', [
             {label: 'CASCADE', value: 'c'},
             {label: 'SET NULL', value: 'n'},
             {label: 'SET DEFAULT', value: 'd'},
-          ],disabled: function(m) {
+          ],readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
               // If OID is undefined then user is trying to add
@@ -1026,7 +1068,7 @@ define('pgadmin.node.foreign_key', [
             {label: 'CASCADE', value: 'c'},
             {label: 'SET NULL', value: 'n'},
             {label: 'SET DEFAULT', value: 'd'},
-          ],disabled: function(m) {
+          ],readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'handler') && !_.isUndefined(m.handler)) {
               // If OID is undefined then user is trying to add

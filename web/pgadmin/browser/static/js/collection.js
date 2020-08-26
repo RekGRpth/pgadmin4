@@ -2,20 +2,17 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
-//import * as commonUtils from '../../../static/js/utils';
-//import Mousetrap from 'mousetrap';
-
 define([
-  'sources/gettext', 'jquery', 'underscore', 'underscore.string', 'sources/pgadmin',
+  'sources/gettext', 'jquery', 'underscore', 'sources/pgadmin',
   'backbone', 'alertify', 'backform', 'backgrid', 'sources/browser/generate_url',
   'pgadmin.backform', 'pgadmin.backgrid',
   'pgadmin.browser.node', 'backgrid.select.all',
-], function(gettext, $, _, S, pgAdmin, Backbone, Alertify, Backform, Backgrid, generateUrl) {
+], function(gettext, $, _, pgAdmin, Backbone, Alertify, Backform, Backgrid, generateUrl) {
 
   var pgBrowser = pgAdmin.Browser = pgAdmin.Browser || {};
 
@@ -47,17 +44,25 @@ define([
           name: 'refresh', node: this.type, module: this,
           applies: ['object', 'context'], callback: 'refresh',
           priority: 1, label: gettext('Refresh...'),
-          icon: 'fa fa-refresh',
+          icon: 'fa fa-sync-alt',
         }]);
 
         // show query tool only in context menu of supported nodes.
-        if (pgAdmin.DataGrid && pgAdmin.unsupported_nodes) {
-          if (_.indexOf(pgAdmin.unsupported_nodes, this.type) == -1) {
+        if (pgAdmin.unsupported_nodes && _.indexOf(pgAdmin.unsupported_nodes, this.type) == -1) {
+          if ((this.type == 'database' && this.allowConn) || this.type != 'database') {
             pgAdmin.Browser.add_menus([{
               name: 'show_query_tool', node: this.type, module: this,
               applies: ['context'], callback: 'show_query_tool',
               priority: 998, label: gettext('Query Tool...'),
-              icon: 'fa fa-bolt',
+              icon: 'pg-font-icon icon-query-tool',
+            }]);
+
+            // show search objects same as query tool
+            pgAdmin.Browser.add_menus([{
+              name: 'search_objects', node: this.type, module: this,
+              applies: ['context'], callback: 'show_search_objects',
+              priority: 997, label: gettext('Search Objects...'),
+              icon: 'fa fa-search',
             }]);
           }
         }
@@ -85,11 +90,11 @@ define([
           gridSchema = Backform.generateGridColumnsFromModel(
             info, node.model, 'properties', that.columns
           ),
-          createButtons = function(buttons, location, extraClasses) {
+          createButtons = function(buttonsList, location, extraClasses) {
             // Arguments must be non-zero length array of type
             // object, which contains following attributes:
             // label, type, extraClasses, register
-            if (buttons && _.isArray(buttons) && buttons.length > 0) {
+            if (buttonsList && _.isArray(buttonsList) && buttonsList.length > 0) {
               // All buttons will be created within a single
               // div area.
               var btnGroup =
@@ -99,7 +104,7 @@ define([
                   '<button tabindex="0" type="<%= type %>" ',
                   'class="btn <%=extraClasses.join(\' \')%>"',
                   '<% if (disabled) { %> disabled="disabled"<% } %> title="<%-tooltip%>">',
-                  '<span class="<%= icon %>"></span><% if (label != "") { %>&nbsp;<%-label%><% } %></button>',
+                  '<span class="<%= icon %>" role="img"></span><% if (label != "") { %>&nbsp;<%-label%><% } %><span class="sr-only"><%-tooltip%></span></button>',
                 ].join(' '));
               if (location == 'header') {
                 btnGroup.appendTo(that.header);
@@ -109,7 +114,7 @@ define([
               if (extraClasses) {
                 btnGroup.addClass(extraClasses);
               }
-              _.each(buttons, function(btn) {
+              _.each(buttonsList, function(btn) {
                 // Create the actual button, and append to
                 // the group div
 
@@ -147,7 +152,7 @@ define([
                 }
 
                 var column = this.column, model = this.model, $el = this.$el;
-                this.listenTo(column, 'change:renderable', function (column, renderable) {
+                this.listenTo(column, 'change:renderable', function (col, renderable) {
                   $el.toggleClass('renderable', renderable);
                 });
 
@@ -162,13 +167,18 @@ define([
               },
               render: function() {
                 let model = this.model.toJSON();
-
                 // canDrop can be set to false for individual row from the server side to disable the checkbox
-                if ('canDrop' in model && model.canDrop === false)
-                  this.$el.empty().append('<input tabindex="-1" type="checkbox" disabled="disabled"/>');
-                else
-                  this.$el.empty().append('<input tabindex="-1" type="checkbox" />');
+                let disabled = ('canDrop' in model && model.canDrop === false);
+                let id = `row-${_.uniqueId(model.oid || model.name)}`;
 
+                this.$el.empty().append(`
+                  <div class="custom-control custom-checkbox custom-checkbox-no-label">
+                    <input tabindex="-1" type="checkbox" class="custom-control-input" id="${id}" ${disabled?'disabled':''}/>
+                    <label class="custom-control-label" for="${id}">
+                      <span class="sr-only">` + gettext('Select') + `<span>
+                    </label>
+                  </div>
+                `);
                 this.delegateEvents();
                 return this;
               },
@@ -176,9 +186,13 @@ define([
             headerCell: Backgrid.Extension.SelectAllHeaderCell,
           });
         }
+        /* Columns should be always non-editable  */
+        gridSchema.columns.forEach((col)=>{
+          col.disabled = true;
+        });
         // Initialize a new Grid instance
         that.grid = new Backgrid.Grid({
-          emptyText: 'No data found',
+          emptyText: gettext('No data found'),
           columns: gridSchema.columns,
           collection: that.collection,
           className: 'backgrid table presentation table-bordered table-noouter-border table-hover',
@@ -188,7 +202,7 @@ define([
           'remove': function() {
             if (this.grid) {
               if (this.grid.collection) {
-                this.grid.collection.reset({silent: true});
+                this.grid.collection.reset([], {silent: true});
                 delete (this.grid.collection);
               }
               delete (this.grid);
@@ -216,7 +230,7 @@ define([
         j.empty();
         j.data('obj-view', gridView);
 
-        $msgContainer = '<div class="alert alert-info pg-panel-message pg-panel-properties-message">' +
+        $msgContainer = '<div role="status" class="pg-panel-message pg-panel-properties-message">' +
          gettext('Retrieving data from the server...') + '</div>';
 
         $msgContainer = $($msgContainer).appendTo(j);
@@ -232,8 +246,8 @@ define([
           label: '',
           type: 'delete',
           tooltip: gettext('Delete/Drop'),
-          extraClasses: ['btn-secondary m-1', 'delete_multiple'],
-          icon: 'fa fa-lg fa-trash-o',
+          extraClasses: ['btn-primary-icon m-1', 'delete_multiple'],
+          icon: 'fa fa-trash-alt',
           disabled:  (_.isFunction(that.canDrop)) ? !(that.canDrop.apply(self, [data, item])) : (!that.canDrop),
           register: function(btn) {
             btn.on('click',() => {
@@ -246,8 +260,8 @@ define([
           label: '',
           type: 'delete',
           tooltip: gettext('Drop Cascade'),
-          extraClasses: ['btn-secondary m-1', 'delete_multiple_cascade'],
-          icon: 'icon-delete_multiple_cascade',
+          extraClasses: ['btn-primary-icon m-1', 'delete_multiple_cascade'],
+          icon: 'pg-font-icon icon-drop-cascade',
           disabled: (_.isFunction(that.canDropCascade)) ? !(that.canDropCascade.apply(self, [data, item])) : (!that.canDropCascade),
           register: function(btn) {
             btn.on('click',() => {
@@ -299,6 +313,9 @@ define([
               $('.pg-prop-content').on('scroll', that.__loadMoreRows.bind(that));
 
               that.collection.reset(that.data.splice(0, 50));
+
+              // Listen to select all checkbox event
+              that.collection.on('backgrid:select-all', that.__loadAllRows.bind(that));
             } else {
             // Do not listen the scroll event
               $('.pg-prop-content').off('scroll', that.__loadMoreRows);
@@ -315,8 +332,7 @@ define([
               info: info,
             })) {
               Alertify.pgNotifier(
-                error, xhr, S(gettext('Error retrieving properties - %s')).sprintf(
-                  error.message || that.label).value(),
+                error, xhr, gettext('Error retrieving properties - %s', error.message || that.label),
                 function(msg) {
                   if(msg === 'CRYPTKEY_SET') {
                     getAjaxHook();
@@ -335,14 +351,20 @@ define([
         var onDrop = function(type, confirm=true) {
           let sel_row_models = this.grid.getSelectedModels(),
             sel_rows = [],
-            item = pgBrowser.tree.selected(),
-            d = item ? pgBrowser.tree.itemData(item) : null,
-            node = pgBrowser.Nodes[d._type],
+            sel_item = pgBrowser.tree.selected(),
+            d = sel_item ? pgBrowser.tree.itemData(sel_item) : null,
+            sel_node = d && pgBrowser.Nodes[d._type],
             url = undefined,
             msg = undefined,
             title = undefined;
 
-          _.each(sel_row_models, function(r){ sel_rows.push(r.id); });
+          if (sel_node && sel_node.type && sel_node.type == 'coll-constraints') {
+            // In order to identify the constraint type, the type should be passed to the server
+            sel_rows = sel_row_models.map(row => ({id: row.get('oid'), _type: row.get('_type')}));
+          }
+          else {
+            sel_rows = sel_row_models.map(row => row.id);
+          }
 
           if (sel_rows.length === 0) {
             Alertify.alert(gettext('Drop Multiple'),
@@ -351,12 +373,15 @@ define([
             return;
           }
 
+          if (!sel_node)
+            return;
+
           if (type === 'dropCascade') {
-            url = node.generate_url(item, 'delete'),
-            msg = gettext('Are you sure you want to drop all the selected objects and all the objects that depend on them?'),
+            url = sel_node.generate_url(sel_item, 'delete');
+            msg = gettext('Are you sure you want to drop all the selected objects and all the objects that depend on them?');
             title = gettext('DROP CASCADE multiple objects?');
           } else {
-            url = node.generate_url(item, 'drop');
+            url = sel_node.generate_url(sel_item, 'drop');
             msg = gettext('Are you sure you want to drop all the selected objects?');
             title = gettext('DROP multiple objects?');
           }
@@ -373,9 +398,9 @@ define([
               } else {
                 $(pgBrowser.panels['properties'].panel).removeData('node-prop');
                 pgBrowser.Events.trigger(
-                  'pgadmin:browser:tree:refresh', item || pgBrowser.tree.selected(), {
+                  'pgadmin:browser:tree:refresh', sel_item || pgBrowser.tree.selected(), {
                     success: function() {
-                      node.callbacks.selected.apply(node, [item]);
+                      sel_node.callbacks.selected.apply(sel_node, [sel_item]);
                     },
                   });
               }
@@ -383,16 +408,16 @@ define([
             }).fail(function(xhr, error) {
               Alertify.pgNotifier(
                 error, xhr,
-                S(gettext('Error dropping %s'))
-                  .sprintf(d._label.toLowerCase()).value(), function(msg) {
-                  if (msg == 'CRYPTKEY_SET') {
+                gettext('Error dropping %s', d._label.toLowerCase()),
+                function(alertMsg) {
+                  if (alertMsg == 'CRYPTKEY_SET') {
                     onDrop(type, false);
                   } else {
                     $(pgBrowser.panels['properties'].panel).removeData('node-prop');
                     pgBrowser.Events.trigger(
-                      'pgadmin:browser:tree:refresh', item || pgBrowser.tree.selected(), {
+                      'pgadmin:browser:tree:refresh', sel_item || pgBrowser.tree.selected(), {
                         success: function() {
-                          node.callbacks.selected.apply(node, [item]);
+                          sel_node.callbacks.selected.apply(sel_node, [sel_item]);
                         },
                       }
                     );
@@ -418,6 +443,14 @@ define([
           }
         }
       },
+      __loadAllRows: function(tmp, checked) {
+        if (this.data.length > 0) {
+          this.collection.add(this.data);
+          this.collection.each(function (model) {
+            model.trigger('backgrid:select', model, checked);
+          });
+        }
+      },
       generate_url: function(item, type) {
         /*
          * Using list, and collection functions of a node to get the nodes
@@ -438,6 +471,16 @@ define([
           pgAdmin.Browser.URL, treeInfo, actionType, self.node,
           collectionPickFunction
         );
+      },
+      show_query_tool: function() {
+        if(pgAdmin.DataGrid) {
+          pgAdmin.DataGrid.show_query_tool('', pgAdmin.Browser.tree.selected());
+        }
+      },
+      show_search_objects: function() {
+        if(pgAdmin.SearchObjects) {
+          pgAdmin.SearchObjects.show_search_objects('', pgAdmin.Browser.tree.selected());
+        }
       },
     });
 

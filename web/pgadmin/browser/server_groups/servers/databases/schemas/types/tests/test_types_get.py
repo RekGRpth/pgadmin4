@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -17,13 +17,13 @@ from pgadmin.utils.route import BaseTestGenerator
 from regression import parent_node_dict
 from regression.python_test_utils import test_utils as utils
 from . import utils as types_utils
+from unittest.mock import patch
 
 
 class TypesGetTestCase(BaseTestGenerator):
     """ This class will get the type under schema node. """
-    scenarios = [
-        ('Get type under schema node', dict(url='/browser/type/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('types_get',
+                                         types_utils.test_cases)
 
     def setUp(self):
         self.db_name = parent_node_dict["database"][-1]["db_name"]
@@ -46,16 +46,60 @@ class TypesGetTestCase(BaseTestGenerator):
                                                self.schema_name, self.type_name
                                                )
 
-    def runTest(self):
-        """ This function will get a type under schema node. """
-        response = self.tester.get(
+    def get_type(self):
+        """
+        This functions returns the type properties
+        :return: type properties
+        """
+        return self.tester.get(
             "{0}{1}/{2}/{3}/{4}/{5}".format(self.url, utils.SERVER_GROUP,
                                             self.server_id, self.db_id,
                                             self.schema_id, self.type_id
                                             ),
             follow_redirects=True
         )
-        self.assertEquals(response.status_code, 200)
+
+    def get_type_list(self):
+        """
+        This functions returns the list all types
+        :return: list all types
+        """
+        return self.tester.get(
+            "{0}{1}/{2}/{3}/{4}/".format(self.url, utils.SERVER_GROUP,
+                                         self.server_id, self.db_id,
+                                         self.schema_id),
+            follow_redirects=True
+        )
+
+    def runTest(self):
+        """ This function will get a type under schema node. """
+        db_con = database_utils.connect_database(self, utils.SERVER_GROUP,
+                                                 self.server_id, self.db_id)
+        if not db_con['data']["connected"]:
+            raise Exception("Could not connect to database to get a type.")
+
+        if self.is_positive_test:
+            if hasattr(self, "type_list"):
+                response = self.get_type_list()
+            else:
+                response = self.get_type()
+
+        else:
+            if hasattr(self, "error_fetching_type"):
+                with patch(self.mock_data["function_name"],
+                           return_value=eval(self.mock_data["return_value"])):
+                    if hasattr(self, "type_list"):
+                        response = self.get_type_list()
+                    else:
+                        response = self.get_type()
+
+            if hasattr(self, "wrong_type_id"):
+                self.type_id = 99999
+                response = self.get_type()
+
+        actual_response_code = response.status_code
+        expected_response_code = self.expected_data['status_code']
+        self.assertEquals(actual_response_code, expected_response_code)
 
     def tearDown(self):
         # Disconnect the database

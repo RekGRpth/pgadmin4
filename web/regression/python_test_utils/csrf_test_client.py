@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -109,7 +109,7 @@ class TestClient(testing.FlaskClient):
             csrf_token = self.generate_csrf_token()
 
         res = self.post(
-            '/login', data=dict(
+            '/authenticate/login', data=dict(
                 email=email, password=password,
                 csrf_token=csrf_token,
             ),
@@ -120,5 +120,5 @@ class TestClient(testing.FlaskClient):
         return res
 
     def logout(self):
-        res = self.get('/logout', follow_redirects=False)
+        self.get('/logout?next=/browser/', follow_redirects=False)
         self.csrf_token = None

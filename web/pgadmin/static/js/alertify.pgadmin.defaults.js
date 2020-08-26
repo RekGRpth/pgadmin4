@@ -2,14 +2,14 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define([
-  'sources/gettext', 'alertify', 'jquery',
-], function(gettext, alertify, $) {
+  'sources/gettext', 'alertify', 'jquery', 'sources/utils',
+], function(gettext, alertify, $, commonUtils) {
   alertify.defaults.transition = 'zoom';
   alertify.defaults.theme.ok = 'btn btn-primary fa fa-lg fa-check pg-alertify-button';
   alertify.defaults.theme.cancel = 'btn btn-secondary fa fa-lg fa-times pg-alertify-button';
@@ -60,9 +60,8 @@ define([
       },
       // listen and respond to changes in dialog settings.
       settingUpdated: function(key, oldValue, newValue) {
-        switch (key) {
-        case 'pg_msg':
-          var doc = iframe.contentWindow || iframe.contentDocument;
+        if(key === 'pg_msg') {
+          let doc = iframe.contentWindow || iframe.contentDocument;
           if (doc.document) {
             doc = doc.document;
           }
@@ -70,8 +69,6 @@ define([
           doc.open();
           doc.write(newValue);
           doc.close();
-
-          break;
         }
       },
       // listen to internal dialog events.
@@ -79,8 +76,7 @@ define([
         // triggered when a dialog option gets update.
         // warning! this will not be triggered for settings updates.
         onupdate: function(option, oldValue, newValue) {
-          switch (option) {
-          case 'resizable':
+          if(option === 'resizable') {
             if (newValue) {
               this.elements.content.removeAttribute('style');
               iframe && iframe.removeAttribute('style');
@@ -88,7 +84,6 @@ define([
               this.elements.content.style.minHeight = 'inherit';
               iframe && (iframe.style.minHeight = 'inherit');
             }
-            break;
           }
         },
       },
@@ -124,13 +119,13 @@ define([
           if (contentType.indexOf('text/html') == 0) {
             var alertMessage = promptmsg;
             if (type === 'error') {
-              alertMessage = '\
-                  <div class="media text-danger text-14">\
-                    <div class="media-body media-middle">\
-                      <div class="alert-text">' + promptmsg + '</div><br/>\
-                      <div class="alert-text">' + gettext('Click for details.') + '</div>\
-                    </div>\
-                  </div>';
+              alertMessage =
+                  '<div class="media text-danger text-14">'
+                  +  '<div class="media-body media-middle">'
+                  +    '<div class="alert-text" role="alert">' + promptmsg + '</div><br/>'
+                  +    '<div class="alert-text" role="alert">' + gettext('Click for details.') + '</div>'
+                  +  '</div>'
+                  + '</div>';
             }
 
             alertify.notify(
@@ -158,41 +153,46 @@ define([
 
   alertify.pgRespErrorNotify = (xhr, error, prefixMsg='') => {
     var contentType = xhr.getResponseHeader('Content-Type');
-    try {
-      if (xhr.status === 0) {
-        error = gettext('Connection to the server has been lost.');
-      } else {
-        if(contentType){
-          if(contentType.indexOf('application/json') >= 0) {
-            var resp = JSON.parse(xhr.responseText);
-            error = _.escape(resp.result) || _.escape(resp.errormsg) || gettext('Unknown error');
+    if (xhr.status === 410) {
+      const pgBrowser = window.pgAdmin.Browser;
+      pgBrowser.report_error(gettext('Error: Object not found - %s.', xhr.statusText), xhr.responseJSON.errormsg);
+    } else {
+      try {
+        if (xhr.status === 0) {
+          error = gettext('Connection to the server has been lost.');
+        } else {
+          if(contentType){
+            if(contentType.indexOf('application/json') >= 0) {
+              var resp = JSON.parse(xhr.responseText);
+              error = _.escape(resp.result) || _.escape(resp.errormsg) || gettext('Unknown error');
+            }
+          }
+          if (contentType.indexOf('text/html') >= 0) {
+            var alertMessage =
+                   '<div class="media text-danger text-14">'
+                   +  '<div class="media-body media-middle">'
+                   +  '<div class="alert-text" role="alert">' + gettext('INTERNAL SERVER ERROR') + '</div><br/>'
+                   +    '<div class="alert-text" role="alert">' + gettext('Click for details.') + '</div>'
+                   +  '</div>'
+                   + '</div>';
+
+            alertify.notify(
+              alertMessage, 'error', 0, () => {
+                alertify.pgIframeDialog()
+                  .show()
+                  .set({frameless: false})
+                  .set('pg_msg', xhr.responseText);
+              }
+            );
+            return;
           }
         }
-        if (contentType.indexOf('text/html') >= 0) {
-          var alertMessage = '\
-                <div class="media text-danger text-14">\
-                  <div class="media-body media-middle">\
-                    <div class="alert-text">' + gettext('INTERNAL SERVER ERROR') + '</div><br/>\
-                    <div class="alert-text">' + gettext('Click for details.') + '</div>\
-                  </div>\
-                </div>';
-
-          alertify.notify(
-            alertMessage, 'error', 0, () => {
-              alertify.pgIframeDialog()
-                .show()
-                .set({frameless: false})
-                .set('pg_msg', xhr.responseText);
-            }
-          );
-          return;
-        }
       }
+      catch(e){
+        error = e.message;
+      }
+      alertify.error(prefixMsg +' '+error);
     }
-    catch(e){
-      error = e.message;
-    }
-    alertify.error(prefixMsg +' '+error);
   };
 
   var alertifyDialogResized = function(stop) {
@@ -260,7 +260,18 @@ define([
       this.elements.dialog.classList.add('pg-el-container');
       $(this.elements.commands.close).attr('title', gettext('Close'));
       $(this.elements.commands.maximize).attr('title', gettext('Maximize'));
+      $(this.elements.commands.close).attr('aria-label', gettext('Close'));
+      $(this.elements.commands.maximize).attr('aria-label', gettext('Maximize'));
       alertifyDialogResized.apply(this, arguments);
+      let _self = this;
+
+      let cmds = Object.values(this.elements.commands);
+      $(cmds).on('keydown', 'button', (event) => {
+        if (event.shiftKey && event.keyCode == 9 && $(this).nextAll('button:not([disabled])').length == 0){
+          let container = $(_self.elements.footer);
+          commonUtils.findAndSetFocus(container.find('button:not([disabled]):last'));
+        }
+      });
     });
     this.set('onresize', alertifyDialogStartResizing.bind(this, true));
     this.set('onresized', alertifyDialogResized.bind(this, true));
@@ -277,6 +288,15 @@ define([
         this.__internal.buttons[i]['key'] = null;
       }
     }
+    let self = this;
+
+    $(this.elements.footer).on('keydown', 'button', function(event) {
+      if (!event.shiftKey && event.keyCode == 9 && $(this).nextAll('button:not([disabled])').length == 0) {
+        // set focus back to first editable input element of current active tab once we cycle through all enabled buttons.
+        commonUtils.findAndSetFocus($(self.elements.dialog));
+        return false;
+      }
+    });
   };
 
   alertify.pgHandleItemError = function(xhr, error, message, args) {
@@ -319,7 +339,7 @@ define([
           args: args,
         },
         reconnectServer = function() {
-          var ctx = this,
+          var ctx_local = this,
             onServerConnect = function(_sid, _i, _d) {
               // Yay - server is reconnected.
               if (this.args.info.server._id == _sid) {
@@ -343,7 +363,7 @@ define([
                   );
                 }
               }
-            }.bind(ctx),
+            }.bind(ctx_local),
             onConnectCancel = function(_sid, _item, _data) {
               // User has cancelled the operation in between.
               if (_sid == this.args.info.server.id) {
@@ -356,7 +376,7 @@ define([
                   this.resp.data.database || _data.db, _item, _data
                 );
               }
-            }.bind(ctx);
+            }.bind(ctx_local);
 
           pgBrowser.Events.on('pgadmin:server:connected', onServerConnect);
           pgBrowser.Events.on('pgadmin:server:connect:cancelled', onConnectCancel);
@@ -420,9 +440,9 @@ define([
       var alertMessage =
       `<div class="d-flex px-3 py-2">
         <div class="pr-2">
-          <i class="fa fa-check text-success" aria-hidden="true"></i>
+          <i class="fa fa-check" aria-hidden="true"></i>
         </div>
-        <div class="text-body">${message}</div>
+        <div class="alert-text-body" role="status">${message}</div>
       </div>`;
       return alertify.orig_success(alertMessage, timeout, callback);
     },
@@ -430,9 +450,9 @@ define([
       var alertMessage =
       `<div class="d-flex px-3 py-2">
         <div class="pr-2">
-          <i class="fa fa-exclamation-triangle text-danger" aria-hidden="true"></i>
+          <i class="fa fa-exclamation-triangle" aria-hidden="true"></i>
         </div>
-        <div class="text-body">${message}</div>
+        <div class="alert-text-body" role="status">${message}</div>
       </div>`;
       return alertify.orig_error(alertMessage, timeout, callback);
     },
@@ -440,9 +460,9 @@ define([
       var alertMessage =
       `<div class="d-flex px-3 py-2">
         <div class="mr-3">
-          <i class="fa fa-info text-primary" aria-hidden="true"></i>
+          <i class="fa fa-info-circle" aria-hidden="true"></i>
         </div>
-        <div class="text-body">${message}</div>
+        <div class="alert-text-body" role="status">${message}</div>
       </div>`;
       var alert = alertify.notify(alertMessage, timeout);
       return alert;
@@ -455,6 +475,14 @@ define([
       $(this.elements.commands.close).attr('title', gettext('Close'));
       $(this.elements.commands.maximize).attr('title', gettext('Maximize'));
       $(this.elements.content).addClass('ajs-wrap-text');
+      $(this.elements.header).attr('id', 'confirm-dialog-header');
+      $(this.elements.body).attr('id', 'confirm-dialog-body');
+      $(this.elements.dialog).attr({
+        role: 'alertdialog',
+        'aria-modal': 'true',
+        'aria-labelledby': 'confirm-dialog-header',
+        'aria-describedby': 'confirm-dialog-body',
+      });
     },
     reverseButtons: true,
   });
@@ -463,5 +491,37 @@ define([
     reverseButtons: true,
   });
 
+  alertify.alert().set({
+    onshow:function() {
+      $(this.elements.header).attr('id', 'alert-dialog-header');
+      $(this.elements.body).attr('id', 'alert-dialog-body');
+      $(this.elements.modal).attr({
+        role: 'alertdialog',
+        'aria-modal': 'true',
+        'aria-labelledby': 'alert-dialog-header',
+        'aria-describedby': 'alert-dialog-body',
+      });
+    },
+  });
+
+  /* Suppress the enter key events occurring from select2 boxes
+   * so that the dialog does not close.
+   * Alertify listens to keyup events on the body element unfortunately
+   * instead of alertify dialog
+   */
+  $('body').off('keyup').on('keyup', function(ev){
+    if(ev.which === 13 || ev.which === 27) {
+      let suppressForClasses = ['select2-selection', 'select2-search__field'];
+      let $el = $(ev.target);
+      for(let i=0; i<suppressForClasses.length; i++){
+        if($el.hasClass(suppressForClasses[i])){
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          ev.stopPropagation();
+          break;
+        }
+      }
+    }
+  });
   return alertify;
 });

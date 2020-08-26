@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -10,7 +10,7 @@
 import os
 from contextlib import contextmanager
 from subprocess import call
-from pgadmin.utils import u, fs_encoding, file_quote
+from pgadmin.utils import u_encode, fs_encoding, file_quote
 
 
 # enum-like for tracking whether we have
@@ -24,24 +24,24 @@ class JavascriptBundler:
     """Builds Javascript bundle files by delegating to webpack"""
 
     def __init__(self):
-        self.jsState = JsState.NONE
+        self.js_state = JsState.NONE
 
     def bundle(self):
         try:
             try_building_js()
-            self.jsState = JsState.NEW
+            self.js_state = JsState.NEW
         except OSError:
             webdir_path()
-            generatedJavascriptDir = os.path.join(
+            generated_js_dir = os.path.join(
                 webdir_path(), 'pgadmin', 'static', 'js', 'generated')
-            if os.path.exists(generatedJavascriptDir) and \
-                    os.listdir(generatedJavascriptDir):
-                self.jsState = JsState.OLD
+            if os.path.exists(generated_js_dir) and \
+                    os.listdir(generated_js_dir):
+                self.js_state = JsState.OLD
             else:
-                self.jsState = JsState.NONE
+                self.js_state = JsState.NONE
 
     def report(self):
-        return self.jsState
+        return self.js_state
 
 
 @contextmanager
@@ -54,8 +54,8 @@ def pushd(new_dir):
 
 def webdir_path():
     dirname = os.path.dirname
-    thisPath = os.path.realpath(u(__file__, fs_encoding))
-    return dirname(dirname(dirname(dirname(thisPath))))
+    this_path = os.path.realpath(u_encode(__file__, fs_encoding))
+    return dirname(dirname(dirname(dirname(this_path))))
 
 
 def try_building_js():

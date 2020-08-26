@@ -2,18 +2,23 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import sys
 import traceback
 import uuid
+import os
+import json
 
 from regression.python_test_utils import test_utils as utils
+
+CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
+with open(CURRENT_PATH + "/schema_test_data.json") as data_file:
+    test_cases = json.load(data_file)
 
 
 def get_schema_config_data(db_user):

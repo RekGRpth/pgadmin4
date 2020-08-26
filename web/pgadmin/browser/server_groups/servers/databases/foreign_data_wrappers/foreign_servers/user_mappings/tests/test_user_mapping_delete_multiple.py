@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import uuid
 import json
@@ -27,12 +26,10 @@ from . import utils as um_utils
 
 
 class UserMappingDeleteMultipleTestCase(BaseTestGenerator):
-    """This class will delete user mapping under foreign server node."""
+    """This class will delete user mappings under foreign server node."""
     skip_on_database = ['gpdb']
-    scenarios = [
-        # Fetching default URL for user mapping node.
-        ('Check user mapping Node', dict(url='/browser/user_mapping/obj/'))
-    ]
+    scenarios = utils.generate_scenarios('user_mapping_multiple_delete',
+                                         um_utils.test_cases)
 
     def setUp(self):
         """ This function will create extension and foreign data wrapper."""
@@ -50,6 +47,21 @@ class UserMappingDeleteMultipleTestCase(BaseTestGenerator):
                                               self.fsrv_name, self.fdw_name)
         self.um_id = um_utils.create_user_mapping(self.server, self.db_name,
                                                   self.fsrv_name)
+
+    def delete_multiple(self):
+        """
+        This function returns multiple user mapping delete response
+        :param data: user mapping ids to delete
+        :return: user mapping delete response
+        """
+        return self.tester.delete(
+            self.url + str(utils.SERVER_GROUP) + '/' +
+            str(self.server_id) + '/' + str(self.db_id) +
+            '/' + str(self.fdw_id) + '/' +
+            str(self.fsrv_id) + "/",
+            follow_redirects=True,
+            data=json.dumps(self.data),
+            content_type='html/json')
 
     def runTest(self):
         """This function will delete user mapping present under test
@@ -72,16 +84,13 @@ class UserMappingDeleteMultipleTestCase(BaseTestGenerator):
                                                    self.fsrv_name)
         if not um_response:
             raise Exception("Could not find user mapping.")
-        data = {'ids': [self.um_id]}
-        delete_response = self.tester.delete(
-            self.url + str(utils.SERVER_GROUP) + '/' +
-            str(self.server_id) + '/' + str(self.db_id) +
-            '/' + str(self.fdw_id) + '/' +
-            str(self.fsrv_id) + "/",
-            follow_redirects=True,
-            data=json.dumps(data),
-            content_type='html/json')
-        self.assertEquals(delete_response.status_code, 200)
+        self.data = {'ids': [self.um_id]}
+        if self.is_positive_test:
+            delete_response = self.delete_multiple()
+
+        actual_response_code = delete_response.status_code
+        expected_response_code = self.expected_data['status_code']
+        self.assertEquals(actual_response_code, expected_response_code)
 
     def tearDown(self):
         """This function disconnect the test database and drop

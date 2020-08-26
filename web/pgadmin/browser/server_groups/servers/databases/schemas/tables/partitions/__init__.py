@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -10,9 +10,10 @@
 """ Implements Partitions Node """
 
 import re
+import random
 import simplejson as json
 import pgadmin.browser.server_groups.servers.databases.schemas as schema
-from flask import render_template, request
+from flask import render_template, request, current_app
 from flask_babelex import gettext
 from pgadmin.browser.server_groups.servers.databases.schemas.utils \
     import DataTypeReader, VacuumSettings
@@ -21,14 +22,18 @@ from pgadmin.utils.ajax import internal_server_error, \
 from pgadmin.browser.server_groups.servers.databases.schemas.tables.utils \
     import BaseTableView
 from pgadmin.browser.collection import CollectionNodeModule
-from pgadmin.utils.ajax import make_json_response, precondition_required
-from config import PG_DEFAULT_DRIVER
+from pgadmin.utils.ajax import make_json_response
 from pgadmin.browser.utils import PGChildModule
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 def backend_supported(module, manager, **kwargs):
-    if 'tid' in kwargs and CollectionNodeModule.BackendSupported(
-            module, manager, **kwargs):
+
+    if CollectionNodeModule.backend_supported(module, manager, **kwargs):
+        if 'tid' not in kwargs:
+            return True
+
         conn = manager.connection(did=kwargs['did'])
 
         template_path = 'partitions/sql/{0}/#{0}#{1}#'.format(
@@ -67,8 +72,8 @@ class PartitionsModule(CollectionNodeModule):
         initialized.
     """
 
-    NODE_TYPE = 'partition'
-    COLLECTION_LABEL = gettext("Partitions")
+    _NODE_TYPE = 'partition'
+    _COLLECTION_LABEL = gettext("Partitions")
 
     def __init__(self, *args, **kwargs):
         """
@@ -96,7 +101,7 @@ class PartitionsModule(CollectionNodeModule):
         Load the module script for server, when any of the server-group node is
         initialized.
         """
-        return schema.SchemaModule.NODE_TYPE
+        return schema.SchemaModule.node_type
 
     @property
     def node_inode(self):
@@ -105,7 +110,7 @@ class PartitionsModule(CollectionNodeModule):
         """
         return True
 
-    def BackendSupported(self, manager, **kwargs):
+    def backend_supported(self, manager, **kwargs):
         """
         Load this module if it is a partition table
         """
@@ -134,10 +139,10 @@ class PartitionsModule(CollectionNodeModule):
             # Exclude 'partition' module for now to avoid cyclic import issue.
             modules_to_skip = ['partition', 'column']
             for parent in self.parentmodules:
-                if parent.NODE_TYPE == 'table':
+                if parent.node_type == 'table':
                     self.submodules += [
                         submodule for submodule in parent.submodules
-                        if submodule.NODE_TYPE not in modules_to_skip
+                        if submodule.node_type not in modules_to_skip
                     ]
 
     @property
@@ -148,11 +153,30 @@ class PartitionsModule(CollectionNodeModule):
         """
         return False
 
+    @property
+    def csssnippets(self):
+        """
+        Returns a snippet of css to include in the page
+        """
+        snippets = [
+            render_template(
+                "partitions/css/partition.css",
+                node_type=self.node_type,
+                _=gettext
+            )
+        ]
+
+        for submodule in self.submodules:
+            snippets.extend(submodule.csssnippets)
+
+        return snippets
+
 
 blueprint = PartitionsModule(__name__)
 
 
-class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
+class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings,
+                     SchemaDiffObjectCompare):
     """
     This class is responsible for generating routes for Partition node
 
@@ -173,6 +197,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
     """
 
     node_type = blueprint.node_type
+    node_label = "Partition"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -188,7 +213,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
     operations = dict({
         'obj': [
             {'get': 'properties', 'delete': 'delete', 'put': 'update'},
-            {'get': 'list', 'post': 'create'}
+            {'get': 'list', 'post': 'create', 'delete': 'delete'}
         ],
         'delete': [{'delete': 'delete'}, {'delete': 'delete'}],
         'nodes': [{'get': 'nodes'}, {'get': 'nodes'}],
@@ -196,56 +221,35 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
         'sql': [{'get': 'sql'}],
         'msql': [{'get': 'msql'}, {}],
         'detach': [{'put': 'detach'}],
-        'truncate': [{'put': 'truncate'}]
-
+        'truncate': [{'put': 'truncate'}],
+        'set_trigger': [{'put': 'enable_disable_triggers'}]
     })
 
-    def children(self, **kwargs):
-        """Build a list of treeview nodes from the child nodes."""
+    # Schema Diff: Keys to ignore while comparing
+    keys_to_ignore = ['oid', 'schema', 'vacuum_table',
+                      'vacuum_toast', 'edit_types', 'oid-2']
 
-        if 'sid' not in kwargs:
-            return precondition_required(
-                gettext('Required properties are missing.')
-            )
-
-        from pgadmin.utils.driver import get_driver
-        manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(
-            sid=kwargs['sid']
-        )
-
-        did = None
-        if 'did' in kwargs:
-            did = kwargs['did']
-
-        conn = manager.connection(did=did)
-
-        if not conn.connected():
-            return precondition_required(
-                gettext(
-                    "Connection to the server has been lost."
-                )
-            )
-
+    def get_children_nodes(self, manager, **kwargs):
         nodes = []
+        # treat partition table as normal table.
+        # replace tid with ptid and pop ptid from kwargs
+        if 'ptid' in kwargs:
+            ptid = kwargs.pop('ptid')
+            kwargs['tid'] = ptid
+
         for module in self.blueprint.submodules:
             if isinstance(module, PGChildModule):
                 if manager is not None and \
-                        module.BackendSupported(manager, **kwargs):
-                    # treat partition table as normal table.
-                    # replace tid with ptid and pop ptid from kwargs
-                    if 'ptid' in kwargs:
-                        ptid = kwargs.pop('ptid')
-                        kwargs['tid'] = ptid
+                        module.backend_supported(manager, **kwargs):
                     nodes.extend(module.get_nodes(**kwargs))
             else:
                 nodes.extend(module.get_nodes(**kwargs))
 
-        # Return sorted nodes based on label
-        return make_json_response(
-            data=sorted(
-                nodes, key=lambda c: c['label']
-            )
-        )
+        if manager is not None and \
+                self.blueprint.backend_supported(manager, **kwargs):
+            nodes.extend(self.blueprint.get_nodes(**kwargs))
+
+        return nodes
 
     @BaseTableView.check_precondition
     def list(self, gid, sid, did, scid, tid):
@@ -264,7 +268,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
             JSON of available table nodes
         """
         SQL = render_template("/".join([self.partition_template_path,
-                                        'properties.sql']),
+                                        self._PROPERTIES_SQL]),
                               did=did, scid=scid, tid=tid,
                               datlastsysoid=self.datlastsysoid)
         status, res = self.conn.execute_dict(SQL)
@@ -294,19 +298,20 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
             JSON of available table nodes
         """
         SQL = render_template(
-            "/".join([self.partition_template_path, 'nodes.sql']),
-            scid=scid, tid=tid
+            "/".join([self.partition_template_path, self._NODES_SQL]),
+            scid=scid, tid=tid, ptid=ptid
         )
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=rset)
 
         def browser_node(row):
+            icon = self.get_partition_icon_css_class(row)
             return self.blueprint.generate_browser_node(
                 row['oid'],
                 tid,
                 row['name'],
-                icon=self.get_icon_css_class({}),
+                icon=icon,
                 tigger_count=row['triggercount'],
                 has_enable_triggers=row['has_enable_triggers'],
                 is_partitioned=row['is_partitioned'],
@@ -317,9 +322,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
 
         if ptid is not None:
             if len(rset['rows']) == 0:
-                return gone(gettext(
-                    "The specified partitioned table could not be found."
-                ))
+                return gone(self.not_found_error_msg())
 
             return make_json_response(
                 data=browser_node(rset['rows'][0]), status=200
@@ -352,20 +355,100 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
             JSON of selected table node
         """
 
-        SQL = render_template("/".join([self.partition_template_path,
-                                        'properties.sql']),
-                              did=did, scid=scid, tid=tid,
-                              ptid=ptid, datlastsysoid=self.datlastsysoid)
-        status, res = self.conn.execute_dict(SQL)
-        if not status:
-            return internal_server_error(errormsg=res)
+        status, res = self._fetch_properties(did, scid, tid, ptid)
 
         if len(res['rows']) == 0:
-            return gone(gettext(
-                "The specified partitioned table could not be found."))
+            return gone(self.not_found_error_msg())
 
         return super(PartitionsView, self).properties(
-            gid, sid, did, scid, ptid, res)
+            gid, sid, did, scid, ptid, res=res)
+
+    def _fetch_properties(self, did, scid, tid, ptid=None):
+
+        """
+        This function is used to fetch the properties of the specified object
+        :param did:
+        :param scid:
+        :param tid:
+        :return:
+        """
+        try:
+            SQL = render_template("/".join([self.partition_template_path,
+                                            self._PROPERTIES_SQL]),
+                                  did=did, scid=scid, tid=tid,
+                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
+            status, res = self.conn.execute_dict(SQL)
+            if not status:
+                return internal_server_error(errormsg=res)
+
+            if len(res['rows']) == 0:
+                return False, gone(
+                    gettext(self.not_found_error_msg()))
+
+            # Update autovacuum properties
+            self.update_autovacuum_properties(res['rows'][0])
+
+        except Exception as e:
+            return False, internal_server_error(errormsg=str(e))
+
+        return True, res
+
+    @BaseTableView.check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid, tid, ptid=None):
+        """
+        This function will fetch the list of all the tables for
+        specified schema id.
+
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :param tid: Table Id
+        :param ptif: Partition table Id
+        :return:
+        """
+        res = {}
+
+        if ptid:
+            SQL = render_template("/".join([self.partition_template_path,
+                                            self._PROPERTIES_SQL]),
+                                  did=did, scid=scid, tid=tid,
+                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
+            status, result = self.conn.execute_dict(SQL)
+            if not status:
+                current_app.logger.error(result)
+                return False
+
+            res = super(PartitionsView, self).properties(
+                0, sid, did, scid, ptid, result)
+
+        else:
+            SQL = render_template(
+                "/".join([self.partition_template_path, self._NODES_SQL]),
+                scid=scid, tid=tid
+            )
+            status, partitions = self.conn.execute_2darray(SQL)
+            if not status:
+                current_app.logger.error(partitions)
+                return False
+
+            for row in partitions['rows']:
+                SQL = render_template("/".join([self.partition_template_path,
+                                                self._PROPERTIES_SQL]),
+                                      did=did, scid=scid, tid=tid,
+                                      ptid=row['oid'],
+                                      datlastsysoid=self.datlastsysoid)
+                status, result = self.conn.execute_dict(SQL)
+
+                if not status:
+                    current_app.logger.error(result)
+                    return False
+
+                data = super(PartitionsView, self).properties(
+                    0, sid, did, scid, row['oid'], result, False
+                )
+                res[row['name']] = data
+
+        return res
 
     @BaseTableView.check_precondition
     def sql(self, gid, sid, did, scid, tid, ptid):
@@ -383,22 +466,70 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
         """
         main_sql = []
 
-        SQL = render_template("/".join([self.partition_template_path,
-                                        'properties.sql']),
-                              did=did, scid=scid, tid=tid,
-                              ptid=ptid, datlastsysoid=self.datlastsysoid)
-        status, res = self.conn.execute_dict(SQL)
-        if not status:
-            return internal_server_error(errormsg=res)
+        status, res = self._fetch_properties(did, scid, tid, ptid)
 
         if len(res['rows']) == 0:
-            return gone(gettext(
-                "The specified partitioned table could not be found."))
+            return gone(self.not_found_error_msg())
 
         data = res['rows'][0]
 
-        return BaseTableView.get_reverse_engineered_sql(self, did, scid, ptid,
-                                                        main_sql, data)
+        return BaseTableView.get_reverse_engineered_sql(
+            self, did=did, scid=scid, tid=ptid, main_sql=main_sql, data=data)
+
+    @BaseTableView.check_precondition
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements for
+        partitions.
+
+        :param kwargs:
+        :return:
+        """
+
+        source_data = kwargs['source_data'] if 'source_data' in kwargs \
+            else None
+        target_data = kwargs['target_data'] if 'target_data' in kwargs \
+            else None
+
+        # Store the original name and create a temporary name for
+        # the partitioned(base) table.
+        target_data['orig_name'] = target_data['name']
+        target_data['name'] = 'temp_partitioned_{0}'.format(
+            random.randint(1, 9999999))
+        # For PG/EPAS 11 and above when we copy the data from original
+        # table to temporary table for schema diff, we will have to create
+        # a default partition to prevent the data loss.
+        target_data['default_partition_name'] = \
+            target_data['orig_name'] + '_default'
+
+        # Copy the partition scheme from source to target.
+        if 'partition_scheme' in source_data:
+            target_data['partition_scheme'] = source_data['partition_scheme']
+
+        partition_data = dict()
+        partition_data['name'] = target_data['name']
+        partition_data['schema'] = target_data['schema']
+        partition_data['partition_type'] = source_data['partition_type']
+        partition_data['default_partition_header'] = \
+            '-- Create a default partition to prevent the data loss.\n' \
+            '-- It helps when none of the partitions of a relation\n' \
+            '-- matches the inserted data.'
+
+        # Create temporary name for partitions
+        for item in source_data['partitions']:
+            item['temp_partition_name'] = 'partition_{0}'.format(
+                random.randint(1, 9999999))
+
+        partition_data['partitions'] = source_data['partitions']
+
+        partition_sql = self.get_partitions_sql(partition_data,
+                                                schema_diff=True)
+
+        return render_template(
+            "/".join([self.partition_template_path, 'partition_diff.sql']),
+            conn=self.conn, data=target_data, partition_sql=partition_sql,
+            partition_data=partition_data
+        )
 
     @BaseTableView.check_precondition
     def detach(self, gid, sid, did, scid, tid, ptid):
@@ -436,7 +567,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
         # Get schema oid of partition
         status, pscid = self.conn.execute_scalar(
             render_template("/".join([self.table_template_path,
-                                      'get_schema_oid.sql']), tid=ptid))
+                                      self._GET_SCHEMA_OID_SQL]), tid=ptid))
         if not status:
             return internal_server_error(errormsg=scid)
 
@@ -501,18 +632,17 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
         data = dict()
         for k, v in request.args.items():
             try:
-                data[k] = json.loads(v, encoding='utf-8')
+                # comments should be taken as is because if user enters a
+                # json comment it is parsed by loads which should not happen
+                if k in ('description',):
+                    data[k] = v
+                else:
+                    data[k] = json.loads(v, encoding='utf-8')
             except (ValueError, TypeError, KeyError):
                 data[k] = v
 
         if ptid is not None:
-            SQL = render_template("/".join([self.partition_template_path,
-                                            'properties.sql']),
-                                  did=did, scid=scid, tid=tid,
-                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
-            status, res = self.conn.execute_dict(SQL)
-            if not status:
-                return internal_server_error(errormsg=res)
+            status, res = self._fetch_properties(did, scid, tid, ptid)
 
         SQL, name = self.get_sql(did, scid, ptid, data, res)
         SQL = re.sub('\n{2,}', '\n\n', SQL)
@@ -543,21 +673,20 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
 
         for k, v in data.items():
             try:
-                data[k] = json.loads(v, encoding='utf-8')
+                # comments should be taken as is because if user enters a
+                # json comment it is parsed by loads which should not happen
+                if k in ('description',):
+                    data[k] = v
+                else:
+                    data[k] = json.loads(v, encoding='utf-8')
             except (ValueError, TypeError, KeyError):
                 data[k] = v
 
         try:
-            SQL = render_template("/".join([self.partition_template_path,
-                                            'properties.sql']),
-                                  did=did, scid=scid, tid=tid,
-                                  ptid=ptid, datlastsysoid=self.datlastsysoid)
-            status, res = self.conn.execute_dict(SQL)
-            if not status:
-                return internal_server_error(errormsg=res)
+            status, res = self._fetch_properties(did, scid, tid, ptid)
 
             return super(PartitionsView, self).update(
-                gid, sid, did, scid, ptid, data, res, parent_id=tid)
+                gid, sid, did, scid, ptid, data=data, res=res, parent_id=tid)
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
@@ -576,7 +705,7 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
 
         try:
             SQL = render_template("/".join([self.partition_template_path,
-                                            'properties.sql']),
+                                            self._PROPERTIES_SQL]),
                                   did=did, scid=scid, tid=tid,
                                   ptid=ptid, datlastsysoid=self.datlastsysoid)
             status, res = self.conn.execute_dict(SQL)
@@ -613,7 +742,8 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
         try:
             for ptid in data['ids']:
                 SQL = render_template(
-                    "/".join([self.partition_template_path, 'properties.sql']),
+                    "/".join([self.partition_template_path,
+                              self._PROPERTIES_SQL]),
                     did=did, scid=scid, tid=tid, ptid=ptid,
                     datlastsysoid=self.datlastsysoid
                 )
@@ -646,5 +776,81 @@ class PartitionsView(BaseTableView, DataTypeReader, VacuumSettings):
         except Exception as e:
             return internal_server_error(errormsg=str(e))
 
+    @BaseTableView.check_precondition
+    def enable_disable_triggers(self, gid, sid, did, scid, tid, ptid):
+        """
+        This function will enable/disable trigger(s) on the partition object
 
+         Args:
+           gid: Server Group ID
+           sid: Server ID
+           did: Database ID
+           scid: Schema ID
+           tid: Table ID
+           ptid: Partition Table ID
+        """
+        data = request.form if request.form else json.loads(
+            request.data, encoding='utf-8'
+        )
+        # Convert str 'true' to boolean type
+        is_enable_trigger = data['is_enable_trigger']
+
+        try:
+            SQL = render_template(
+                "/".join([self.partition_template_path, self._PROPERTIES_SQL]),
+                did=did, scid=scid, tid=tid, ptid=ptid,
+                datlastsysoid=self.datlastsysoid
+            )
+            status, res = self.conn.execute_dict(SQL)
+            if not status:
+                return internal_server_error(errormsg=res)
+            data = res['rows'][0]
+
+            SQL = render_template(
+                "/".join([
+                    self.table_template_path, 'enable_disable_trigger.sql'
+                ]),
+                data=data, is_enable_trigger=is_enable_trigger
+            )
+            status, res = self.conn.execute_scalar(SQL)
+            if not status:
+                return internal_server_error(errormsg=res)
+
+            return make_json_response(
+                success=1,
+                info=gettext("Trigger(s) have been disabled")
+                if is_enable_trigger == 'D'
+                else gettext("Trigger(s) have been enabled"),
+                data={
+                    'id': ptid,
+                    'scid': scid
+                }
+            )
+        except Exception as e:
+            return internal_server_error(errormsg=str(e))
+
+    def ddl_compare(self, **kwargs):
+        """
+        This function returns the DDL/DML statements based on the
+        comparison status.
+
+        :param kwargs:
+        :return:
+        """
+
+        tgt_params = kwargs.get('target_params')
+        parent_source_data = kwargs.get('parent_source_data')
+        parent_target_data = kwargs.get('parent_target_data')
+
+        diff = self.get_sql_from_diff(sid=tgt_params['sid'],
+                                      did=tgt_params['did'],
+                                      scid=tgt_params['scid'],
+                                      tid=tgt_params['tid'],
+                                      source_data=parent_source_data,
+                                      target_data=parent_target_data)
+
+        return diff + '\n'
+
+
+SchemaDiffRegistry(blueprint.node_type, PartitionsView, 'table')
 PartitionsView.register_node_view(blueprint)

@@ -2,20 +2,19 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 import sys
 import random
-import time
 
 from regression.python_test_utils import test_utils
+from regression.feature_utils.locators import BrowserToolBarLocators
 from regression.feature_utils.base_feature_test import BaseFeatureTest
-from selenium.common.exceptions import TimeoutException, \
-    StaleElementReferenceException
+from regression.feature_utils.tree_area_locators import TreeAreaLocators
+from selenium.webdriver.common.by import By
 
 
 class BrowserToolBarFeatureTest(BaseFeatureTest):
@@ -48,7 +47,7 @@ class BrowserToolBarFeatureTest(BaseFeatureTest):
               file=sys.stderr, end="")
         self.test_view_data_tool_button()
         print("OK.", file=sys.stderr)
-
+        #
         # Check for filtered rows button
         print("\nFiltered Rows ToolBar Button ",
               file=sys.stderr, end="")
@@ -57,59 +56,40 @@ class BrowserToolBarFeatureTest(BaseFeatureTest):
 
     def after(self):
         self.page.remove_server(self.server)
-
-    def _locate_database_tree_node(self):
-        self.page.toggle_open_tree_item(self.server['name'])
-        self.page.toggle_open_tree_item('Databases')
-        self.page.toggle_open_tree_item(self.test_db)
+        test_utils.delete_table(self.server, self.test_db,
+                                self.test_table_name)
 
     def test_query_tool_button(self):
-        self._locate_database_tree_node()
-
-        retry_count = 0
-        while retry_count < 5:
-            try:
-                self.page.find_by_css_selector(
-                    ".wcFrameButton[title='Query Tool']:not(.disabled)")\
-                    .click()
-                break
-            except StaleElementReferenceException:
-                retry_count += 1
-
-        time.sleep(0.5)
-        self.page.find_by_css_selector(".wcPanelTab .wcTabIcon.fa.fa-bolt")
+        self.page.expand_database_node(
+            self.server['name'],
+            self.server['db_password'], self.test_db)
+        self.page.retry_click(
+            (By.CSS_SELECTOR,
+             BrowserToolBarLocators.open_query_tool_button_css),
+            (By.CSS_SELECTOR, BrowserToolBarLocators.query_tool_panel_css))
 
     def test_view_data_tool_button(self):
-        self.page.select_tree_item(self.test_db)
-        self.page.toggle_open_tree_item('Schemas')
-        self.page.toggle_open_tree_item('public')
-        self.page.toggle_open_tables_node()
-        self.page.select_tree_item(self.test_table_name)
+        self.page.click_a_tree_node(
+            self.test_db,
+            TreeAreaLocators.sub_nodes_of_databases_node(self.server['name']))
+        self.page.toggle_open_schema_node(
+            self.server['name'], self.server['db_password'],
+            self.test_db, 'public')
+        self.page.toggle_open_tables_node(
+            self.server['name'], self.server['db_password'],
+            self.test_db, 'public')
+        self.page.click_a_tree_node(
+            self.test_table_name,
+            TreeAreaLocators.sub_nodes_of_tables_node)
 
-        retry_count = 0
-        while retry_count < 5:
-            try:
-                self.page.find_by_css_selector(
-                    ".wcFrameButton[title='View Data']:not(.disabled)").click()
-                break
-            except StaleElementReferenceException:
-                retry_count += 1
-
-        time.sleep(0.5)
-        self.page.find_by_css_selector(".wcPanelTab .wcTabIcon.fa.fa-bolt")
+        self.page.retry_click(
+            (By.CSS_SELECTOR,
+             BrowserToolBarLocators.view_table_data_button_css),
+            (By.CSS_SELECTOR, BrowserToolBarLocators.view_data_panel_css))
 
     def test_filtered_rows_tool_button(self):
-        retry_count = 0
-        while retry_count < 5:
-            try:
-                self.page.find_by_css_selector(
-                    ".wcFrameButton[title='Filtered Rows']:not(.disabled)")\
-                    .click()
-                break
-            except StaleElementReferenceException:
-                retry_count += 1
-
-        time.sleep(0.5)
-        self.page.find_by_css_selector(
-            ".alertify .ajs-header[data-title~='Filter']")
+        self.page.retry_click(
+            (By.CSS_SELECTOR,
+             BrowserToolBarLocators.filter_data_button_css),
+            (By.CSS_SELECTOR, BrowserToolBarLocators.filter_alertify_box_css))
         self.page.click_modal('Cancel')

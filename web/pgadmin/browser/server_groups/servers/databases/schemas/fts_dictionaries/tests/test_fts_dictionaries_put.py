@@ -2,12 +2,11 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
-from __future__ import print_function
 
 import json
 import uuid
@@ -88,6 +87,17 @@ class FtsDictionaryPutTestCase(BaseTestGenerator):
             follow_redirects=True)
 
         self.assertEquals(put_response.status_code, 200)
+
+        negative_put_response = self.tester.put(
+            self.url + str(utils.SERVER_GROUP) + '/' +
+            str(self.server_id) + '/' +
+            str(self.db_id) + '/' +
+            str(self.schema_id) + '/' +
+            str(0),
+            data=json.dumps(data),
+            follow_redirects=True)
+
+        self.assertEquals(negative_put_response.status_code, 500)
 
     def tearDown(self):
         """This function delete the fts dictionaries and disconnect the test

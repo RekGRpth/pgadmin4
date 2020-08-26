@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -14,21 +14,19 @@ from flask import Response, url_for
 from flask import render_template, request, current_app
 from flask_babelex import gettext
 from flask_security import login_required
+from urllib.parse import unquote
+
 from pgadmin.browser.server_groups.servers.utils import parse_priv_to_db
 from pgadmin.utils import PgAdminModule
 from pgadmin.utils.ajax import make_response as ajax_response, \
-    make_json_response, internal_server_error
+    make_json_response, internal_server_error, bad_request
 from pgadmin.utils.driver import get_driver
 
 from config import PG_DEFAULT_DRIVER
-
-try:
-    from urllib import unquote
-except ImportError:
-    from urllib.parse import unquote
 from pgadmin.utils.ajax import precondition_required
 from functools import wraps
 from pgadmin.utils.preferences import Preferences
+from pgadmin.utils.constants import MIMETYPE_APP_JS
 
 # set template path for sql scripts
 MODULE_NAME = 'grant_wizard'
@@ -147,7 +145,9 @@ def check_precondition(f):
 @blueprint.route("/")
 @login_required
 def index():
-    pass
+    return bad_request(
+        errormsg=gettext("This URL cannot be called directly.")
+    )
 
 
 @blueprint.route("/grant_wizard.js")
@@ -157,7 +157,7 @@ def script():
     return Response(response=render_template(
         "grant_wizard/js/grant_wizard.js", _=gettext),
         status=200,
-        mimetype="application/javascript")
+        mimetype=MIMETYPE_APP_JS)
 
 
 @blueprint.route(
@@ -184,7 +184,6 @@ def properties(sid, did, node_id, node_type):
     """It fetches the properties of object types
        and render into selection page of wizard
     """
-
     # unquote encoded url parameter
     node_type = unquote(node_type)
 
@@ -198,23 +197,22 @@ def properties(sid, did, node_id, node_type):
     node_types = []
     show_sysobj = blueprint.show_system_objects().get()
     if node_type == 'database':
-
         # Fetch list of schemas
         # Get sys_obj_values and get list of schemas
         ntype = 'schema'
-        SQL = render_template("/".join(
+        sql = render_template("/".join(
             [server_prop['template_path'], '/sql/get_schemas.sql']),
             show_sysobj=show_sysobj)
-        status, res = conn.execute_dict(SQL)
+        status, res = conn.execute_dict(sql)
 
         if not status:
             return internal_server_error(errormsg=res)
         node_types = res['rows']
     else:
-        SQL = render_template("/".join(
+        sql = render_template("/".join(
             [server_prop['template_path'], '/sql/get_schemas.sql']),
             nspid=node_id, show_sysobj=False)
-        status, res = conn.execute_dict(SQL)
+        status, res = conn.execute_dict(sql)
 
         if not status:
             return internal_server_error(errormsg=res)
@@ -227,11 +225,11 @@ def properties(sid, did, node_id, node_type):
 
         # Fetch functions against schema
         if ntype in ['schema', 'function']:
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/function.sql']),
                 node_id=node_id, type='function')
 
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
             if not status:
                 current_app.logger.error(res)
                 failed_objects.append('function')
@@ -244,11 +242,11 @@ def properties(sid, did, node_id, node_type):
              (server_prop['server_type'] == 'pg' and
               server_prop['version'] >= 11000)) and
                 ntype in ['schema', 'procedure']):
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/function.sql']),
                 node_id=node_id, type='procedure')
 
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
 
             if not status:
                 current_app.logger.error(res)
@@ -258,10 +256,10 @@ def properties(sid, did, node_id, node_type):
 
         # Fetch trigger functions
         if ntype in ['schema', 'trigger_function']:
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/function.sql']),
                 node_id=node_id, type='trigger_function')
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
 
             if not status:
                 current_app.logger.error(res)
@@ -271,11 +269,11 @@ def properties(sid, did, node_id, node_type):
 
         # Fetch Sequences against schema
         if ntype in ['schema', 'sequence']:
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/sequence.sql']),
                 node_id=node_id)
 
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
             if not status:
                 current_app.logger.error(res)
                 failed_objects.append('sequence')
@@ -284,11 +282,11 @@ def properties(sid, did, node_id, node_type):
 
         # Fetch Tables against schema
         if ntype in ['schema', 'table']:
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/table.sql']),
                 node_id=node_id)
 
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
             if not status:
                 current_app.logger.error(res)
                 failed_objects.append('table')
@@ -297,11 +295,11 @@ def properties(sid, did, node_id, node_type):
 
         # Fetch Views against schema
         if ntype in ['schema', 'view']:
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/view.sql']),
                 node_id=node_id, node_type='v')
 
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
             if not status:
                 current_app.logger.error(res)
                 failed_objects.append('view')
@@ -310,11 +308,11 @@ def properties(sid, did, node_id, node_type):
 
         # Fetch Materialzed Views against schema
         if ntype in ['schema', 'mview']:
-            SQL = render_template("/".join(
+            sql = render_template("/".join(
                 [server_prop['template_path'], '/sql/view.sql']),
                 node_id=node_id, node_type='m')
 
-            status, res = conn.execute_dict(SQL)
+            status, res = conn.execute_dict(sql)
             if not status:
                 current_app.logger.error(res)
                 failed_objects.append('materialized view')
@@ -336,7 +334,7 @@ def properties(sid, did, node_id, node_type):
 
 @blueprint.route(
     '/sql/<int:sid>/<int:did>/',
-    methods=['GET'], endpoint='modified_sql'
+    methods=['POST'], endpoint='modified_sql'
 )
 @login_required
 @check_precondition
@@ -344,15 +342,8 @@ def msql(sid, did):
     """
     This function will return modified SQL
     """
-
     server_prop = server_info
-    data = {}
-    for k, v in request.args.items():
-        try:
-            data[k] = json.loads(v)
-        except ValueError:
-            data[k] = v
-
+    data = request.form if request.form else json.loads(request.data.decode())
     # Form db connection
     manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
     conn = manager.connection(did=did)
@@ -367,7 +358,6 @@ def msql(sid, did):
         current_app.logger.exception(e)
 
     try:
-
         # Parse privileges
         data['priv'] = {}
         if 'acl' in data:
@@ -385,34 +375,34 @@ def msql(sid, did):
                 acls['table']['acl'])
 
         # Pass database objects and get SQL for privileges
-        SQL_data = ''
+        sql_data = ''
         data_func = {'objects': data['objects'],
                      'priv': data['priv']['function']}
-        SQL = render_template(
+        sql = render_template(
             "/".join([server_prop['template_path'],
                       '/sql/grant_function.sql']),
             data=data_func, conn=conn)
-        if SQL and SQL.strip('\n') != '':
-            SQL_data += SQL
+        if sql and sql.strip('\n') != '':
+            sql_data += sql
 
         data_seq = {'objects': data['objects'],
                     'priv': data['priv']['sequence']}
-        SQL = render_template(
+        sql = render_template(
             "/".join([server_prop['template_path'],
                       '/sql/grant_sequence.sql']),
             data=data_seq, conn=conn)
-        if SQL and SQL.strip('\n') != '':
-            SQL_data += SQL
+        if sql and sql.strip('\n') != '':
+            sql_data += sql
 
         data_table = {'objects': data['objects'],
                       'priv': data['priv']['table']}
-        SQL = render_template(
+        sql = render_template(
             "/".join([server_prop['template_path'], '/sql/grant_table.sql']),
             data=data_table, conn=conn)
-        if SQL and SQL.strip('\n') != '':
-            SQL_data += SQL
+        if sql and sql.strip('\n') != '':
+            sql_data += sql
 
-        res = {'data': SQL_data}
+        res = {'data': sql_data}
 
         return ajax_response(
             response=res,
@@ -473,34 +463,34 @@ def save(sid, did):
 
         # Pass database objects and get SQL for privileges
         # Pass database objects and get SQL for privileges
-        SQL_data = ''
+        sql_data = ''
         data_func = {'objects': data['objects'],
                      'priv': data['priv']['function']}
-        SQL = render_template(
+        sql = render_template(
             "/".join([server_prop['template_path'],
                       '/sql/grant_function.sql']),
             data=data_func, conn=conn)
-        if SQL and SQL.strip('\n') != '':
-            SQL_data += SQL
+        if sql and sql.strip('\n') != '':
+            sql_data += sql
 
         data_seq = {'objects': data['objects'],
                     'priv': data['priv']['sequence']}
-        SQL = render_template(
+        sql = render_template(
             "/".join([server_prop['template_path'],
                       '/sql/grant_sequence.sql']),
             data=data_seq, conn=conn)
-        if SQL and SQL.strip('\n') != '':
-            SQL_data += SQL
+        if sql and sql.strip('\n') != '':
+            sql_data += sql
 
         data_table = {'objects': data['objects'],
                       'priv': data['priv']['table']}
-        SQL = render_template(
+        sql = render_template(
             "/".join([server_prop['template_path'], '/sql/grant_table.sql']),
             data=data_table, conn=conn)
-        if SQL and SQL.strip('\n') != '':
-            SQL_data += SQL
+        if sql and sql.strip('\n') != '':
+            sql_data += sql
 
-        status, res = conn.execute_dict(SQL_data)
+        status, res = conn.execute_dict(sql_data)
         if not status:
             return internal_server_error(errormsg=res)
 

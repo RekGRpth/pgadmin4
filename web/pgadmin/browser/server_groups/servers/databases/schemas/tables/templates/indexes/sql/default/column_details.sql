@@ -2,16 +2,16 @@ SELECT
     i.indexrelid,
     CASE i.indoption[i.attnum - 1]
     WHEN 0 THEN ARRAY['ASC', 'NULLS LAST']
-    WHEN 1 THEN ARRAY['DESC', 'NULLS FIRST']
+    WHEN 1 THEN ARRAY['DESC', 'NULLS LAST']
     WHEN 2 THEN ARRAY['ASC', 'NULLS FIRST']
-    WHEN 3 THEN ARRAY['DESC', 'NULLS  ']
+    WHEN 3 THEN ARRAY['DESC', 'NULLS FIRST']
     ELSE ARRAY['UNKNOWN OPTION' || i.indoption[i.attnum - 1]::text, '']
     END::text[] AS options,
     i.attnum,
     pg_get_indexdef(i.indexrelid, i.attnum, true) as attdef,
     CASE WHEN (o.opcdefault = FALSE) THEN o.opcname ELSE null END AS opcname,
     op.oprname AS oprname,
-	CASE WHEN length(nspc.nspname) > 0 AND length(coll.collname) > 0  THEN
+	CASE WHEN length(nspc.nspname::text) > 0 AND length(coll.collname::text) > 0  THEN
 	  concat(quote_ident(nspc.nspname), '.', quote_ident(coll.collname))
 	ELSE '' END AS collnspname
 FROM (

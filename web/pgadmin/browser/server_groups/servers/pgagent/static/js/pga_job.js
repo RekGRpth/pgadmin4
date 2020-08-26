@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.pga_job', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs',
+  'sources/pgadmin', 'pgadmin.browser', 'pgadmin.alertifyjs',
   'pgadmin.node.pga_jobstep', 'pgadmin.node.pga_schedule',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, alertify) {
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, alertify) {
 
   if (!pgBrowser.Nodes['coll-pga_job']) {
     pgBrowser.Nodes['coll-pga_job'] =
@@ -88,7 +88,7 @@ define('pgadmin.node.pga_job', [
           var d = pgBrowser.Node.Model.prototype.parse.apply(this, arguments);
 
           if (d) {
-            d.jobrunningat = d.jaghostagent || gettext('Not running currently.');
+            d.jobrunningat = d.jagagent || gettext('Not running currently.');
             d.jlgstatus = d.jlgstatus || gettext('Unknown');
           }
           return d;
@@ -177,20 +177,19 @@ define('pgadmin.node.pga_job', [
           i = input.item || t.selected(),
           d = i && i.length == 1 ? t.itemData(i) : undefined;
 
-        if (!d)
-          return false;
-
-        $.ajax({
-          url: obj.generate_url(i, 'run_now', d, true),
-          method:'PUT',
-        })
-        // 'pgagent.pga_job' table updated with current time to run the job
-        // now.
-          .done(function() { t.unload(i); })
-          .fail(function(xhr, status, error) {
-            alertify.pgRespErrorNotify(xhr, error);
-            t.unload(i);
-          });
+        if (d) {
+          $.ajax({
+            url: obj.generate_url(i, 'run_now', d, true),
+            method:'PUT',
+          })
+          // 'pgagent.pga_job' table updated with current time to run the job
+          // now.
+            .done(function() { t.unload(i); })
+            .fail(function(xhr, status, error) {
+              alertify.pgRespErrorNotify(xhr, error);
+              t.unload(i);
+            });
+        }
 
         return false;
       },

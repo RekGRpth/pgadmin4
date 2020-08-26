@@ -2,16 +2,16 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
 define('pgadmin.node.event_trigger', [
   'sources/gettext', 'sources/url_for', 'jquery', 'underscore',
-  'underscore.string', 'sources/pgadmin', 'pgadmin.browser',
+  'sources/pgadmin', 'pgadmin.browser',
   'pgadmin.backform', 'pgadmin.browser.collection',
-], function(gettext, url_for, $, _, S, pgAdmin, pgBrowser, Backform) {
+], function(gettext, url_for, $, _, pgAdmin, pgBrowser, Backform) {
 
   // Extend the browser's collection class for event trigger collection
   if (!pgBrowser.Nodes['coll-event_trigger']) {
@@ -71,6 +71,7 @@ define('pgadmin.node.event_trigger', [
           oid: undefined,
           name: undefined,
           eventowner: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           enabled: 'O',
           eventfuncoid: undefined,
@@ -106,30 +107,36 @@ define('pgadmin.node.event_trigger', [
           type: 'text', mode: ['properties', 'edit','create'], node: 'role',
           control: Backform.NodeListByNameControl,
         },{
+          id: 'is_sys_obj', label: gettext('System event trigger?'),
+          cell:'boolean', type: 'switch',
+          mode: ['properties'],
+        },{
           id: 'comment', label: gettext('Comment'), type: 'multiline',
         },{
-          id: 'enabled', label: gettext('Enabled?'),
-          type:'radio', group: gettext('Definition'), mode: ['properties', 'edit','create'],
+          id: 'enabled', label: gettext('Trigger enabled?'),
+          group: gettext('Definition'), mode: ['properties', 'edit','create'],
           options: [
-            {label: 'Enable', value: 'O'},
-            {label: 'Disable', value: 'D'},
-            {label: 'Replica', value: 'R'},
-            {label: 'Always', value: 'A'},
+            {label: gettext('Enable'), value: 'O'},
+            {label: gettext('Disable'), value: 'D'},
+            {label: gettext('Replica'), value: 'R'},
+            {label: gettext('Always'), value: 'A'},
           ],
+          control: 'select2', select2: { allowClear: false, width: '100%' },
         },{
           id: 'eventfunname', label: gettext('Trigger function'),
           type: 'text', control: 'node-ajax-options', group: gettext('Definition'),
           url:'fopts', cache_node: 'trigger_function',
         },{
-          id: 'eventname', label: gettext('Events'),
-          type:'radio', group: gettext('Definition'), cell: 'string',
+          id: 'eventname', label: gettext('Event'),
+          group: gettext('Definition'), cell: 'string',
           options: [
-            {label: 'DDL COMMAND START', value: 'DDL_COMMAND_START'},
-            {label: 'DDL COMMAND END', value: 'DDL_COMMAND_END'},
-            {label: 'SQL DROP', value: 'SQL_DROP'},
+            {label: gettext('DDL COMMAND START'), value: 'DDL_COMMAND_START'},
+            {label: gettext('DDL COMMAND END'), value: 'DDL_COMMAND_END'},
+            {label: gettext('SQL DROP'), value: 'SQL_DROP'},
           ],
+          control: 'select2', select2: { allowClear: false, width: '100%' },
         },{
-          id: 'when', label: gettext('When'),  cell: 'string',
+          id: 'when', label: gettext('When TAG in'),  cell: 'string',
           type: 'text', group: gettext('Definition'),
           control: Backform.SqlFieldControl,
           extraClasses:['custom_height_css_class'],

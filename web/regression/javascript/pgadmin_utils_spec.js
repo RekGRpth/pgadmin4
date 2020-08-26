@@ -2,12 +2,13 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
 
-import { getEpoch, getGCD, getMod, quote_ident, parseFuncParams } from 'sources/utils';
+import { getEpoch, getGCD, getMod, quote_ident, parseFuncParams,
+  getRandomInt, sprintf, CSVToArray } from 'sources/utils';
 
 describe('getEpoch', function () {
   it('should return non zero', function () {
@@ -15,7 +16,7 @@ describe('getEpoch', function () {
   });
 
   it('should return epoch for a date passed', function () {
-    let someDate = new Date('Feb 01 2019 10:20:30 GMT0000'),
+    let someDate = new Date('Feb 01 2019 10:20:30 GMT'),
       someDateEpoch = 1549016430;
 
     expect(getEpoch(new Date(someDate))).toEqual(someDateEpoch);
@@ -133,5 +134,60 @@ describe('parseFuncParams', function () {
       ],
     };
     expect(parseFuncParams(funcLabel)).toEqual(expectedObj);
+  });
+});
+
+describe('getRandomInt', function () {
+  it('is between', function () {
+    let id = getRandomInt(1, 9999999);
+    expect(1 <= id && id <= 9999999).toBeTruthy();
+  });
+});
+
+describe('sprintf', function () {
+  it('single replace', function () {
+    expect(
+      sprintf('This is normal %s for testing.', 'replace')
+    ).toBe(
+      'This is normal replace for testing.'
+    );
+  });
+
+  it('multi replace', function () {
+    expect(
+      sprintf('This is multi %s for %s testing.', 'positions', 'replace')
+    ).toBe(
+      'This is multi positions for replace testing.'
+    );
+  });
+
+  it('text, numbers, empty replace', function () {
+    expect(
+      sprintf('This is a number - %s, text - %s, and not repalce - %s.', 4321, 'replace')
+    ).toBe(
+      'This is a number - 4321, text - replace, and not repalce - %s.'
+    );
+  });
+});
+
+describe('CSVToArray', function() {
+  it('simple input single record', function() {
+    expect(CSVToArray('a,b')).toEqual([['a', 'b']]);
+  });
+
+  it('simple input delimeter change', function() {
+    expect(CSVToArray('"a";"b"', ';')).toEqual([['a', 'b']]);
+  });
+
+  it('simple input multi records', function() {
+    expect(CSVToArray('"a","b"\n"c","d"')).toEqual([['a', 'b'], ['c', 'd']]);
+  });
+
+  it('multiline input containing double quotes', function() {
+    expect(CSVToArray('"hello ""a\nb""","c"')).toEqual([['hello "a\nb"','c']]);
+  });
+
+  it('multiline input containing single quotes', function() {
+    expect(CSVToArray('\'hello \'\'a\nb\'\'\',\'c\'', ',', '\'')).toEqual([['hello \'a\nb\'','c']]);
   });
 });

@@ -2,13 +2,14 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
 
 import json
 import uuid
+from unittest.mock import patch
 
 from pgadmin.browser.server_groups.servers.databases.schemas.tables.columns. \
     tests import utils as columns_utils
@@ -25,10 +26,9 @@ from . import utils as indexes_utils
 
 
 class IndexesUpdateTestCase(BaseTestGenerator):
-    """This class will update the existing index of column."""
-    scenarios = [
-        ('Put index Node URL', dict(url='/browser/index/obj/'))
-    ]
+    url = "/browser/index/obj/"
+    scenarios = utils.generate_scenarios("index_put",
+                                         indexes_utils.test_cases)
 
     def setUp(self):
         self.db_name = parent_node_dict["database"][-1]["db_name"]
@@ -69,16 +69,20 @@ class IndexesUpdateTestCase(BaseTestGenerator):
                                                     self.index_name)
         if not index_response:
             raise Exception("Could not find the index to update.")
-        data = {"oid": self.index_id,
-                "description": "This is test comment for index"}
-        response = self.tester.put(
-            "{0}{1}/{2}/{3}/{4}/{5}/{6}".format(self.url, utils.SERVER_GROUP,
-                                                self.server_id, self.db_id,
-                                                self.schema_id, self.table_id,
-                                                self.index_id),
-            data=json.dumps(data),
-            follow_redirects=True)
-        self.assertEquals(response.status_code, 200)
+        self.data = self.test_data
+        self.data['oid'] = self.index_id
+
+        if self.is_positive_test:
+            response = indexes_utils.api_put_index(self)
+            indexes_utils.assert_status_code(self, response)
+
+        else:
+            if self.mocking_required:
+                with patch(self.mock_data["function_name"],
+                           side_effect=[eval(self.mock_data["return_value"])]):
+                    response = indexes_utils.api_put_index(self)
+                    indexes_utils.assert_status_code(self, response)
+                    indexes_utils.assert_error_message(self, response)
 
     def tearDown(self):
         # Disconnect the database

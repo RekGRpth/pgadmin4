@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -12,16 +12,14 @@ Typecast various data types so that they can be compatible with Javascript
 data types.
 """
 
-import sys
-
 from psycopg2 import STRING as _STRING
+from psycopg2.extensions import DECIMAL as _DECIMAL, encodings
 import psycopg2
-from psycopg2.extensions import encodings
 from psycopg2.extras import Json as psycopg2_json
 
-from .encoding import configureDriverEncodings, getEncoding
+from .encoding import configure_driver_encodings, get_encoding
 
-configureDriverEncodings(encodings)
+configure_driver_encodings(encodings)
 
 
 # OIDs of data types which need to typecast as string to avoid JavaScript
@@ -35,11 +33,13 @@ TO_STRING_DATATYPES = (
     # To cast bytea, interval type
     17, 1186,
 
-    # date, timestamp, timestamptz, bigint, double precision
-    1700, 1082, 1114, 1184, 20, 701,
+    # date, timestamp, timestamp with zone, time without time zone
+    1082, 1114, 1184, 1083
+)
 
-    # real, time without time zone
-    700, 1083
+TO_STRING_NUMERIC_DATATYPES = (
+    # Real, double precision, numeric, bigint
+    700, 701, 1700, 20
 )
 
 # OIDs of array data types which need to typecast to array of string.
@@ -124,10 +124,6 @@ PSYCOPG_SUPPORTED_RANGE_ARRAY_TYPES = (3905, 3927, 3907, 3913, 3909, 3911)
 
 
 def register_global_typecasters():
-    if sys.version_info < (3,):
-        psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
-        psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
-
     unicode_type_for_record = psycopg2.extensions.new_type(
         (2249,),
         "RECORD",
@@ -148,8 +144,8 @@ def register_global_typecasters():
 
     # define type caster to convert various pg types into string type
     pg_types_to_string_type = psycopg2.extensions.new_type(
-        TO_STRING_DATATYPES + PSYCOPG_SUPPORTED_RANGE_TYPES,
-        'TYPECAST_TO_STRING', _STRING
+        TO_STRING_DATATYPES + TO_STRING_NUMERIC_DATATYPES +
+        PSYCOPG_SUPPORTED_RANGE_TYPES, 'TYPECAST_TO_STRING', _STRING
     )
 
     # define type caster to convert pg array types of above types into
@@ -184,21 +180,14 @@ def register_string_typecasters(connection):
     # are escaped again and sent to the DB.
 
     postgres_encoding, python_encoding, typecast_encoding = \
-        getEncoding(connection.encoding)
+        get_encoding(connection.encoding)
     if postgres_encoding != 'UNICODE':
-        if sys.version_info >= (3,):
-            def non_ascii_escape(value, cursor):
-                if value is None:
-                    return None
-                return bytes(
-                    value, encodings[cursor.connection.encoding]
-                ).decode(typecast_encoding, errors='replace')
-        else:
-            def non_ascii_escape(value, cursor):
-                if value is None:
-                    return None
-                return value.decode(typecast_encoding, errors='replace')
-                # return value
+        def non_ascii_escape(value, cursor):
+            if value is None:
+                return None
+            return bytes(
+                value, encodings[cursor.connection.encoding]
+            ).decode(typecast_encoding, errors='replace')
 
         unicode_type = psycopg2.extensions.new_type(
             # "char", name, text, character, character varying
@@ -254,3 +243,10 @@ def register_array_to_string_typecasters(connection):
             _STRING),
         connection
     )
+
+
+def unregister_numeric_typecasters(connection):
+    string_type_to_decimal = \
+        psycopg2.extensions.new_type(TO_STRING_NUMERIC_DATATYPES,
+                                     'TYPECAST_TO_DECIMAL', _DECIMAL)
+    psycopg2.extensions.register_type(string_type_to_decimal, connection)

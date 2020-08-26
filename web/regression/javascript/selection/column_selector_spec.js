@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -280,19 +280,6 @@ describe('ColumnSelector', function () {
       });
     });
 
-    describe('when the column is deselected through setSelectedRanges', function () {
-      beforeEach(function () {
-        container.find('.slick-header-column')[1].click();
-      });
-
-      it('removes selected class from header', function () {
-        cellSelectionModel.setSelectedRanges([]);
-
-        expect($(container.find('.slick-header-column')[1]).hasClass('selected'))
-          .toEqual(false);
-      });
-    });
-
     describe('when a non-column range was already selected', function () {
       beforeEach(function () {
         var selectedRanges = [new Slick.Range(0, 0, 2, 0)];
@@ -385,16 +372,16 @@ describe('ColumnSelector', function () {
 
         it('no column should have the class \'selected\'', function () {
           expect($(container.find('.slick-header-column:contains(some-column-name)')).hasClass('selected'))
-            .toBeFalsy();
+            .toBeTruthy();
         });
       });
     });
   });
 
-  function setupGrid(columns) {
+  function setupGrid(gridColumns) {
     var columnSelector = new ColumnSelector();
-    columns = columnSelector.getColumnDefinitions(columns);
-    var grid = new SlickGrid(container, data, columns, options);
+    gridColumns = columnSelector.getColumnDefinitions(gridColumns);
+    var grid = new SlickGrid(container, data, gridColumns, options);
 
     var cellSelectionModel = new XCellSelectionModel();
     grid.setSelectionModel(cellSelectionModel);

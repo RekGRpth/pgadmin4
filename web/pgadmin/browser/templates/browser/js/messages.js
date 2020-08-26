@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -26,8 +26,8 @@ define(
     'SQL_NO_CHANGE': gettext('Nothing changed'),
     'MUST_BE_INT' : gettext("'%s' must be an integer."),
     'MUST_BE_NUM' : gettext("'%s' must be a numeric."),
-    'MUST_GR_EQ' : gettext("%s' must be greater than or equal to %d."),
-    'MUST_LESS_EQ' : gettext("'%s' must be less than or equal to %d."),
+    'MUST_GR_EQ' : gettext("'%s' must be greater than or equal to %s."),
+    'MUST_LESS_EQ' : gettext("'%s' must be less than or equal to %s."),
     'STATISTICS_LABEL': gettext("Statistics"),
     'STATISTICS_VALUE_LABEL': gettext("Value"),
     'NODE_HAS_NO_SQL': gettext("No SQL could be generated for the selected object."),

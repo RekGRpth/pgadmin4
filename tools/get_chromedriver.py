@@ -4,7 +4,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -17,7 +17,8 @@ import os
 import platform
 import subprocess
 import sys
-import urllib.request
+from urllib.request import urlopen, urlretrieve
+from urllib.error import URLError
 import zipfile
 
 
@@ -56,11 +57,11 @@ def get_chrome_version(args):
         def _read_registry(root, key, value):
             try:
                 hkey = winreg.OpenKey(root, key)
-            except Exception as e:
+            except Exception:
                 return None
             try:
                 (val, typ) = winreg.QueryValueEx(hkey, value)
-            except Exception as e:
+            except Exception:
                 winreg.CloseKey(hkey)
                 return None
 
@@ -85,18 +86,23 @@ def get_chrome_version(args):
         # On Linux/Mac we run the Chrome executable with the --version flag,
         # then parse the output.
         try:
-            result = subprocess.run([args.chrome, '--version'],
-                                    stdout=subprocess.PIPE)
-        except FileNotFoundError as e:
+            result = subprocess.Popen([args.chrome, '--version'],
+                                      stdout=subprocess.PIPE)
+        except FileNotFoundError:
             print('The specified Chrome executable could not be found.')
             sys.exit(1)
 
-        version_str = result.stdout.decode("utf-8").strip()
+        version_str = result.stdout.read().decode("utf-8")
         # Check for 'Chrom' not 'Chrome' in case the user is using Chromium.
         if "Chrom" not in version_str:
             print('The specified Chrome executable output an unexpected '
                   'version string: {}.'.format(version_str))
             sys.exit(1)
+        # On some linux distro `chrome--version` gives output like
+        # 'Google Chrome 80.0.3987.132 unknown\n'
+        # so we need to check and remove the unknown string from the version
+        if version_str.endswith("unknown\n"):
+            version_str = version_str.strip("unknown\n").strip()
 
         chrome_version = '.'.join(version_str.split()[-1].split('.')[:-1])
 
@@ -120,8 +126,8 @@ def get_chromedriver_version(chrome_version):
         .format(chrome_version)
 
     try:
-        fp = urllib.request.urlopen(url)
-    except urllib.error.URLError as e:
+        fp = urlopen(url)
+    except URLError as e:
         print('The chromedriver catalog URL could not be accessed: {}'
               .format(e))
         sys.exit(1)
@@ -173,8 +179,8 @@ print('Downloading chromedriver v{} for Chrome v{} on {}...'
       .format(chromedriver_version, chrome_version, system))
 
 try:
-    file, headers = urllib.request.urlretrieve(url)
-except urllib.error.URLError as e:
+    file, headers = urlretrieve(url)
+except URLError as e:
     print('The chromedriver download URL could not be accessed: {}'
           .format(e))
     sys.exit(1)

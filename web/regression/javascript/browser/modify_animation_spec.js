@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -25,8 +25,8 @@ describe('modifyAnimation', function () {
     });
     dummyElement = document.createElement('link');
     spyOn($.fn, 'find').and.returnValue($(dummyElement));
-    spyOn($.fn, 'removeAttr');
-    spyOn($.fn, 'attr');
+    spyOn($.fn, 'removeClass');
+    spyOn($.fn, 'addClass');
   });
 
   describe('When browser tree animation is disabled', () => {
@@ -74,7 +74,7 @@ describe('modifyAnimation', function () {
     it('alertify disalogue/notification animation should be disabled', function() {
       expect(pgBrowser.get_preference).toHaveBeenCalled();
       expect($.fn.find).toHaveBeenCalled();
-      expect($.fn.removeAttr).toHaveBeenCalledWith('disabled', 'disabled');
+      expect($.fn.addClass).toHaveBeenCalledWith('alertify-no-animation');
     });
   });
 
@@ -86,7 +86,7 @@ describe('modifyAnimation', function () {
     it('alertify disalogue/notification animation should be enabled', function() {
       expect(pgBrowser.get_preference).toHaveBeenCalled();
       expect($.fn.find).toHaveBeenCalled();
-      expect($.fn.attr).toHaveBeenCalledWith('disabled', 'disabled');
+      expect($.fn.removeClass).toHaveBeenCalledWith('alertify-no-animation');
     });
   });
 

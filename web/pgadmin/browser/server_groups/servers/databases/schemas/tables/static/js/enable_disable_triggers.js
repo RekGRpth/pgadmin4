@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -10,10 +10,10 @@
 import axios from 'axios';
 
 export function disableTriggers(tree, alertify, generateUrl, args) {
-  return setTriggers(tree, alertify, generateUrl, args, {enable: 'false' });
+  return setTriggers(tree, alertify, generateUrl, args, {is_enable_trigger: 'D' });
 }
 export function enableTriggers(tree, alertify, generateUrl, args) {
-  return setTriggers(tree, alertify, generateUrl, args, {enable: 'true' });
+  return setTriggers(tree, alertify, generateUrl, args, {is_enable_trigger: 'O' });
 }
 
 function setTriggers(tree, alertify, generateUrl, args, params) {

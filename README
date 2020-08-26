@@ -1,4 +1,4 @@
-pgAdmin 4
+pgAdmin 4 
 =========
 
 pgAdmin 4 is a rewrite of the popular pgAdmin3 management tool for the
@@ -26,42 +26,46 @@ Building the Runtime
 
 To build the runtime, the following packages must be installed:
 
-- QT 4.6 or above (Use the VC++ build on Windows, not MinGW).
-- Python 2.7 or 3.4+
+- QT 5 (Use the VC++ build on Windows, not MinGW).
+- Python 3.4+
 
-Assuming both qmake and python-config are in the path:
+An environment variable named PGADMIN_PYTHON_DIR must be set to the directory
+in which Python has been installed, for example:
 
-   $ cd $PGADMIN4_SRC/runtime
-    $ qmake
-    Project MESSAGE: Building for QT5+...
-    Project MESSAGE: Building for Linux/Mac...
-    Project MESSAGE: Using /usr/bin/python-config
-    Project MESSAGE: Python2 detected.
-    $ make
-    ...
+- /usr
+- /usr/local/python-3.8
+- C:\Python38
 
-To build the runtime in debug mode, use the option below with qmake
+Assuming both qmake is in the path:
+
+  dpage@hal:~/git/pgadmin4$ cd runtime
+  dpage@hal:~/git/pgadmin4/runtime$ export PGADMIN_PYTHON_DIR=/opt/local
+  dpage@hal:~/git/pgadmin4/runtime$ qmake
+  Project MESSAGE: ==================================
+  Project MESSAGE: Configuring the pgAdmin 4 runtime.
+  Project MESSAGE: ==================================
+  Project MESSAGE: Qt version: 5
+  Project MESSAGE: Platform: macOS
+  Project MESSAGE: Python executable: /opt/local/bin/python3
+  Project MESSAGE: Python version: 3.8 (38)
+  Project MESSAGE: Python config: /opt/local/bin/python3-config
+  Project MESSAGE: CXXFLAGS: -pipe -stdlib=libc++ -I/opt/local/Library/Frameworks/Python.framework/Versions/3.8/include/python3.8 -I/opt/local/Library/Frameworks/Python.framework/Versions/3.8/include/python3.8
+  Project MESSAGE: LDFLAGS: -stdlib=libc++ -L/opt/local/Library/Frameworks/Python.framework/Versions/3.8/lib/python3.8/config-3.8-darwin -ldl -framework CoreFoundation
+  Project MESSAGE: LIBS: -lpython3.8 -ldl -framework CoreFoundation
+  dpage@hal:~/git/pgadmin4/runtime$ make
+  ...
+
+To build the runtime in debug mode, use the option below with qmake:
 $ qmake CONFIG+=debug
 
-To build the runtime in release mode, use the option below with qmake
+To build the runtime in release mode, use the option below with qmake:
 $ qmake CONFIG+=release
 
 By default, the runtime application will be built in release mode.
 
-On Linux, an executable called 'pgAdmin4' will be built, and on Mac OS X, an
-app bundle called pgAdmin4.app will be created.
-
-To build the runtime on a Windows system, export PYTHON_HOME and PYTHON_VERSION 
-variables in the System environment. Specify the PYTHON_VERSION with the major 
-and minor number. Do not specify micro level version.
-
-For example, given a Python version of A.B.C; A - Major number, B - Minor
-number, C - Micro level (Bug fix releases).
-
-If Python version is 2.7.12 than specify PYTHON_VERSION=27
-
- e.g. PYTHON_HOME=C:\Python27\
-      PYTHON_VERSION=27
+On Linux, an executable called 'pgAdmin4' will be built, on Windows,
+'pgAdmin4.exe', and on Mac OS X, an app bundle called pgAdmin4.app will be
+created.
 
 You can also use Qt Creator to build, develop and debug the runtime. Simply
 open the $PGADMIN4_SRC/runtime/pgAdmin4.pro project file in Qt Creator and
@@ -88,10 +92,10 @@ Configuring the Python Environment
 ----------------------------------
 
 In order to run the Python code, a suitable runtime environment is required.
-Python versions - Python 2.7 or 3.4+ are currently supported. It is
-recommended that a Python Virtual Environment is setup for this purpose,
-rather than using the system Python environment. On Linux and Mac systems, the
-process is fairly simple - adapt as required for your distribution:
+Python version 3.4 and later are currently supported. It is recommended that a
+Python Virtual Environment is setup for this purpose, rather than using the
+system Python environment. On Linux and Mac systems, the process is fairly
+simple - adapt as required for your distribution:
 
 1) Install the virtualenv packages into the system Python environment
 
@@ -181,16 +185,7 @@ server or desktop mode, and access it from a web browser using the URL shown in
 the terminal once pgAdmin has started up.
 
 Setup of an environment on Windows is somewhat more complicated unfortunately,
-largely due to the lack of a native compiler toolset. Thankfully, Microsoft
-supply a free compiler specifically for Python 2.7 users. Download and install
-it from:
-
-https://www.microsoft.com/en-gb/download/details.aspx?id=44266
-
-A blog detailing the setup of Virtual Environments on Windows can be found
-here:
-
-http://www.tylerbutler.com/2012/05/how-to-install-python-pip-and-virtualenv-on-windows-with-powershell/
+please see pkg/win32/README.txt for complete details.
 
 Once a virtual environment has been created and enabled, setup can continue
 from step 4 above.
@@ -219,6 +214,23 @@ can be used:
     C:\$PGADMIN4_SRC\web> yarn install
     C:\$PGADMIN4_SRC\web> yarn run bundle
 
+Creating pgAdmin themes
+-----------------------
+
+To create a pgAdmin theme, you need to create a directory under
+web/pgadmin/static/scss/resources.
+Copy the sample file _theme.variables.scss.sample to the new directory and
+rename it to _theme.variables.scss. Change the desired hexadecimal values of
+the colors and bundle pgAdmin. You can also add a preview image in the theme
+directory with the name as <dir name>_preview.png. It is recommended that the
+preview image should not be larger in size as it may take time to load on slow
+networks. Run the yarn run bundle and you're good to go. No other changes are
+required, pgAdmin bundle will read the directory and create other required
+entries to make them available in preferences.
+
+The name of the theme is derived from the directory name. Underscores (_) and
+hyphens (-) will be replaced with spaces and the result will be camel cased.
+
 Configuring the Runtime
 -----------------------
 
@@ -235,7 +247,7 @@ icon and select the Configuration option to open the configuration dialogue.
 On a Linux/Mac system, the Python Path will typically consist of a single path
 to the virtual environment's site-packages directory, e.g.
 
-    /Users/<USERNAME>/.virtualenvs/pgadmin4/lib/python2.7/site-packages
+    /Users/<USERNAME>/.virtualenvs/pgadmin4/lib/python3.8/site-packages
 
 On Windows, multiple paths are likely to be required, e.g.
 
@@ -277,49 +289,9 @@ run:
 
     (pgadmin4) $ make pip
 
-On a Mac, build an application bundle in a disk image (DMG file) with:
+To build the macOS AppBundle, please see pkg/mac/README.
 
-    (pgadmin4) $ make appbundle
-
-Configure the framework.conf to match the QT and Python versions the app is
-being built with:
-
-    $ cp $PGADMIN4_SRC/pkg/mac/framework.conf.in $PGADMIN4_SRC/pkg/mac/framework.conf
-    $ vi $PGADMIN4_SRC/pkg/mac/framework.conf
-
-If you have an Apple code signing certificate, both the app bundle and disk
-image can be automatically signed by configuring signing:
-
-    $ cp $PGADMIN4_SRC/pkg/mac/codesign.conf.in $PGADMIN4_SRC/pkg/mac/codesign.conf
-    $ vi $PGADMIN4_SRC/pkg/mac/codesign.conf
-
-Edit the file as appropriate, ensuring the various version numbers are correct
-and that the appropriate developer ID is specified.
-
-On Windows, the InnoSetup tool is required to create an installer. Download the
-Unicode version from:
-
-http://www.jrsoftware.org/isdl.php
-
-A number of environment variables may need to be set to enable the build script
-to function. The defaults will usually work on a typical 64 bit system with
-Qt 5.5.1, Python 2.7 and Visual Studio 2013. The examples below are for a
-similar 32 bit system:
-
-INNOTOOL=C:\Program Files\Inno Setup 5
-PGDIR=C:\Program Files\PostgreSQL\10
-PYTHON_DLL=C:\Windows\System32\Python27.dll
-PYTHON_HOME=C:\Python27
-PYTHON_VERSION=27
-QTDIR=C:\Qt\5.9\msvc2013
-VCDIR=C:\Program Files\Microsoft Visual Studio 12.0\VC
-
-To build the installer:
-
-    C:\$PGADMIN4_SRC> make x86
-
-If you have a code signing certificate, this will automatically be used if
-found in the Windows Certificate Store to sign the installer.
+To build the Windows installer, please see pkg/win32/README.txt.
 
 Support
 -------

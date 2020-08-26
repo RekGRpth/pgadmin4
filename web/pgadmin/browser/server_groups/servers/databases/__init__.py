@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -31,10 +31,16 @@ from pgadmin.utils.ajax import make_json_response, \
 from pgadmin.utils.driver import get_driver
 from pgadmin.tools.sqleditor.utils.query_history import QueryHistory
 
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.model import db, Server, Database
+
 
 class DatabaseModule(CollectionNodeModule):
-    NODE_TYPE = 'database'
-    COLLECTION_LABEL = _("Databases")
+    _NODE_TYPE = 'database'
+    _COLLECTION_LABEL = _("Databases")
+
+    _DATABASE_CSS_PATH = 'databases/css'
+    _DATABASE_CSS = "/".join([_DATABASE_CSS_PATH, 'database.css'])
 
     def __init__(self, *args, **kwargs):
         self.min_ver = None
@@ -55,7 +61,7 @@ class DatabaseModule(CollectionNodeModule):
         Load the module script for server, when any of the server-group node is
         initialized.
         """
-        return servers.ServerModule.NODE_TYPE
+        return servers.ServerModule.node_type
 
     @property
     def csssnippets(self):
@@ -64,12 +70,12 @@ class DatabaseModule(CollectionNodeModule):
         """
         snippets = [
             render_template(
-                "browser/css/collection.css",
+                self._COLLECTION_CSS,
                 node_type=self.node_type,
                 _=_
             ),
             render_template(
-                "databases/css/database.css",
+                self._DATABASE_CSS,
                 node_type=self.node_type,
                 _=_
             )
@@ -94,6 +100,7 @@ blueprint = DatabaseModule(__name__)
 
 class DatabaseView(PGChildNodeView):
     node_type = blueprint.node_type
+    node_label = "Database"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -172,8 +179,9 @@ class DatabaseView(PGChildNodeView):
                     kwargs['sid']
                 )
                 if self.manager is None:
-                    return gone(errormsg="Could not find the server.")
+                    return gone(errormsg=_("Could not find the server."))
 
+                self.datlastsysoid = 0
                 if action and action in ["drop"]:
                     self.conn = self.manager.connection()
                 elif 'did' in kwargs:
@@ -183,6 +191,7 @@ class DatabaseView(PGChildNodeView):
                     # provide generic connection
                     if kwargs['did'] in self.manager.db_info:
                         self._db = self.manager.db_info[kwargs['did']]
+                        self.datlastsysoid = self._db['datlastsysoid']
                         if self._db['datallowconn'] is False:
                             self.conn = self.manager.connection()
                             self.db_allow_connection = False
@@ -213,7 +222,7 @@ class DatabaseView(PGChildNodeView):
             params = tuple(self.manager.db_res.split(','))
 
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             conn=self.conn,
             last_system_oid=last_system_oid,
             db_restrictions=db_disp_res
@@ -225,11 +234,8 @@ class DatabaseView(PGChildNodeView):
 
         for row in res['rows']:
             if self.manager.db == row['name']:
-                connected = True
                 row['canDrop'] = False
             else:
-                conn = self.manager.connection(row['name'], did=row['did'])
-                connected = conn.connected()
                 row['canDrop'] = True
 
         return ajax_response(
@@ -249,9 +255,16 @@ class DatabaseView(PGChildNodeView):
                 'datlastsysoid']
         return last_system_oid
 
-    def get_nodes(self, gid, sid, show_system_templates=False):
+    def get_nodes(self, gid, sid, is_schema_diff=False):
         res = []
         last_system_oid = self.retrieve_last_system_oid()
+
+        # if is_schema_diff then no need to show system templates.
+        if is_schema_diff and self.manager.db_info is not None and \
+                self.manager.did in self.manager.db_info:
+            last_system_oid = \
+                self.manager.db_info[self.manager.did]['datlastsysoid']
+
         server_node_res = self.manager
 
         db_disp_res = None
@@ -262,7 +275,7 @@ class DatabaseView(PGChildNodeView):
             )
             params = tuple(server_node_res.db_res.split(','))
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             last_system_oid=last_system_oid,
             db_restrictions=db_disp_res
         )
@@ -275,11 +288,11 @@ class DatabaseView(PGChildNodeView):
             dbname = row['name']
             if self.manager.db == dbname:
                 connected = True
-                canDrop = canDisConn = False
+                can_drop = can_dis_conn = False
             else:
                 conn = self.manager.connection(dbname, did=row['did'])
                 connected = conn.connected()
-                canDrop = canDisConn = True
+                can_drop = can_dis_conn = True
 
             res.append(
                 self.blueprint.generate_browser_node(
@@ -292,8 +305,8 @@ class DatabaseView(PGChildNodeView):
                     tablespace=row['spcname'],
                     allowConn=row['datallowconn'],
                     canCreate=row['cancreate'],
-                    canDisconn=canDisConn,
-                    canDrop=canDrop,
+                    canDisconn=can_dis_conn,
+                    canDrop=can_drop,
                     inode=True if row['datallowconn'] else False
                 )
             )
@@ -301,8 +314,8 @@ class DatabaseView(PGChildNodeView):
         return res
 
     @check_precondition(action="nodes")
-    def nodes(self, gid, sid):
-        res = self.get_nodes(gid, sid)
+    def nodes(self, gid, sid, is_schema_diff=False):
+        res = self.get_nodes(gid, sid, is_schema_diff)
 
         return make_json_response(
             data=res,
@@ -320,7 +333,7 @@ class DatabaseView(PGChildNodeView):
         """
         res = []
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             last_system_oid=0,
         )
         status, rset = self.conn.execute_dict(SQL)
@@ -339,7 +352,7 @@ class DatabaseView(PGChildNodeView):
     @check_precondition(action="node")
     def node(self, gid, sid, did):
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             did=did, conn=self.conn, last_system_oid=0
         )
         status, rset = self.conn.execute_2darray(SQL)
@@ -371,13 +384,13 @@ class DatabaseView(PGChildNodeView):
                 status=200
             )
 
-        return gone(errormsg=_("Could not find the database on the server."))
+        return gone(errormsg=self.not_found_error_msg())
 
     @check_precondition(action="properties")
     def properties(self, gid, sid, did):
 
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             did=did, conn=self.conn, last_system_oid=0
         )
         status, res = self.conn.execute_dict(SQL)
@@ -387,11 +400,11 @@ class DatabaseView(PGChildNodeView):
 
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the database on the server.")
+                self.not_found_error_msg()
             )
 
         SQL = render_template(
-            "/".join([self.template_path, 'acl.sql']),
+            "/".join([self.template_path, self._ACL_SQL]),
             did=did, conn=self.conn
         )
         status, dataclres = self.conn.execute_dict(SQL)
@@ -411,6 +424,8 @@ class DatabaseView(PGChildNodeView):
         res = self.formatdbacl(res, defaclres['rows'])
 
         result = res['rows'][0]
+        result['is_sys_obj'] = (
+            result['oid'] <= self.datlastsysoid)
         # Fetching variable for database
         SQL = render_template(
             "/".join([self.template_path, 'get_variables.sql']),
@@ -418,6 +433,11 @@ class DatabaseView(PGChildNodeView):
         )
 
         status, res1 = self.conn.execute_dict(SQL)
+        database = Database.query.filter_by(id=did, server=sid).first()
+
+        if database:
+            result['schema_res'] = database.schema_res.split(
+                ',') if database.schema_res else []
 
         if not status:
             return internal_server_error(errormsg=res1)
@@ -449,28 +469,33 @@ class DatabaseView(PGChildNodeView):
         from pgadmin.utils.driver import get_driver
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
         conn = manager.connection(did=did, auto_reconnect=True)
-        status, errmsg = conn.connect()
-
-        if not status:
-            current_app.logger.error(
-                "Could not connected to database(#{0}).\nError: {1}".format(
-                    did, errmsg
+        already_connected = conn.connected()
+        if not already_connected:
+            status, errmsg = conn.connect()
+            if not status:
+                current_app.logger.error(
+                    "Could not connected to database(#{0}).\nError: {1}"
+                    .format(
+                        did, errmsg
+                    )
                 )
-            )
-
-            return internal_server_error(errmsg)
-        else:
-            current_app.logger.info('Connection Established for Database Id: \
-                %s' % (did))
-
-            return make_json_response(
-                success=1,
-                info=_("Database connected."),
-                data={
-                    'icon': 'pg-icon-database',
-                    'connected': True
-                }
-            )
+                return internal_server_error(errmsg)
+            else:
+                current_app.logger.info(
+                    'Connection Established for Database Id: \
+                    %s' % (did)
+                )
+        return make_json_response(
+            success=1,
+            info=_("Database connected."),
+            data={
+                'icon': 'pg-icon-database',
+                'already_connected': already_connected,
+                'connected': True,
+                'info_prefix': '{0}/{1}'.
+                format(Server.query.filter_by(id=sid)[0].name, conn.db)
+            }
+        )
 
     def disconnect(self, gid, sid, did):
         """Disconnect the database."""
@@ -478,7 +503,7 @@ class DatabaseView(PGChildNodeView):
         # Release Connection
         from pgadmin.utils.driver import get_driver
         manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
-
+        conn = manager.connection(did=did, auto_reconnect=True)
         status = manager.release(did=did)
 
         if not status:
@@ -489,7 +514,9 @@ class DatabaseView(PGChildNodeView):
                 info=_("Database disconnected."),
                 data={
                     'icon': 'icon-database-not-connected',
-                    'connected': False
+                    'connected': False,
+                    'info_prefix': '{0}/{1}'.
+                    format(Server.query.filter_by(id=sid)[0].name, conn.db)
                 }
             )
 
@@ -560,12 +587,12 @@ class DatabaseView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         # The below SQL will execute CREATE DDL only
         SQL = render_template(
-            "/".join([self.template_path, 'create.sql']),
+            "/".join([self.template_path, self._CREATE_SQL]),
             data=data, conn=self.conn
         )
         status, msg = self.conn.execute_scalar(SQL)
@@ -578,7 +605,7 @@ class DatabaseView(PGChildNodeView):
         # The below SQL will execute rest DMLs because we cannot execute
         # CREATE with any other
         SQL = render_template(
-            "/".join([self.template_path, 'grant.sql']),
+            "/".join([self.template_path, self._GRANT_SQL]),
             data=data, conn=self.conn
         )
         SQL = SQL.strip('\n').strip(' ')
@@ -589,7 +616,7 @@ class DatabaseView(PGChildNodeView):
 
         # We need oid of newly created database
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             name=data['name'], conn=self.conn, last_system_oid=0
         )
         SQL = SQL.strip('\n').strip(' ')
@@ -599,6 +626,11 @@ class DatabaseView(PGChildNodeView):
                 return internal_server_error(errormsg=res)
 
         response = res['rows'][0]
+        # Add database entry into database table with schema_restrictions.
+        database = Database(id=response['did'], server=sid,
+                            schema_res=','.join(data['schema_res']))
+        db.session.add(database)
+        db.session.commit()
 
         return jsonify(
             node=self.blueprint.generate_browser_node(
@@ -615,53 +647,27 @@ class DatabaseView(PGChildNodeView):
             )
         )
 
-    @check_precondition(action='update')
-    def update(self, gid, sid, did):
-        """Update the database."""
+    @staticmethod
+    def _update_db_schema_res(data, did, sid):
+        database = Database.query.filter_by(id=did, server=sid).first()
+        if 'schema_res' in data:
+            if database:
+                data['schema_res'] = ','.join(data['schema_res'])
+                setattr(database, 'schema_res', data['schema_res'])
+            else:
+                database_obj = Database(id=did, server=sid,
+                                        schema_res=','.join(
+                                            data['schema_res']))
+                db.session.add(database_obj)
 
-        data = request.form if request.form else json.loads(
-            request.data, encoding='utf-8'
-        )
-
-        # Generic connection for offline updates
-        conn = self.manager.connection(conn_id='db_offline_update')
-        status, errmsg = conn.connect()
-        if not status:
-            current_app.logger.error(
-                "Could not create database connection for offline updates\n"
-                "Err: {0}".format(errmsg)
-            )
-            return internal_server_error(errmsg)
-
-        if did is not None:
-            # Fetch the name of database for comparison
-            status, rset = self.conn.execute_dict(
-                render_template(
-                    "/".join([self.template_path, 'nodes.sql']),
-                    did=did, conn=self.conn, last_system_oid=0
-                )
-            )
-            if not status:
-                return internal_server_error(errormsg=rset)
-
-            if len(rset['rows']) == 0:
-                return gone(
-                    _('Could not find the database on the server.')
-                )
-
-            data['old_name'] = (rset['rows'][0])['name']
-            if 'name' not in data:
-                data['name'] = data['old_name']
-
-        # Release any existing connection from connection manager
-        # to perform offline operation
-        self.manager.release(did=did)
+    def _check_rename_db_or_change_table_space(self, data, conn, all_ids):
 
         for action in ["rename_database", "tablespace"]:
-            SQL = self.get_offline_sql(gid, sid, data, did, action)
-            SQL = SQL.strip('\n').strip(' ')
-            if SQL and SQL != "":
-                status, msg = conn.execute_scalar(SQL)
+            sql = self.get_offline_sql(all_ids['gid'], all_ids['sid'], data,
+                                       all_ids['did'], action)
+            sql = sql.strip('\n').strip(' ')
+            if sql and sql != "":
+                status, msg = conn.execute_scalar(sql)
                 if not status:
                     # In case of error from server while rename it,
                     # reconnect to the database with old name again.
@@ -672,13 +678,38 @@ class DatabaseView(PGChildNodeView):
                     if not status:
                         current_app.logger.error(
                             'Could not reconnected to database(#{0}).\n'
-                            'Error: {1}'.format(did, errmsg)
+                            'Error: {1}'.format(all_ids['did'], errmsg)
                         )
-                    return internal_server_error(errormsg=msg)
+                    return True, msg
 
                 QueryHistory.update_history_dbname(
-                    current_user.id, sid, data['old_name'], data['name'])
-        # Make connection for database again
+                    current_user.id, all_ids['sid'], data['old_name'],
+                    data['name'])
+        return False, ''
+
+    def _fetch_db_details(self, data, did):
+        if did is not None:
+            # Fetch the name of database for comparison
+            status, rset = self.conn.execute_dict(
+                render_template(
+                    "/".join([self.template_path, self._NODES_SQL]),
+                    did=did, conn=self.conn, last_system_oid=0
+                )
+            )
+            if not status:
+                return True, rset
+
+            if len(rset['rows']) == 0:
+                return gone(
+                    _('Could not find the database on the server.')
+                )
+
+            data['old_name'] = (rset['rows'][0])['name']
+            if 'name' not in data:
+                data['name'] = data['old_name']
+        return False, ''
+
+    def _reconnect_connect_db(self, data, did):
         if self._db['datallowconn']:
             self.conn = self.manager.connection(
                 database=data['name'], auto_reconnect=True
@@ -690,12 +721,70 @@ class DatabaseView(PGChildNodeView):
                     'Could not connected to database(#{0}).\n'
                     'Error: {1}'.format(did, errmsg)
                 )
-                return internal_server_error(errmsg)
+                return True, errmsg
+        return False, ''
 
-        SQL = self.get_online_sql(gid, sid, data, did)
-        SQL = SQL.strip('\n').strip(' ')
-        if SQL and SQL != "":
-            status, msg = self.conn.execute_scalar(SQL)
+    def _commit_db_changes(self, res, can_drop):
+        if self.manager.db == res['name']:
+            can_drop = False
+
+        try:
+            db.session.commit()
+        except Exception as e:
+            current_app.logger.exception(e)
+            return True, e.message, False
+        return False, '', can_drop
+
+    def _get_data_from_request(self):
+        return request.form if request.form else json.loads(
+            request.data, encoding='utf-8'
+        )
+
+    @check_precondition(action='update')
+    def update(self, gid, sid, did):
+        """Update the database."""
+
+        data = self._get_data_from_request()
+        # Update schema restriction in db object.
+        DatabaseView._update_db_schema_res(data, did, sid)
+
+        # Generic connection for offline updates
+        conn = self.manager.connection(conn_id='db_offline_update')
+        status, errmsg = conn.connect()
+        if not status:
+            current_app.logger.error(
+                "Could not create database connection for offline updates\n"
+                "Err: {0}".format(errmsg)
+            )
+            return internal_server_error(errmsg)
+
+        fetching_error, err_msg = self._fetch_db_details(data, did)
+        if fetching_error:
+            return internal_server_error(errormsg=err_msg)
+
+        # Release any existing connection from connection manager
+        # to perform offline operation
+        self.manager.release(did=did)
+        all_ids = {
+            'gid': gid,
+            'sid': sid,
+            'did': did
+        }
+        is_error, errmsg = self._check_rename_db_or_change_table_space(data,
+                                                                       conn,
+                                                                       all_ids)
+        if is_error:
+            return internal_server_error(errmsg)
+
+        # Make connection for database again
+        connection_error, errmsg = self._reconnect_connect_db(data, did)
+        if connection_error:
+            return internal_server_error(errmsg)
+
+        sql = self.get_online_sql(gid, sid, data, did)
+        sql = sql.strip('\n').strip(' ')
+        if sql and sql != "":
+            status, msg = self.conn.execute_scalar(sql)
             if not status:
                 return internal_server_error(errormsg=msg)
 
@@ -707,7 +796,7 @@ class DatabaseView(PGChildNodeView):
         # generation
         status, rset = self.conn.execute_dict(
             render_template(
-                "/".join([self.template_path, 'nodes.sql']),
+                "/".join([self.template_path, self._NODES_SQL]),
                 did=did, conn=self.conn, last_system_oid=0
             )
         )
@@ -716,14 +805,20 @@ class DatabaseView(PGChildNodeView):
 
         if len(rset['rows']) == 0:
             return gone(
-                _("Could not find the database on the server.")
+                self.not_found_error_msg()
             )
 
         res = rset['rows'][0]
 
-        canDrop = canDisConn = True
-        if self.manager.db == res['name']:
-            canDrop = canDisConn = False
+        can_drop = True
+        error, errmsg, is_can_drop = self._commit_db_changes(res, can_drop)
+        if error:
+            return make_json_response(
+                success=0,
+                errormsg=errmsg
+            )
+
+        can_drop = can_dis_conn = is_can_drop
 
         return jsonify(
             node=self.blueprint.generate_browser_node(
@@ -738,15 +833,40 @@ class DatabaseView(PGChildNodeView):
                 tablespace=res['spcname'],
                 allowConn=res['datallowconn'],
                 canCreate=res['cancreate'],
-                canDisconn=canDisConn,
-                canDrop=canDrop,
+                canDisconn=can_dis_conn,
+                canDrop=can_drop,
                 inode=True if res['datallowconn'] else False
             )
         )
 
-    @check_precondition(action="drop")
-    def delete(self, gid, sid, did=None):
-        """Delete the database."""
+    def _release_conn_before_delete(self, sid, did):
+        """
+        Check connection and release it before deleting database.
+        :param sid: Server Id.
+        :param did: Database Id.
+        :return: Return error if any.
+        """
+        if self.conn.connected():
+            # Release the connection if it is connected
+            from pgadmin.utils.driver import get_driver
+            manager = \
+                get_driver(PG_DEFAULT_DRIVER).connection_manager(sid)
+            manager.connection(did=did, auto_reconnect=True)
+            status = manager.release(did=did)
+
+            if not status:
+                return True, unauthorized(
+                    _("Database could not be deleted."))
+
+        return False, ''
+
+    @staticmethod
+    def _get_req_data(did):
+        """
+        Get data from request.
+        :param did: Database Id.
+        :return: Return Data get from request.
+        """
 
         if did is None:
             data = request.form if request.form else json.loads(
@@ -755,13 +875,21 @@ class DatabaseView(PGChildNodeView):
         else:
             data = {'ids': [did]}
 
+        return data
+
+    @check_precondition(action="drop")
+    def delete(self, gid, sid, did=None):
+        """Delete the database."""
+
+        data = DatabaseView._get_req_data(did)
+
         for did in data['ids']:
             default_conn = self.manager.connection()
-            SQL = render_template(
-                "/".join([self.template_path, 'delete.sql']),
+            sql = render_template(
+                "/".join([self.template_path, self._DELETE_SQL]),
                 did=did, conn=self.conn
             )
-            status, res = default_conn.execute_scalar(SQL)
+            status, res = default_conn.execute_scalar(sql)
             if not status:
                 return internal_server_error(errormsg=res)
 
@@ -777,15 +905,16 @@ class DatabaseView(PGChildNodeView):
                     )
                 )
             else:
+                is_error, errmsg = self._release_conn_before_delete(sid, did)
+                if is_error:
+                    return errmsg
 
-                status = self.manager.release(did=did)
-
-                SQL = render_template(
-                    "/".join([self.template_path, 'delete.sql']),
+                sql = render_template(
+                    "/".join([self.template_path, self._DELETE_SQL]),
                     datname=res, conn=self.conn
                 )
 
-                status, msg = default_conn.execute_scalar(SQL)
+                status, msg = default_conn.execute_scalar(sql)
                 if not status:
                     # reconnect if database drop failed.
                     conn = self.manager.connection(did=did,
@@ -832,7 +961,7 @@ class DatabaseView(PGChildNodeView):
             conn = self.manager.connection()
             status, rset = conn.execute_dict(
                 render_template(
-                    "/".join([self.template_path, 'nodes.sql']),
+                    "/".join([self.template_path, self._NODES_SQL]),
                     did=did, conn=conn, last_system_oid=0
                 )
             )
@@ -841,7 +970,7 @@ class DatabaseView(PGChildNodeView):
 
             if len(rset['rows']) == 0:
                 return gone(
-                    _("Could not find the database on the server.")
+                    self.not_found_error_msg()
                 )
 
             data['old_name'] = (rset['rows'][0])['name']
@@ -871,7 +1000,6 @@ class DatabaseView(PGChildNodeView):
                 return _(" -- definition incomplete")
 
         acls = []
-        SQL_acl = ''
 
         try:
             acls = render_template(
@@ -889,18 +1017,18 @@ class DatabaseView(PGChildNodeView):
                     data[aclcol], allowedacl['acl']
                 )
 
-        SQL_acl = render_template(
-            "/".join([self.template_path, 'grant.sql']),
+        sql_acl = render_template(
+            "/".join([self.template_path, self._GRANT_SQL]),
             data=data,
             conn=self.conn
         )
 
         SQL = render_template(
-            "/".join([self.template_path, 'create.sql']),
+            "/".join([self.template_path, self._CREATE_SQL]),
             data=data, conn=self.conn
         )
         SQL += "\n"
-        SQL += SQL_acl
+        SQL += sql_acl
         return SQL
 
     def get_online_sql(self, gid, sid, data, did=None):
@@ -1003,7 +1131,7 @@ class DatabaseView(PGChildNodeView):
 
         conn = self.manager.connection()
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             did=did, conn=conn, last_system_oid=0
         )
         status, res = conn.execute_dict(SQL)
@@ -1013,11 +1141,11 @@ class DatabaseView(PGChildNodeView):
 
         if len(res['rows']) == 0:
             return gone(
-                _("Could not find the database on the server.")
+                self.not_found_error_msg()
             )
 
         SQL = render_template(
-            "/".join([self.template_path, 'acl.sql']),
+            "/".join([self.template_path, self._ACL_SQL]),
             did=did, conn=self.conn
         )
         status, dataclres = self.conn.execute_dict(SQL)
@@ -1058,7 +1186,7 @@ class DatabaseView(PGChildNodeView):
         sql_header = u"-- Database: {0}\n\n-- ".format(result['name'])
 
         sql_header += render_template(
-            "/".join([self.template_path, 'delete.sql']),
+            "/".join([self.template_path, self._DELETE_SQL]),
             datname=result['name'], conn=conn
         )
 
@@ -1106,4 +1234,5 @@ class DatabaseView(PGChildNodeView):
         )
 
 
+SchemaDiffRegistry(blueprint.node_type, DatabaseView)
 DatabaseView.register_node_view(blueprint)

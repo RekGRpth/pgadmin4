@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////////////////
@@ -43,6 +43,7 @@ export function getTreeNodeHierarchyFromElement(pgBrowser, treeNode) {
 export function getTreeNodeHierarchyFromIdentifier(aciTreeNodeIdentifier) {
   let identifier = this.treeMenu.translateTreeNodeIdFromACITree(aciTreeNodeIdentifier);
   let currentNode = this.treeMenu.findNode(identifier);
+  if (currentNode === null) return null;
   return getTreeNodeHierarchy.call(this, currentNode);
 }
 

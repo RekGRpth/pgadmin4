@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -47,8 +47,8 @@ class CatalogObjectColumnsModule(CollectionNodeModule):
         initialized.
     """
 
-    NODE_TYPE = 'catalog_object_column'
-    COLLECTION_LABEL = gettext("Columns")
+    _NODE_TYPE = 'catalog_object_column'
+    _COLLECTION_LABEL = gettext("Columns")
 
     def __init__(self, *args, **kwargs):
         """
@@ -74,7 +74,7 @@ class CatalogObjectColumnsModule(CollectionNodeModule):
         Load the module script for server, when any of the database node is
         initialized.
         """
-        return database.DatabaseModule.NODE_TYPE
+        return database.DatabaseModule.node_type
 
     @property
     def node_inode(self):
@@ -173,6 +173,10 @@ class CatalogObjectColumnsView(PGChildNodeView):
                 kwargs['sid']
             )
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
             self.template_path = 'catalog_object_column/sql/#{0}#'.format(
                 self.manager.version)
 
@@ -197,7 +201,7 @@ class CatalogObjectColumnsView(PGChildNodeView):
             JSON of available column nodes
         """
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']), coid=coid)
+                                        self._PROPERTIES_SQL]), coid=coid)
         status, res = self.conn.execute_dict(SQL)
 
         if not status:
@@ -226,7 +230,7 @@ class CatalogObjectColumnsView(PGChildNodeView):
         """
         res = []
         SQL = render_template("/".join([self.template_path,
-                                        'nodes.sql']), coid=coid)
+                                        self._NODES_SQL]), coid=coid)
         status, rset = self.conn.execute_2darray(SQL)
         if not status:
             return internal_server_error(errormsg=rset)
@@ -263,7 +267,7 @@ class CatalogObjectColumnsView(PGChildNodeView):
             JSON of selected column node
         """
         SQL = render_template("/".join([self.template_path,
-                                        'properties.sql']), coid=coid,
+                                        self._PROPERTIES_SQL]), coid=coid,
                               clid=clid)
         status, res = self.conn.execute_dict(SQL)
 
@@ -272,6 +276,9 @@ class CatalogObjectColumnsView(PGChildNodeView):
 
         if len(res['rows']) == 0:
             return gone(gettext("""Could not find the specified column."""))
+
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['attrelid'] <= self.datlastsysoid)
 
         return ajax_response(
             response=res['rows'][0],

@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -323,7 +323,7 @@ define('pgadmin.node.exclusion_constraint', [
               // This will only get called in case of NodeListByNameControl.
 
               var that = this,
-                node = that.field.get('schema_node'),
+                schema_node = that.field.get('schema_node'),
                 res = [],
                 col_types = [],
                 filter = that.field.get('filter') || function() { return true; };
@@ -332,14 +332,14 @@ define('pgadmin.node.exclusion_constraint', [
 
               _.each(rows, function(r) {
                 if (filter(r)) {
-                  var l = (_.isFunction(node['node_label']) ?
-                      (node['node_label']).apply(node, [r, that.model, that]) :
+                  var l = (_.isFunction(schema_node['node_label']) ?
+                      (schema_node['node_label']).apply(schema_node, [r, that.model, that]) :
                       r.label),
-                    image = (_.isFunction(node['node_image']) ?
-                      (node['node_image']).apply(
-                        node, [r, that.model, that]
+                    image = (_.isFunction(schema_node['node_image']) ?
+                      (schema_node['node_image']).apply(
+                        schema_node, [r, that.model, that]
                       ) :
-                      (node['node_image'] || ('icon-' + node.type)));
+                      (schema_node['node_image'] || ('icon-' + schema_node.type)));
                   res.push({
                     'value': r.label,
                     'image': image,
@@ -360,7 +360,7 @@ define('pgadmin.node.exclusion_constraint', [
               allowClear: false, width: 'style',
               placeholder: 'Select column',
             }, first_empty: !self.model.isNew(),
-            disabled: function() {
+            readonly: function() {
               return !_.isUndefined(self.model.get('oid'));
             },
           }],
@@ -450,7 +450,7 @@ define('pgadmin.node.exclusion_constraint', [
           titleTmpl = _.template([
             '<div class="subnode-header">',
             '  <label class="control-label pg-el-sm-10"><%-label%></label>',
-            '  <button class="btn btn-sm-sq btn-secondary add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> title="' + _('Add new row') + '"></button>',
+            '  <button class="btn btn-sm-sq btn-primary-icon add fa fa-plus" <%=canAdd ? "" : "disabled=\'disabled\'"%> title="' + gettext('Add new row') + '"></button>',
             '</div>'].join('\n')),
           $gridBody =
           $('<div class=\'pgadmin-control-group backgrid form-group col-12 object subnode\'></div>').append(
@@ -473,7 +473,7 @@ define('pgadmin.node.exclusion_constraint', [
 
         if (self.grid) {
           self.grid.remove();
-          self.grid.null;
+          self.grid = null;
         }
         // Initialize a new Grid instance
         var grid = self.grid = new Backgrid.Grid({
@@ -541,41 +541,39 @@ define('pgadmin.node.exclusion_constraint', [
         var self = this,
           column = self.headerData.get('column');
 
-        if (!column || column == '') {
-          return false;
-        }
+        if (column && column != '') {
+          var coll = self.model.get(self.field.get('name')),
+            m = new (self.field.get('model'))(
+              self.headerData.toJSON(), {
+                silent: true, top: self.model.top,
+                collection: coll, handler: coll,
+              }),
+            col_types =self.field.get('col_types') || [];
 
-        var coll = self.model.get(self.field.get('name')),
-          m = new (self.field.get('model'))(
-            self.headerData.toJSON(), {
-              silent: true, top: self.model.top,
-              collection: coll, handler: coll,
-            }),
-          col_types =self.field.get('col_types') || [];
-
-        for(var i=0; i < col_types.length; i++) {
-          var col_type = col_types[i];
-          if (col_type['name'] ==  m.get('column')) {
-            m.set({'col_type':col_type['type']});
-            break;
+          for(var i=0; i < col_types.length; i++) {
+            var col_type = col_types[i];
+            if (col_type['name'] ==  m.get('column')) {
+              m.set({'col_type':col_type['type']});
+              break;
+            }
           }
-        }
 
-        coll.add(m);
+          coll.add(m);
 
-        var idx = coll.indexOf(m);
+          var idx = coll.indexOf(m);
 
-        // idx may not be always > -1 because our UniqueColCollection may
-        // remove 'm' if duplicate value found.
-        if (idx > -1) {
-          self.$grid.find('.new').removeClass('new');
+          // idx may not be always > -1 because our UniqueColCollection may
+          // remove 'm' if duplicate value found.
+          if (idx > -1) {
+            self.$grid.find('.new').removeClass('new');
 
-          var newRow = self.grid.body.rows[idx].$el;
+            var newRow = self.grid.body.rows[idx].$el;
 
-          newRow.addClass('new');
-          $(newRow).pgMakeVisible('backform-tab');
-        } else {
-          //delete m;
+            newRow.addClass('new');
+            $(newRow).pgMakeVisible('backform-tab');
+          } else {
+            //delete m;
+          }
         }
 
         return false;
@@ -629,6 +627,7 @@ define('pgadmin.node.exclusion_constraint', [
       hasDepends: true,
       hasStatistics: true,
       statsPrettifyFields: [gettext('Index size')],
+      url_jump_after_node: 'schema',
       Init: function() {
         /* Avoid multiple registration of menus */
         if (this.initialized)
@@ -654,6 +653,7 @@ define('pgadmin.node.exclusion_constraint', [
         defaults: {
           name: undefined,
           oid: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           spcname: undefined,
           amname: 'gist',
@@ -671,6 +671,9 @@ define('pgadmin.node.exclusion_constraint', [
         },{
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'],
+        },{
+          id: 'is_sys_obj', label: gettext('System exclusion constraint?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comment', label: gettext('Comment'), cell: 'string',
           type: 'multiline', mode: ['properties', 'create', 'edit'],
@@ -693,8 +696,7 @@ define('pgadmin.node.exclusion_constraint', [
           select2:{allowClear:false},
           filter: function(m) {
             // Don't show pg_global tablespace in selection.
-            if (m.label == 'pg_global') return false;
-            else return true;
+            return (m.label !== 'pg_global');
           },
         },{
           id: 'amname', label: gettext('Access method'),
@@ -736,7 +738,7 @@ define('pgadmin.node.exclusion_constraint', [
             },
           }),
           select2:{allowClear:true},
-          disabled: function(m) {
+          readonly: function(m) {
             return ((_.has(m, 'handler') &&
               !_.isUndefined(m.handler) &&
                 !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
@@ -747,7 +749,7 @@ define('pgadmin.node.exclusion_constraint', [
         },{
           id: 'condeferrable', label: gettext('Deferrable?'),
           type: 'switch', group: gettext('Definition'), deps: ['index'],
-          disabled: function(m) {
+          readonly: function(m) {
             return ((_.has(m, 'handler') &&
               !_.isUndefined(m.handler) &&
                 !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
@@ -757,12 +759,6 @@ define('pgadmin.node.exclusion_constraint', [
           type: 'switch', group: gettext('Definition'),
           deps: ['condeferrable'],
           disabled: function(m) {
-            if((_.has(m, 'handler') &&
-              !_.isUndefined(m.handler) &&
-                !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew())) {
-              return true;
-            }
-
             // Disable if condeferred is false or unselected.
             if(m.get('condeferrable') == true) {
               return false;
@@ -774,10 +770,17 @@ define('pgadmin.node.exclusion_constraint', [
               return true;
             }
           },
+          readonly: function(m) {
+            if((_.has(m, 'handler') &&
+              !_.isUndefined(m.handler) &&
+                !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew())) {
+              return true;
+            }
+          },
         },{
           id: 'indconstraint', label: gettext('Constraint'), cell: 'string',
           type: 'multiline', mode: ['create', 'edit', 'properties'], editable: false,
-          group: gettext('Definition'), disabled: function(m) {
+          group: gettext('Definition'), readonly: function(m) {
             return ((_.has(m, 'handler') &&
               !_.isUndefined(m.handler) &&
                 !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
@@ -794,7 +797,7 @@ define('pgadmin.node.exclusion_constraint', [
           },
           control: ExclusionConstraintColumnControl,
           model: ExclusionConstraintColumnModel,
-          disabled: function(m) {
+          readonly: function(m) {
             return ((_.has(m, 'handler') &&
               !_.isUndefined(m.handler) &&
                 !_.isUndefined(m.get('oid'))) || (_.isFunction(m.isNew) && !m.isNew()));
@@ -978,18 +981,6 @@ define('pgadmin.node.exclusion_constraint', [
           }),
           deps: ['index'], node: 'column',
           disabled: function(m) {
-            // If we are in table edit mode then
-            if (_.has(m, 'top') && !_.isUndefined(m.top)
-              && !m.top.isNew()) {
-              // If OID is undefined then user is trying to add
-              // new constraint which should be allowed for Unique
-              return !_.isUndefined(m.get('oid'));
-            }
-
-            // We can't update columns of existing index constraint.
-            if (!m.isNew()) {
-              return true;
-            }
             // Disable if index is selected.
             var index = m.get('index');
             if(_.isUndefined(index) || index == '') {
@@ -999,6 +990,18 @@ define('pgadmin.node.exclusion_constraint', [
               col.reset();
               return true;
             }
+          },
+          readonly: function(m) {
+            // If we are in table edit mode then
+            if (_.has(m, 'top') && !_.isUndefined(m.top)
+              && !m.top.isNew()) {
+              // If OID is undefined then user is trying to add
+              // new constraint which should be allowed for Unique
+              return !_.isUndefined(m.get('oid'));
+            }
+
+            // We can't update columns of existing index constraint.
+            return !m.isNew();
           },
         }],
         validate: function() {

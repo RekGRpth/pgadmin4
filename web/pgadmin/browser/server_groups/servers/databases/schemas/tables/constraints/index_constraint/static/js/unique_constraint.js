@@ -2,7 +2,7 @@
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -29,6 +29,7 @@ define('pgadmin.node.unique_constraint', [
       parent_type: ['table','partition'],
       canDrop: true,
       canDropCascade: true,
+      url_jump_after_node: 'schema',
       Init: function() {
         /* Avoid multiple registration of menus */
         if (this.initialized)
@@ -89,6 +90,7 @@ define('pgadmin.node.unique_constraint', [
         defaults: {
           name: undefined,
           oid: undefined,
+          is_sys_obj: undefined,
           comment: undefined,
           spcname: undefined,
           index: undefined,
@@ -108,6 +110,9 @@ define('pgadmin.node.unique_constraint', [
           id: 'oid', label: gettext('OID'), cell: 'string',
           type: 'text' , mode: ['properties'], editable: false,
           cellHeaderClasses:'width_percent_20',
+        },{
+          id: 'is_sys_obj', label: gettext('System unique constraint?'),
+          cell:'boolean', type: 'switch', mode: ['properties'],
         },{
           id: 'comment', label: gettext('Comment'), cell: 'string',
           type: 'multiline', mode: ['properties', 'create', 'edit'],
@@ -353,6 +358,14 @@ define('pgadmin.node.unique_constraint', [
                 Backform.MultiSelectAjaxControl.prototype.remove.apply(this, arguments);
               }
             },
+            render: function() {
+              var index = this.model.get('index');
+              if(!_.isUndefined(index) && index != '') {
+                var col = this.model.get('columns');
+                col.reset([], {silent: true});
+              }
+              return Backform.Select2Control.prototype.render.apply(this, arguments);
+            },
           }),
           deps: ['index'], node: 'column',
           model: pgBrowser.Node.Model.extend({
@@ -373,7 +386,7 @@ define('pgadmin.node.unique_constraint', [
             return res;
           },
           select2:{allowClear:false},
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -386,15 +399,11 @@ define('pgadmin.node.unique_constraint', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if index is selected.
             var index = m.get('index');
-            if(_.isUndefined(index) || index == '') {
-              return false;
-            } else {
-              var col = m.get('columns');
-              col.reset();
-              return true;
-            }
+            return (!_.isUndefined(index) && index != '');
           },
         },{
           id: 'include', label: gettext('Include columns'),
@@ -470,7 +479,7 @@ define('pgadmin.node.unique_constraint', [
             },
           }),
           deps: ['index'], node: 'column',
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -483,13 +492,16 @@ define('pgadmin.node.unique_constraint', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if index is selected.
             var index = m.get('index');
             if(_.isUndefined(index) || index == '') {
               return false;
             } else {
-              var col = m.get('columns');
-              col.reset();
+              setTimeout(function(){
+                m.set('include', []);
+              },10);
               return true;
             }
           },
@@ -501,8 +513,7 @@ define('pgadmin.node.unique_constraint', [
           select2:{allowClear:false},
           filter: function(m) {
             // Don't show pg_global tablespace in selection.
-            if (m.label == 'pg_global') return false;
-            else return true;
+            return (m.label != 'pg_global');
           },
           disabled: function(m) {
             // Disable if index is selected.
@@ -522,15 +533,11 @@ define('pgadmin.node.unique_constraint', [
           type: 'text', group: gettext('Definition'),
           control: Backform.NodeListByNameControl.extend({
             initialize:function() {
-              if (_.isUndefined(this.model.top)) {
-                Backform.NodeListByNameControl.prototype.initialize.apply(this,arguments);
-              } else {
-                Backform.Control.prototype.initialize.apply(this,arguments);
-              }
+              Backform.NodeListByNameControl.prototype.initialize.apply(this,arguments);
             },
           }),
           select2:{allowClear:true}, node: 'index',
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then disable it
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -562,7 +569,7 @@ define('pgadmin.node.unique_constraint', [
         },{
           id: 'condeferrable', label: gettext('Deferrable?'),
           type: 'switch', group: gettext('Definition'), deps: ['index'],
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -575,6 +582,8 @@ define('pgadmin.node.unique_constraint', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if index is selected.
             var index = m.get('index');
             if(_.isUndefined(index) || index == '') {
@@ -591,7 +600,7 @@ define('pgadmin.node.unique_constraint', [
           id: 'condeferred', label: gettext('Deferred?'),
           type: 'switch', group: gettext('Definition'),
           deps: ['condeferrable'],
-          disabled: function(m) {
+          readonly: function(m) {
             // If we are in table edit mode then
             if (_.has(m, 'top') && !_.isUndefined(m.top)
               && !m.top.isNew()) {
@@ -604,6 +613,8 @@ define('pgadmin.node.unique_constraint', [
             if (!m.isNew()) {
               return true;
             }
+          },
+          disabled: function(m) {
             // Disable if condeferred is false or unselected.
             if(m.get('condeferrable') == true) {
               return false;
@@ -629,7 +640,7 @@ define('pgadmin.node.unique_constraint', [
 
           if ((_.isUndefined(index) || String(index).replace(/^\s+|\s+$/g, '') == '') &&
             (_.isUndefined(columns) || _.isNull(columns) || columns.length < 1)) {
-            var msg = gettext('Please specify columns for %(node)s', {node: gettext('Unique constraint')});
+            var msg = gettext('Please specify columns for %s.', gettext('Unique constraint'));
             this.errorModel.set('columns', msg);
             return msg;
           }

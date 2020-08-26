@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -38,17 +38,14 @@ from datetime import timedelta
 from pgadmin.setup import get_version, set_version
 from pgadmin.utils.ajax import internal_server_error
 from pgadmin.utils.csrf import pgCSRFProtect
-
+from pgadmin import authenticate
 
 # If script is running under python3, it will not have the xrange function
 # defined
 winreg = None
-if sys.version_info[0] >= 3:
-    xrange = range
-    if os.name == 'nt':
-        import winreg
-elif os.name == 'nt':
-    import _winreg as winreg
+xrange = range
+if os.name == 'nt':
+    import winreg
 
 
 class PgAdmin(Flask):
@@ -185,6 +182,11 @@ def create_app(app_name=None):
     if not app_name:
         app_name = config.APP_NAME
 
+    # Check if app is created for CLI operations or Web
+    cli_mode = False
+    if app_name.endswith('-cli'):
+        cli_mode = True
+
     # Only enable password related functionality in server mode.
     if config.SERVER_MODE is True:
         # Some times we need to access these config params where application
@@ -228,7 +230,7 @@ def create_app(app_name=None):
     # stream handler thus ensuring all the logging goes through the pgAdmin
     # logger.
     logger = logging.getLogger('werkzeug')
-    logger.setLevel(logging.INFO)
+    logger.setLevel(config.CONSOLE_LOG_LEVEL)
 
     # Set SQLITE_PATH to TEST_SQLITE_PATH while running test cases
     if (
@@ -239,16 +241,17 @@ def create_app(app_name=None):
         config.MASTER_PASSWORD_REQUIRED = False
         config.UPGRADE_CHECK_ENABLED = False
 
-    # Ensure the various working directories exist
-    from pgadmin.setup import create_app_data_directory, db_upgrade
-    create_app_data_directory(config)
+    if not cli_mode:
+        # Ensure the various working directories exist
+        from pgadmin.setup import create_app_data_directory
+        create_app_data_directory(config)
 
-    # File logging
-    fh = logging.FileHandler(config.LOG_FILE, encoding='utf-8')
-    fh.setLevel(config.FILE_LOG_LEVEL)
-    fh.setFormatter(logging.Formatter(config.FILE_LOG_FORMAT))
-    app.logger.addHandler(fh)
-    logger.addHandler(fh)
+        # File logging
+        fh = logging.FileHandler(config.LOG_FILE, encoding='utf-8')
+        fh.setLevel(config.FILE_LOG_LEVEL)
+        fh.setFormatter(logging.Formatter(config.FILE_LOG_FORMAT))
+        app.logger.addHandler(fh)
+        logger.addHandler(fh)
 
     # Console logging
     ch = logging.StreamHandler()
@@ -285,7 +288,7 @@ def create_app(app_name=None):
                 if user is not None:
                     user_id = user.id
             user_language = Preferences.raw_value(
-                'miscellaneous', 'user_language', None, user_id
+                'misc', 'user_language', 'user_language', user_id
             )
             if user_language is not None:
                 language = user_language
@@ -323,11 +326,22 @@ def create_app(app_name=None):
     with app.app_context():
         # Run migration for the first time i.e. create database
         from config import SQLITE_PATH
+        from pgadmin.setup import db_upgrade
 
         # If version not available, user must have aborted. Tables are not
         # created and so its an empty db
         if not os.path.exists(SQLITE_PATH) or get_version() == -1:
-            db_upgrade(app)
+            # If running in cli mode then don't try to upgrade, just raise
+            # the exception
+            if not cli_mode:
+                db_upgrade(app)
+            else:
+                if not os.path.exists(SQLITE_PATH):
+                    raise FileNotFoundError(
+                        'SQLite database file "' + SQLITE_PATH +
+                        '" does not exists.')
+                raise RuntimeError('Specified SQLite database file '
+                                   'is not valid.')
         else:
             schema_version = get_version()
 
@@ -346,8 +360,10 @@ def create_app(app_name=None):
 
     Mail(app)
 
-    import pgadmin.utils.paths as paths
-    paths.init_app(app)
+    # Don't bother paths when running in cli mode
+    if not cli_mode:
+        import pgadmin.utils.paths as paths
+        paths.init_app(app)
 
     # Setup Flask-Security
     user_datastore = SQLAlchemyUserDatastore(db, User, Role)
@@ -385,12 +401,13 @@ def create_app(app_name=None):
     app.permanent_session_lifetime = timedelta(
         days=config.SESSION_EXPIRATION_TIME)
 
-    app.session_interface = create_session_interface(
-        app, config.SESSION_SKIP_PATHS
-    )
+    if not cli_mode:
+        app.session_interface = create_session_interface(
+            app, config.SESSION_SKIP_PATHS
+        )
 
     # Make the Session more secure against XSS & CSRF when running in web mode
-    if config.SERVER_MODE:
+    if config.SERVER_MODE and config.ENHANCED_COOKIE_PROTECTION:
         paranoid = Paranoid(app)
         paranoid.redirect_view = 'browser.index'
 
@@ -398,6 +415,7 @@ def create_app(app_name=None):
     # Load all available server drivers
     ##########################################################################
     driver.init_app(app)
+    authenticate.init_app(app)
 
     ##########################################################################
     # Register language to the preferences after login
@@ -411,7 +429,7 @@ def create_app(app_name=None):
             language = data['language']
 
             # Set the user language preference
-            misc_preference = Preferences.module('miscellaneous')
+            misc_preference = Preferences.module('misc')
             user_languages = misc_preference.preference(
                 'user_language'
             )
@@ -471,7 +489,7 @@ def create_app(app_name=None):
 
             try:
                 proc_arch64 = os.environ['PROCESSOR_ARCHITEW6432'].lower()
-            except Exception as e:
+            except Exception:
                 proc_arch64 = None
 
             if proc_arch == 'x86' and not proc_arch64:
@@ -485,7 +503,7 @@ def create_app(app_name=None):
                     try:
                         root_key = winreg.OpenKey(
                             winreg.HKEY_LOCAL_MACHINE,
-                            "SOFTWARE\\" + server_type + "\Services", 0,
+                            "SOFTWARE\\" + server_type + "\\Services", 0,
                             winreg.KEY_READ | arch_key
                         )
                         for i in xrange(0, winreg.QueryInfoKey(root_key)[0]):
@@ -501,16 +519,14 @@ def create_app(app_name=None):
                             svr_port = winreg.QueryValueEx(inst_key, 'Port')[0]
                             svr_discovery_id = inst_id
                             svr_comment = gettext(
-                                "Auto-detected %s installation with the data "
-                                "directory at %s" % (
+                                "Auto-detected {0} installation with the data "
+                                "directory at {1}").format(
                                     winreg.QueryValueEx(
                                         inst_key, 'Display Name'
                                     )[0],
                                     winreg.QueryValueEx(
                                         inst_key, 'Data Directory'
-                                    )[0]
-                                )
-                            )
+                                    )[0])
 
                             add_server(
                                 user_id, servergroup_id, svr_name,
@@ -519,14 +535,11 @@ def create_app(app_name=None):
                             )
 
                             inst_key.Close()
-                    except Exception as e:
+                    except Exception:
                         pass
         else:
             # We use the postgres-winreg.ini file on non-Windows
-            try:
-                from configparser import ConfigParser
-            except ImportError:
-                from ConfigParser import ConfigParser  # Python 2
+            from configparser import ConfigParser
 
             registry = ConfigParser()
 
@@ -555,20 +568,14 @@ def create_app(app_name=None):
                     svr_discovery_id = section
                     description = registry.get(section, 'Description')
                     data_directory = registry.get(section, 'DataDirectory')
-                    if hasattr(str, 'decode'):
-                        description = description.decode('utf-8')
-                        data_directory = data_directory.decode('utf-8')
-                    svr_comment = gettext(u"Auto-detected %s installation "
-                                          u"with the data directory at %s" % (
-                                              description,
-                                              data_directory
-                                          )
-                                          )
+                    svr_comment = gettext(u"Auto-detected {0} installation "
+                                          u"with the data directory at {1}"
+                                          ).format(description, data_directory)
                     add_server(user_id, servergroup_id, svr_name,
                                svr_superuser, svr_port, svr_discovery_id,
                                svr_comment)
 
-        except Exception as e:
+        except Exception:
             pass
 
     @user_logged_in.connect_via(app)
@@ -580,9 +587,8 @@ def create_app(app_name=None):
     def store_crypt_key(app, user):
         # in desktop mode, master password is used to encrypt/decrypt
         # and is stored in the keyManager memory
-        if config.SERVER_MODE:
-            if 'password' in request.form:
-                current_app.keyManager.set(request.form['password'])
+        if config.SERVER_MODE and 'password' in request.form:
+            current_app.keyManager.set(request.form['password'])
 
     @user_logged_out.connect_via(app)
     def current_user_cleanup(app, user):
@@ -620,14 +626,13 @@ def create_app(app_name=None):
 
         # Check the auth key is valid, if it's set, and we're not in server
         # mode, and it's not a help file request.
-        if not config.SERVER_MODE and app.PGADMIN_KEY != '':
-            if (
-                ('key' not in request.args or
-                 request.args['key'] != app.PGADMIN_KEY) and
-                request.cookies.get('PGADMIN_KEY') != app.PGADMIN_KEY and
-                request.endpoint != 'help.static'
-            ):
-                abort(401)
+        if not config.SERVER_MODE and app.PGADMIN_INT_KEY != '' and ((
+            'key' not in request.args or
+            request.args['key'] != app.PGADMIN_INT_KEY) and
+            request.cookies.get('PGADMIN_INT_KEY') != app.PGADMIN_INT_KEY and
+            request.endpoint != 'help.static'
+        ):
+            abort(401)
 
         if not config.SERVER_MODE and not current_user.is_authenticated:
             user = user_datastore.get_user(config.DESKTOP_USER)
@@ -646,11 +651,10 @@ def create_app(app_name=None):
         # if the server is restarted the in memory key will be lost
         # but the user session may still be active. Logout the user
         # to get the key again when login
-        if config.SERVER_MODE and current_user.is_authenticated:
-            if current_app.keyManager.get() is None and \
-                    request.endpoint not in ('security.login',
-                                             'security.logout'):
-                logout_user()
+        if config.SERVER_MODE and current_user.is_authenticated and \
+                current_app.keyManager.get() is None and \
+                request.endpoint not in ('security.login', 'security.logout'):
+            logout_user()
 
     @app.after_request
     def after_request(response):
@@ -659,7 +663,7 @@ def create_app(app_name=None):
             if config.COOKIE_DEFAULT_DOMAIN and \
                     config.COOKIE_DEFAULT_DOMAIN != 'localhost':
                 domain['domain'] = config.COOKIE_DEFAULT_DOMAIN
-            response.set_cookie('PGADMIN_KEY', value=request.args['key'],
+            response.set_cookie('PGADMIN_INT_KEY', value=request.args['key'],
                                 path=config.COOKIE_DEFAULT_PATH,
                                 **domain)
 
@@ -705,18 +709,24 @@ def create_app(app_name=None):
             values.pop(config.APP_VERSION_PARAM)
 
     ##########################################################################
-    # Minify output
+    # Minify output. Not required in desktop mode
     ##########################################################################
-    if not config.DEBUG:
-        from flask_htmlmin import HTMLMIN
-        HTMLMIN(app)
+    if not config.DEBUG and config.SERVER_MODE:
+        from flask_compress import Compress
+        Compress(app)
+
+    from pgadmin.misc.themes import themes
+    themes(app)
 
     @app.context_processor
     def inject_blueprint():
-        """Inject a reference to the current blueprint, if any."""
+        """
+        Inject a reference to the current blueprint, if any.
+        """
+
         return {
             'current_app': current_app,
-            'current_blueprint': current_blueprint
+            'current_blueprint': current_blueprint,
         }
 
     @app.errorhandler(Exception)

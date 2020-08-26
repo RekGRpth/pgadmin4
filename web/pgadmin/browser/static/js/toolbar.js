@@ -1,8 +1,9 @@
+
 /////////////////////////////////////////////////////////////
 //
 // pgAdmin 4 - PostgreSQL Tools
 //
-// Copyright (C) 2013 - 2019, The pgAdmin Development Team
+// Copyright (C) 2013 - 2020, The pgAdmin Development Team
 // This software is released under the PostgreSQL Licence
 //
 //////////////////////////////////////////////////////////////
@@ -17,30 +18,43 @@ let _browserPanel = null;
 // Default Tool Bar Buttons.
 let _defaultToolBarButtons = [
   {
-    label: gettext('Filtered Rows'),
-    btnClass: 'fa fa-filter',
+    label: gettext('Query Tool'),
+    ariaLabel: gettext('Query Tool'),
+    btnClass: 'pg-font-icon icon-query-tool',
     text: '',
     toggled: false,
     toggleClass: '',
-    parentClass: 'pg-toolbar-btn',
+    parentClass: 'pg-toolbar-btn btn-primary-icon',
     enabled: false,
   },
   {
     label: gettext('View Data'),
-    btnClass: 'fa fa-table',
+    ariaLabel: gettext('View Data'),
+    btnClass: 'pg-font-icon sql-icon-lg icon-view-data',
     text: '',
     toggled: false,
     toggleClass: '',
-    parentClass: 'pg-toolbar-btn',
+    parentClass: 'pg-toolbar-btn btn-primary-icon',
     enabled: false,
   },
   {
-    label: gettext('Query Tool'),
-    btnClass: 'fa fa-bolt',
+    label: gettext('Filtered Rows'),
+    ariaLabel: gettext('Filtered Rows'),
+    btnClass: 'pg-font-icon icon-filter-table-toolbar',
     text: '',
     toggled: false,
     toggleClass: '',
-    parentClass: 'pg-toolbar-btn',
+    parentClass: 'pg-toolbar-btn btn-primary-icon',
+    enabled: false,
+  },
+  {
+    label: gettext('Search objects'),
+    ariaLabel: gettext('Search objects'),
+    btnClass: 'fa fa-search',
+    text: '',
+    toggled: false,
+    toggleClass: '',
+    parentClass: 'pg-toolbar-btn btn-primary-icon',
     enabled: false,
   },
 ];
@@ -57,7 +71,7 @@ function registerToolBarButton(btn) {
         || (_.findIndex(_browserPanel._buttonList,{name:btn.label}) < 0)) {
     _browserPanel.addButton(
       btn.label, btn.btnClass, btn.text, btn.label, btn.toggled,
-      btn.toggleClass, btn.parentClass, btn.enabled
+      btn.toggleClass, btn.parentClass, btn.enabled, btn.ariaLabel
     );
 
     _toolbarButtons[btn.label] = btn;
@@ -89,14 +103,16 @@ export function initializeToolbar(panel, wcDocker) {
       pgAdmin.DataGrid.show_data_grid({mnuid: 3}, pgAdmin.Browser.tree.selected());
     else if ('name' in data && data.name === gettext('Filtered Rows'))
       pgAdmin.DataGrid.show_filtered_row({mnuid: 4}, pgAdmin.Browser.tree.selected());
+    else if ('name' in data && data.name === gettext('Search objects'))
+      pgAdmin.SearchObjects.show_search_objects('', pgAdmin.Browser.tree.selected());
   });
 }
 
 // This function is used to enable/disable the specific button
 // based on their label.
-export function enable(label, enable) {
+export function enable(label, enable_btn) {
   if (label in _toolbarButtons) {
-    _browserPanel.buttonEnable(label, enable);
+    _browserPanel.buttonEnable(label, enable_btn);
   } else {
     console.warn('Developer warning: No tool button found with label: ' + label);
   }

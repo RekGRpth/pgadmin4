@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -16,6 +16,7 @@ from pgadmin.browser import BrowserPluginModule
 from pgadmin.browser.utils import PGChildModule
 from pgadmin.utils import PgAdminModule
 from pgadmin.utils.preferences import Preferences
+from pgadmin.utils.constants import PGADMIN_NODE
 
 
 @six.add_metaclass(ABCMeta)
@@ -25,6 +26,11 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
     """
     browser_url_prefix = BrowserPluginModule.browser_url_prefix
     SHOW_ON_BROWSER = True
+
+    _BROWSER_CSS_PATH = 'browser/css'
+
+    _NODE_CSS = "/".join([_BROWSER_CSS_PATH, 'node.css'])
+    _COLLECTION_CSS = "/".join([_BROWSER_CSS_PATH, 'collection.css'])
 
     def __init__(self, import_name, **kwargs):
         kwargs.setdefault("url_prefix", self.node_path)
@@ -58,15 +64,15 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
 
         if self.module_use_template_javascript:
             scripts.extend([{
-                'name': 'pgadmin.node.%s' % self.node_type,
-                'path': url_for('browser.index') +
-                        '%s/module' % self.node_type,
+                'name': PGADMIN_NODE % self.node_type,
+                'path': url_for('browser.index'
+                                ) + '%s/module' % self.node_type,
                 'when': self.script_load,
                 'is_template': True
             }])
         else:
             scripts.extend([{
-                'name': 'pgadmin.node.%s' % self.node_type,
+                'name': PGADMIN_NODE % self.node_type,
                 'path': url_for(
                     '%s.static' % self.name,
                     filename=('js/%s' % self.node_type)
@@ -93,7 +99,7 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
             "_type": self.node_type,
             "_id": node_id,
             "_pid": parent_id,
-            "module": 'pgadmin.node.%s' % self.node_type
+            "module": PGADMIN_NODE % self.node_type
         }
         for key in kwargs:
             obj.setdefault(key, kwargs[key])
@@ -108,7 +114,7 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
             "_type": 'coll-%s' % (self.node_type),
             "_id": parent_id,
             "_pid": parent_id,
-            "module": 'pgadmin.node.%s' % self.node_type,
+            "module": PGADMIN_NODE % self.node_type,
             "nodes": [self.node_type]
         }
 
@@ -119,7 +125,7 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
 
     @property
     def node_type(self):
-        return '%s' % (self.NODE_TYPE)
+        return '%s' % (self._NODE_TYPE)
 
     @property
     def csssnippets(self):
@@ -128,11 +134,11 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
         """
         snippets = [
             render_template(
-                "browser/css/collection.css",
+                self._COLLECTION_CSS,
                 node_type=self.node_type
             ),
             render_template(
-                "browser/css/node.css",
+                self._NODE_CSS,
                 node_type=self.node_type,
                 _=gettext
             )
@@ -147,13 +153,13 @@ class CollectionNodeModule(PgAdminModule, PGChildModule):
     def collection_label(self):
         """
         Label to be shown for the collection node, do not forget to set the
-        class level variable COLLECTION_LABEL.
+        class level variable _COLLECTION_LABEL.
         """
-        return gettext(self.COLLECTION_LABEL)
+        return gettext(self._COLLECTION_LABEL)
 
     @property
     def label(self):
-        return gettext(self.COLLECTION_LABEL)
+        return gettext(self._COLLECTION_LABEL)
 
     @property
     def collection_icon(self):

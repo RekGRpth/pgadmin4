@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -20,14 +20,11 @@ from pgadmin.browser.server_groups.servers.databases import DatabaseModule
 from pgadmin.browser.server_groups.servers.databases.schemas.utils import \
     SchemaChildModule
 from pgadmin.browser.utils import PGChildNodeView
-from pgadmin.utils import IS_PY2
 from pgadmin.utils.ajax import make_json_response, internal_server_error, \
     make_response as ajax_response, gone
 from pgadmin.utils.driver import get_driver
-
-# If we are in Python3
-if not IS_PY2:
-    unicode = str
+from pgadmin.tools.schema_diff.node_registry import SchemaDiffRegistry
+from pgadmin.tools.schema_diff.compare import SchemaDiffObjectCompare
 
 
 class FtsTemplateModule(SchemaChildModule):
@@ -52,8 +49,8 @@ class FtsTemplateModule(SchemaChildModule):
       - Load the module script for FTS Template, when any of the schema node is
         initialized.
     """
-    NODE_TYPE = 'fts_template'
-    COLLECTION_LABEL = gettext('FTS Templates')
+    _NODE_TYPE = 'fts_template'
+    _COLLECTION_LABEL = gettext('FTS Templates')
 
     def __init__(self, *args, **kwargs):
         self.min_ver = None
@@ -84,13 +81,13 @@ class FtsTemplateModule(SchemaChildModule):
         Load the module script for fts template, when any of the schema node is
         initialized.
         """
-        return DatabaseModule.NODE_TYPE
+        return DatabaseModule.node_type
 
 
 blueprint = FtsTemplateModule(__name__)
 
 
-class FtsTemplateView(PGChildNodeView):
+class FtsTemplateView(PGChildNodeView, SchemaDiffObjectCompare):
     """
     class FtsTemplateView(PGChildNodeView)
 
@@ -154,9 +151,13 @@ class FtsTemplateView(PGChildNodeView):
       - This function get the dependencies and return ajax response for the
       FTS Template node.
 
+    * compare(**kwargs):
+      - This function will compare the fts template nodes from two
+        different schemas.
     """
 
     node_type = blueprint.node_type
+    node_label = "FTS Template"
 
     parent_ids = [
         {'type': 'int', 'id': 'gid'},
@@ -184,8 +185,10 @@ class FtsTemplateView(PGChildNodeView):
         'dependency': [{'get': 'dependencies'}],
         'dependent': [{'get': 'dependents'}],
         'get_lexize': [{'get': 'get_lexize'}, {'get': 'get_lexize'}],
-        'get_init': [{'get': 'get_init'}, {'get': 'get_init'}],
+        'get_init': [{'get': 'get_init'}, {'get': 'get_init'}]
     })
+
+    keys_to_ignore = ['oid', 'oid-2', 'schema']
 
     def _init_(self, **kwargs):
         self.conn = None
@@ -207,6 +210,10 @@ class FtsTemplateView(PGChildNodeView):
             self.manager = get_driver(PG_DEFAULT_DRIVER).connection_manager(
                 kwargs['sid'])
             self.conn = self.manager.connection(did=kwargs['did'])
+            self.datlastsysoid = \
+                self.manager.db_info[kwargs['did']]['datlastsysoid'] \
+                if self.manager.db_info is not None and \
+                kwargs['did'] in self.manager.db_info else 0
             self.template_path = 'fts_templates/sql/#{0}#'.format(
                 self.manager.version)
 
@@ -217,7 +224,7 @@ class FtsTemplateView(PGChildNodeView):
     @check_precondition
     def list(self, gid, sid, did, scid):
         sql = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             scid=scid
         )
         status, res = self.conn.execute_dict(sql)
@@ -234,7 +241,7 @@ class FtsTemplateView(PGChildNodeView):
     def nodes(self, gid, sid, did, scid):
         res = []
         sql = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             scid=scid
         )
         status, rset = self.conn.execute_2darray(sql)
@@ -258,7 +265,7 @@ class FtsTemplateView(PGChildNodeView):
     @check_precondition
     def node(self, gid, sid, did, scid, tid):
         sql = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             tid=tid
         )
         status, rset = self.conn.execute_2darray(sql)
@@ -275,31 +282,50 @@ class FtsTemplateView(PGChildNodeView):
                 ),
                 status=200
             )
-        return gone(
-            gettext("Could not find the requested FTS template.")
-        )
+        return gone(self.not_found_error_msg())
 
     @check_precondition
     def properties(self, gid, sid, did, scid, tid):
+        """
+
+        :param gid:
+        :param sid:
+        :param did:
+        :param scid:
+        :param tid:
+        :return:
+        """
+        status, res = self._fetch_properties(scid, tid)
+        if not status:
+            return res
+
+        return ajax_response(
+            response=res,
+            status=200
+        )
+
+    def _fetch_properties(self, scid, tid):
+        """
+        This function is used to fetch the properties of specified object.
+
+        :param scid:
+        :param pid:
+        :return:
+        """
         sql = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             scid=scid,
             tid=tid
         )
         status, res = self.conn.execute_dict(sql)
-
         if not status:
-            return internal_server_error(errormsg=res)
+            return False, internal_server_error(errormsg=res)
 
         if len(res['rows']) == 0:
-            return gone(
-                gettext("Could not find the requested FTS template.")
-            )
-
-        return ajax_response(
-            response=res['rows'][0],
-            status=200
-        )
+            return False, gone(self.not_found_error_msg())
+        res['rows'][0]['is_sys_obj'] = (
+            res['rows'][0]['oid'] <= self.datlastsysoid)
+        return True, res['rows'][0]
 
     @check_precondition
     def create(self, gid, sid, did, scid):
@@ -327,11 +353,12 @@ class FtsTemplateView(PGChildNodeView):
                     status=410,
                     success=0,
                     errormsg=gettext(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
         # Fetch schema name from schema oid
-        sql = render_template("/".join([self.template_path, 'schema.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._SCHEMA_SQL]),
                               data=data,
                               conn=self.conn,
                               )
@@ -344,7 +371,8 @@ class FtsTemplateView(PGChildNodeView):
         # to generate proper sql query
         new_data = data.copy()
         new_data['schema'] = schema
-        sql = render_template("/".join([self.template_path, 'create.sql']),
+        sql = render_template("/".join([self.template_path,
+                                        self._CREATE_SQL]),
                               data=new_data,
                               conn=self.conn,
                               )
@@ -355,7 +383,7 @@ class FtsTemplateView(PGChildNodeView):
         # we need fts_template id to to add object in tree at browser,
         # below sql will give the same
         sql = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             name=data['name'],
             scid=data['schema'] if 'schema' in data else scid
         )
@@ -389,7 +417,7 @@ class FtsTemplateView(PGChildNodeView):
         # Fetch sql query to update fts template
         sql, name = self.get_sql(gid, sid, did, scid, data, tid)
         # Most probably this is due to error
-        if not isinstance(sql, (str, unicode)):
+        if not isinstance(sql, str):
             return sql
         sql = sql.strip('\n').strip(' ')
         status, res = self.conn.execute_scalar(sql)
@@ -397,7 +425,7 @@ class FtsTemplateView(PGChildNodeView):
             return internal_server_error(errormsg=res)
 
         sql = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             tid=tid
         )
         status, rset = self.conn.execute_2darray(sql)
@@ -416,7 +444,7 @@ class FtsTemplateView(PGChildNodeView):
         )
 
     @check_precondition
-    def delete(self, gid, sid, did, scid, tid=None):
+    def delete(self, gid, sid, did, scid, tid=None, only_sql=False):
         """
         This function will drop the fts_template object
         :param gid: group id
@@ -424,6 +452,7 @@ class FtsTemplateView(PGChildNodeView):
         :param did: database id
         :param scid: schema id
         :param tid: fts tempate id
+        :param only_sql: Return only sql if True
         """
         if tid is None:
             data = request.form if request.form else json.loads(
@@ -433,15 +462,12 @@ class FtsTemplateView(PGChildNodeView):
             data = {'ids': [tid]}
 
         # Below will decide if it's simple drop or drop with cascade call
-        if self.cmd == 'delete':
-            # This is a cascade operation
-            cascade = True
-        else:
-            cascade = False
+        cascade = self._check_cascade_operation()
 
         for tid in data['ids']:
             # Get name for template from tid
-            sql = render_template("/".join([self.template_path, 'delete.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._DELETE_SQL]),
                                   tid=tid)
             status, res = self.conn.execute_dict(sql)
             if not status:
@@ -453,18 +479,21 @@ class FtsTemplateView(PGChildNodeView):
                     errormsg=gettext(
                         'Error: Object not found.'
                     ),
-                    info=gettext(
-                        'The specified FTS template could not be found.\n'
-                    )
+                    info=self.not_found_error_msg()
                 )
 
             # Drop fts template
             result = res['rows'][0]
-            sql = render_template("/".join([self.template_path, 'delete.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._DELETE_SQL]),
                                   name=result['name'],
                                   schema=result['schema'],
                                   cascade=cascade
                                   )
+
+            # Used for schema diff tool
+            if only_sql:
+                return sql
 
             status, res = self.conn.execute_scalar(sql)
             if not status:
@@ -485,8 +514,6 @@ class FtsTemplateView(PGChildNodeView):
         :param scid: schema id
         :param tid: fts tempate id
         """
-
-        # data = request.args
         data = {}
         for k, v in request.args.items():
             try:
@@ -502,7 +529,7 @@ class FtsTemplateView(PGChildNodeView):
         # Fetch sql query for modified data
         SQL, name = self.get_sql(gid, sid, did, scid, data, tid)
         # Most probably this is due to error
-        if not isinstance(SQL, (str, unicode)):
+        if not isinstance(SQL, str):
             return SQL
 
         if SQL == '':
@@ -513,6 +540,55 @@ class FtsTemplateView(PGChildNodeView):
             status=200
         )
 
+    def _replace_schema_oid_with_name(self, new_schema, old_data, new_data):
+        """
+        This function is used to Replace schema oid with schema name
+        :param new_schema:
+        :param old_data:
+        :param new_data:
+        :return:
+        """
+        if 'schema' in new_data:
+            new_data['schema'] = new_schema
+
+        # Fetch old schema name using old schema oid
+        sql = render_template(
+            "/".join([self.template_path, self._SCHEMA_SQL]),
+            data=old_data)
+
+        status, old_schema = self.conn.execute_scalar(sql)
+        if not status:
+            return True, old_schema
+
+        # Replace old schema oid with old schema name
+        old_data['schema'] = old_schema
+        return False, ''
+
+    def _get_sql_for_create(self, data, schema):
+        """
+        This function is used to get the create sql.
+        :param data:
+        :param schema:
+        :return:
+        """
+        # Replace schema oid with schema name
+        new_data = data.copy()
+        new_data['schema'] = schema
+
+        if (
+            'tmpllexize' in new_data and
+            'name' in new_data and
+            'schema' in new_data
+        ):
+            sql = render_template("/".join([self.template_path,
+                                            self._CREATE_SQL]),
+                                  data=new_data,
+                                  conn=self.conn
+                                  )
+        else:
+            sql = u"-- definition incomplete"
+        return sql
+
     def get_sql(self, gid, sid, did, scid, data, tid=None):
         """
         This function will return SQL for model data
@@ -520,13 +596,14 @@ class FtsTemplateView(PGChildNodeView):
         :param sid: server id
         :param did: database id
         :param scid: schema id
+        :param data: sql data
         :param tid: fts tempate id
         """
 
         # Fetch sql for update
         if tid is not None:
             sql = render_template(
-                "/".join([self.template_path, 'properties.sql']),
+                "/".join([self.template_path, self._PROPERTIES_SQL]),
                 tid=tid,
                 scid=scid
             )
@@ -534,10 +611,8 @@ class FtsTemplateView(PGChildNodeView):
             status, res = self.conn.execute_dict(sql)
             if not status:
                 return internal_server_error(errormsg=res)
-            if len(res['rows']) == 0:
-                return gone(
-                    gettext("Could not find the requested FTS template.")
-                )
+            elif len(res['rows']) == 0:
+                return gone(self.not_found_error_msg())
 
             old_data = res['rows'][0]
             if 'schema' not in data:
@@ -547,7 +622,7 @@ class FtsTemplateView(PGChildNodeView):
             # using its oid otherwise fetch old schema name using
             # fts template oid
             sql = render_template(
-                "/".join([self.template_path, 'schema.sql']),
+                "/".join([self.template_path, self._SCHEMA_SQL]),
                 data=data)
 
             status, new_schema = self.conn.execute_scalar(sql)
@@ -556,54 +631,33 @@ class FtsTemplateView(PGChildNodeView):
 
             # Replace schema oid with schema name
             new_data = data.copy()
-            if 'schema' in new_data:
-                new_data['schema'] = new_schema
-
-            # Fetch old schema name using old schema oid
-            sql = render_template(
-                "/".join([self.template_path, 'schema.sql']),
-                data=old_data)
-
-            status, old_schema = self.conn.execute_scalar(sql)
-            if not status:
-                return internal_server_error(errormsg=old_schema)
-
-            # Replace old schema oid with old schema name
-            old_data['schema'] = old_schema
+            error, errmsg = self._replace_schema_oid_with_name(new_schema,
+                                                               old_data,
+                                                               new_data)
+            if error:
+                print('ERROR INSIDE UPDATE:: {0}'.format(errmsg))
+                return internal_server_error(errormsg=errmsg)
 
             sql = render_template(
-                "/".join([self.template_path, 'update.sql']),
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=new_data, o_data=old_data
             )
+
             # Fetch sql query for modified data
             if 'name' in data:
                 return sql.strip('\n'), data['name']
             return sql.strip('\n'), old_data['name']
         else:
             # Fetch schema name from schema oid
-            sql = render_template("/".join([self.template_path, 'schema.sql']),
+            sql = render_template("/".join([self.template_path,
+                                            self._SCHEMA_SQL]),
                                   data=data)
 
             status, schema = self.conn.execute_scalar(sql)
             if not status:
                 return internal_server_error(errormsg=schema)
 
-            # Replace schema oid with schema name
-            new_data = data.copy()
-            new_data['schema'] = schema
-
-            if (
-                'tmpllexize' in new_data and
-                'name' in new_data and
-                'schema' in new_data
-            ):
-                sql = render_template("/".join([self.template_path,
-                                                'create.sql']),
-                                      data=new_data,
-                                      conn=self.conn
-                                      )
-            else:
-                sql = u"-- definition incomplete"
+            sql = self._get_sql_for_create(data, schema)
             return sql.strip('\n'), data['name']
 
     @check_precondition
@@ -617,7 +671,7 @@ class FtsTemplateView(PGChildNodeView):
         :param tid: fts tempate id
         """
         sql = render_template(
-            "/".join([self.template_path, 'functions.sql']), lexize=True
+            "/".join([self.template_path, self._FUNCTIONS_SQL]), lexize=True
         )
         status, rset = self.conn.execute_dict(sql)
 
@@ -646,7 +700,7 @@ class FtsTemplateView(PGChildNodeView):
         :param tid: fts tempate id
         """
         sql = render_template(
-            "/".join([self.template_path, 'functions.sql']), init=True
+            "/".join([self.template_path, self._FUNCTIONS_SQL]), init=True
         )
         status, rset = self.conn.execute_dict(sql)
 
@@ -664,7 +718,7 @@ class FtsTemplateView(PGChildNodeView):
         )
 
     @check_precondition
-    def sql(self, gid, sid, did, scid, tid):
+    def sql(self, gid, sid, did, scid, tid, **kwargs):
         """
         This function will reverse generate sql for sql panel
         :param gid: group id
@@ -672,7 +726,10 @@ class FtsTemplateView(PGChildNodeView):
         :param did: database id
         :param scid: schema id
         :param tid: fts tempate id
+        :param json_resp: True then return json response
         """
+        json_resp = kwargs.get('json_resp', True)
+
         sql = render_template(
             "/".join([self.template_path, 'sql.sql']),
             tid=tid,
@@ -693,6 +750,9 @@ class FtsTemplateView(PGChildNodeView):
                     "Could not generate reversed engineered query for "
                     "FTS Template node.")
             )
+
+        if not json_resp:
+            return res
 
         return ajax_response(response=res)
 
@@ -734,5 +794,57 @@ class FtsTemplateView(PGChildNodeView):
             status=200
         )
 
+    @check_precondition
+    def fetch_objects_to_compare(self, sid, did, scid):
+        """
+        This function will fetch the list of all the fts templates for
+        specified schema id.
 
+        :param sid: Server Id
+        :param did: Database Id
+        :param scid: Schema Id
+        :return:
+        """
+        res = dict()
+        SQL = render_template("/".join([self.template_path,
+                                        self._NODES_SQL]), scid=scid)
+        status, rset = self.conn.execute_2darray(SQL)
+        if not status:
+            return internal_server_error(errormsg=res)
+
+        for row in rset['rows']:
+            status, data = self._fetch_properties(scid, row['oid'])
+            if status:
+                res[row['name']] = data
+
+        return res
+
+    def get_sql_from_diff(self, **kwargs):
+        """
+        This function is used to get the DDL/DML statements.
+        :param kwargs
+        :return:
+        """
+        gid = kwargs.get('gid')
+        sid = kwargs.get('sid')
+        did = kwargs.get('did')
+        scid = kwargs.get('scid')
+        oid = kwargs.get('oid')
+        data = kwargs.get('data', None)
+        drop_sql = kwargs.get('drop_sql', False)
+
+        if data:
+            sql, name = self.get_sql(gid=gid, sid=sid, did=did, scid=scid,
+                                     data=data, tid=oid)
+        else:
+            if drop_sql:
+                sql = self.delete(gid=gid, sid=sid, did=did,
+                                  scid=scid, tid=oid, only_sql=True)
+            else:
+                sql = self.sql(gid=gid, sid=sid, did=did, scid=scid, tid=oid,
+                               json_resp=False)
+        return sql
+
+
+SchemaDiffRegistry(blueprint.node_type, FtsTemplateView)
 FtsTemplateView.register_node_view(blueprint)

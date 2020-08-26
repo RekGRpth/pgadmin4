@@ -2,7 +2,7 @@
 #
 # pgAdmin 4 - PostgreSQL Tools
 #
-# Copyright (C) 2013 - 2019, The pgAdmin Development Team
+# Copyright (C) 2013 - 2020, The pgAdmin Development Team
 # This software is released under the PostgreSQL Licence
 #
 ##########################################################################
@@ -10,6 +10,7 @@
 """Implements the pgAgent Jobs Node"""
 from functools import wraps
 import json
+from datetime import datetime, time
 
 from flask import render_template, request, jsonify
 from flask_babelex import gettext as _
@@ -28,8 +29,8 @@ from pgadmin.browser.server_groups.servers.pgagent.utils \
 
 
 class JobModule(CollectionNodeModule):
-    NODE_TYPE = 'pga_job'
-    COLLECTION_LABEL = _("pgAgent Jobs")
+    _NODE_TYPE = 'pga_job'
+    _COLLECTION_LABEL = _("pgAgent Jobs")
 
     def get_nodes(self, gid, sid):
         """
@@ -44,12 +45,11 @@ class JobModule(CollectionNodeModule):
         Load the module script for server, when any of the server-group node is
         initialized.
         """
-        return servers.ServerModule.NODE_TYPE
+        return servers.ServerModule.node_type
 
-    def BackendSupported(self, manager, **kwargs):
-        if hasattr(self, 'show_node'):
-            if not self.show_node:
-                return False
+    def backend_supported(self, manager, **kwargs):
+        if hasattr(self, 'show_node') and not self.show_node:
+            return False
 
         conn = manager.connection()
 
@@ -90,7 +90,7 @@ SELECT EXISTS(
         """
         snippets = [
             render_template(
-                "browser/css/collection.css",
+                self._COLLECTION_CSS,
                 node_type=self.node_type,
                 _=_
             ),
@@ -180,7 +180,7 @@ SELECT EXISTS(
     @check_precondition
     def nodes(self, gid, sid, jid=None):
         SQL = render_template(
-            "/".join([self.template_path, 'nodes.sql']),
+            "/".join([self.template_path, self._NODES_SQL]),
             jid=jid, conn=self.conn
         )
         status, rset = self.conn.execute_dict(SQL)
@@ -224,7 +224,7 @@ SELECT EXISTS(
     @check_precondition
     def properties(self, gid, sid, jid=None):
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             jid=jid, conn=self.conn
         )
         status, rset = self.conn.execute_dict(SQL)
@@ -284,8 +284,8 @@ SELECT EXISTS(
                     status=410,
                     success=0,
                     errormsg=_(
-                        "Could not find the required parameter (%s)." % arg
-                    )
+                        "Could not find the required parameter ({})."
+                    ).format(arg)
                 )
 
         status, res = self.conn.execute_void('BEGIN')
@@ -294,7 +294,7 @@ SELECT EXISTS(
 
         status, res = self.conn.execute_scalar(
             render_template(
-                "/".join([self.template_path, 'create.sql']),
+                "/".join([self.template_path, self._CREATE_SQL]),
                 data=data, conn=self.conn, fetch_id=True,
                 has_connstr=self.manager.db_info['pgAgent']['has_connstr']
             )
@@ -307,7 +307,7 @@ SELECT EXISTS(
         # We need oid of newly created database
         status, res = self.conn.execute_dict(
             render_template(
-                "/".join([self.template_path, 'nodes.sql']),
+                "/".join([self.template_path, self._NODES_SQL]),
                 jid=res, conn=self.conn
             )
         )
@@ -323,7 +323,8 @@ SELECT EXISTS(
                 row['jobid'],
                 sid,
                 row['jobname'],
-                icon="icon-pga_job"
+                icon="icon-pga_job" if row['jobenabled']
+                else "icon-pga_job-disabled"
             )
         )
 
@@ -340,7 +341,7 @@ SELECT EXISTS(
 
         status, res = self.conn.execute_void(
             render_template(
-                "/".join([self.template_path, 'update.sql']),
+                "/".join([self.template_path, self._UPDATE_SQL]),
                 data=data, conn=self.conn, jid=jid,
                 has_connstr=self.manager.db_info['pgAgent']['has_connstr']
             )
@@ -352,7 +353,7 @@ SELECT EXISTS(
         # We need oid of newly created database
         status, res = self.conn.execute_dict(
             render_template(
-                "/".join([self.template_path, 'nodes.sql']),
+                "/".join([self.template_path, self._NODES_SQL]),
                 jid=jid, conn=self.conn
             )
         )
@@ -386,7 +387,7 @@ SELECT EXISTS(
         for jid in data['ids']:
             status, res = self.conn.execute_void(
                 render_template(
-                    "/".join([self.template_path, 'delete.sql']),
+                    "/".join([self.template_path, self._DELETE_SQL]),
                     jid=jid, conn=self.conn
                 )
             )
@@ -416,7 +417,7 @@ SELECT EXISTS(
             data=render_template(
                 "/".join([
                     self.template_path,
-                    'create.sql' if jid is None else 'update.sql'
+                    self._CREATE_SQL if jid is None else self._UPDATE_SQL
                 ]),
                 jid=jid, data=data, conn=self.conn, fetch_id=False,
                 has_connstr=self.manager.db_info['pgAgent']['has_connstr']
@@ -459,7 +460,7 @@ SELECT EXISTS(
         This function will generate sql for sql panel
         """
         SQL = render_template(
-            "/".join([self.template_path, 'properties.sql']),
+            "/".join([self.template_path, self._PROPERTIES_SQL]),
             jid=jid, conn=self.conn, last_system_oid=0
         )
         status, res = self.conn.execute_dict(SQL)
@@ -500,6 +501,10 @@ SELECT EXISTS(
             if schedule['jexid']:
                 idx = 0
                 for exc in schedule['jexid']:
+                    # Convert datetime.time object to string
+                    if isinstance(schedule['jextime'][idx], time):
+                        schedule['jextime'][idx] = \
+                            schedule['jextime'][idx].strftime("%H:%M:%S")
                     schedule['jscexceptions'].append({
                         'jexid': exc,
                         'jexdate': schedule['jexdate'][idx],
@@ -512,7 +517,7 @@ SELECT EXISTS(
 
         return ajax_response(
             response=render_template(
-                "/".join([self.template_path, 'create.sql']),
+                "/".join([self.template_path, self._CREATE_SQL]),
                 jid=jid, data=row, conn=self.conn, fetch_id=False,
                 has_connstr=self.manager.db_info['pgAgent']['has_connstr']
             )
@@ -561,42 +566,39 @@ SELECT EXISTS(
         :return:
         """
         # Format the schedule data. Convert the boolean array
-        if 'jschedules' in data:
-            if 'added' in data['jschedules']:
-                for added_schedule in data['jschedules']['added']:
-                    format_schedule_data(added_schedule)
-            if 'changed' in data['jschedules']:
-                for changed_schedule in data['jschedules']['changed']:
-                    format_schedule_data(changed_schedule)
+        for key in ['added', 'changed']:
+            jschedules = data.get('jschedules', {})
+            if key in jschedules:
+                for schedule in jschedules.get(key, []):
+                    format_schedule_data(schedule)
 
         has_connection_str = self.manager.db_info['pgAgent']['has_connstr']
-        if 'jsteps' in data and has_connection_str:
-            if 'changed' in data['jsteps']:
-                for changed_step in data['jsteps']['changed']:
-
-                    if 'jstconntype' not in changed_step and (
-                        'jstdbname' in changed_step or
-                            'jstconnstr' in changed_step):
-                        status, rset = self.conn.execute_dict(
-                            render_template(
-                                "/".join([self.template_path, 'steps.sql']),
-                                jid=data['jobid'],
-                                jstid=changed_step['jstid'],
-                                conn=self.conn,
-                                has_connstr=has_connection_str
-                            )
+        jssteps = data.get('jsteps', {})
+        if 'changed' in jschedules:
+            for changed_step in jssteps.get('changed', []):
+                if 'jstconntype' not in changed_step and \
+                    ('jstdbname' in changed_step or
+                     'jstconnstr' in changed_step) and has_connection_str:
+                    status, rset = self.conn.execute_dict(
+                        render_template(
+                            "/".join([self.template_path, 'steps.sql']),
+                            jid=data['jobid'],
+                            jstid=changed_step['jstid'],
+                            conn=self.conn,
+                            has_connstr=has_connection_str
                         )
-                        if not status:
-                            return internal_server_error(errormsg=rset)
+                    )
+                    if not status:
+                        return internal_server_error(errormsg=rset)
 
-                        row = rset['rows'][0]
-                        changed_step['jstconntype'] = row['jstconntype']
-                        if row['jstconntype']:
-                            if not ('jstdbname' in changed_step):
-                                changed_step['jstdbname'] = row['jstdbname']
-                        else:
-                            if not ('jstconnstr' in changed_step):
-                                changed_step['jstconnstr'] = row['jstconnstr']
+                    row = rset['rows'][0]
+                    changed_step['jstconntype'] = row['jstconntype']
+                    if row['jstconntype']:
+                        changed_step['jstdbname'] = changed_step.get(
+                            'jstdbname', row['jstdbname'])
+                    else:
+                        changed_step['jstconnstr'] = changed_step.get(
+                            'jstconnstr', row['jstconnstr'])
 
 
 JobView.register_node_view(blueprint)
